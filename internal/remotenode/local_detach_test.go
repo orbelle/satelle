@@ -39,7 +39,8 @@ case "$cmd" in
   container)
     [ -f "$FAKE/../hang-inspect" ] && exec sleep 30
     [ -d "$FAKE/$(last "$@")" ] ;;
-  rm) shift; for c; do rm -rf "$FAKE/$c"; done ;;
+  rm) [ -f "$FAKE/../fail-rm" ] && { echo "Error: cannot remove" >&2; exit 1; }
+    shift; for c; do rm -rf "$FAKE/$c"; done ;;
   cp)
     if [ "$2" = - ]; then
       case "$1" in */out/outcome.json) [ -f "$FAKE/../link.tar" ] && { cat "$FAKE/../link.tar"; exit 0; } ;; esac
@@ -604,4 +605,146 @@ func TestRunLocalWritesNoProgressWhenAttached(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(nodeDir, "out", detachedProgress)); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an attached run wrote progress: %v", err)
 	}
+}
+
+func (d detached) stop(t *testing.T, actor string) (*satellepb.ItemRun, string, error) {
+	t.Helper()
+	var out strings.Builder
+	run, err := StopLocal(context.Background(), BringBackOptions{Kernel: d.o.Kernel, Runs: d.o.Runs, Remote: d.o.Remote,
+		Item: d.o.Item, Definition: d.o.Definition, Docker: d.o.Docker, Actor: actor, Out: &out})
+	return run, out.String(), err
+}
+
+func (d detached) releasedBy(t *testing.T) string {
+	t.Helper()
+	events, err := d.o.Kernel.Ledger.Read(d.o.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind == "seat.released" && strings.Contains(string(e.Payload), d.run.GetNodeId()) {
+			return e.Actor
+		}
+	}
+	return ""
+}
+
+func (d detached) stoppedBy(t *testing.T, actor string) {
+	t.Helper()
+	run, err := d.o.Runs.Load(d.o.Remote, d.o.Item)
+	if err != nil || run.GetState() != RunStopped || !strings.Contains(run.GetReason(), "stopped by "+actor) {
+		t.Fatalf("the stored run = %v, %v", run, err)
+	}
+	if d.seated(t) || d.releasedBy(t) != actor {
+		t.Fatalf("the node's seat: seated %v, released by %q", d.seated(t), d.releasedBy(t))
+	}
+	if _, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the detached record is kept: %v", err)
+	}
+	again, _, err := d.bringBack(t)
+	if err != nil || again.GetState() != RunStopped || again.GetReason() != run.GetReason() {
+		t.Fatalf("a bring-back after the stop = %v, %v", again, err)
+	}
+}
+
+func TestStopLocalEndsADetachedNode(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	name := provider.ContainerName(d.run.GetNodeId())
+	run, out, err := d.stop(t, "stopper")
+	if err != nil || run.GetState() != RunStopped || !strings.Contains(run.GetReason(), "stopped by stopper") {
+		t.Fatalf("StopLocal = %v, %v\n%s", run, err, out)
+	}
+	if _, err := os.Stat(filepath.Join(d.fake, "nodes", name)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the node's container is still there: %v", err)
+	}
+	if !strings.Contains(d.dockerLog(t), "rm -f "+name) || !strings.Contains(out, "the container "+name+" is removed") {
+		t.Fatalf("the container was not removed:\n%s", out)
+	}
+	d.stoppedBy(t, "stopper")
+}
+
+func TestStopLocalRefusesAFinishedOrAttachedRun(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	d.conclude(t)
+	if run, _, err := d.bringBack(t); err != nil || run.GetState() != RunConcluded {
+		t.Fatalf("BringBackLocal = %v, %v", run, err)
+	}
+	events, err := d.o.Kernel.Ledger.Read(d.o.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Count(d.dockerLog(t), "\n")
+	if _, _, err := d.stop(t, "stopper"); err == nil || !strings.Contains(err.Error(), "is already concluded; nothing to stop") {
+		t.Fatalf("StopLocal of a concluded run = %v", err)
+	}
+	after, err := d.o.Kernel.Ledger.Read(d.o.Item)
+	if err != nil || len(after) != len(events) || strings.Count(d.dockerLog(t), "\n") != lines {
+		t.Fatalf("a refused stop recorded or ran something: %d events, was %d", len(after), len(events))
+	}
+	if run, err := d.o.Runs.Load(d.o.Remote, d.o.Item); err != nil || run.GetState() != RunConcluded {
+		t.Fatalf("the stored run = %v, %v", run, err)
+	}
+
+	a := fireDetached(t, itemFire(t))
+	if err := a.o.Runs.DropDetached(a.o.Remote, a.o.Item); err != nil {
+		t.Fatal(err)
+	}
+	events, err = a.o.Kernel.Ledger.Read(a.o.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.stop(t, "stopper"); err == nil || !strings.Contains(err.Error(), "is not detached; an attached fire is stopped by interrupting it") {
+		t.Fatalf("StopLocal of an attached run = %v", err)
+	}
+	if after, err := a.o.Kernel.Ledger.Read(a.o.Item); err != nil || len(after) != len(events) || !a.seated(t) {
+		t.Fatalf("a refused stop recorded something: %d events, was %d (seated %v)", len(after), len(events), a.seated(t))
+	}
+	if strings.Contains(a.dockerLog(t), "rm ") {
+		t.Fatal("a refused stop removed the container")
+	}
+	if run, err := a.o.Runs.Load(a.o.Remote, a.o.Item); err != nil || run.GetState() != RunRunning {
+		t.Fatalf("the stored run = %v, %v", run, err)
+	}
+}
+
+func TestStopLocalLeavesTheRunWhenRemovalFails(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	before := d.snapshot(t)
+	writeFiles(t, d.fake, map[string]string{"fail-rm": ""})
+	if _, _, err := d.stop(t, "stopper"); err == nil || !strings.Contains(err.Error(), "cannot remove") ||
+		!strings.Contains(err.Error(), "docker rm -f") {
+		t.Fatalf("StopLocal with a failing removal = %v", err)
+	}
+	after := d.snapshot(t)
+	if after.chain != before.chain || after.head != before.head || after.run != before.run || after.side != before.side {
+		t.Fatal("a failed stop recorded something")
+	}
+	if !d.seated(t) || d.released(t) {
+		t.Fatal("a failed stop released the node's seat")
+	}
+	if run, err := d.o.Runs.Load(d.o.Remote, d.o.Item); err != nil || run.GetState() != RunRunning {
+		t.Fatalf("the stored run = %v, %v", run, err)
+	}
+	if err := os.Remove(filepath.Join(d.fake, "fail-rm")); err != nil {
+		t.Fatal(err)
+	}
+	if run, out, err := d.stop(t, "stopper"); err != nil || run.GetState() != RunStopped {
+		t.Fatalf("StopLocal run again = %v, %v\n%s", run, err, out)
+	}
+	d.stoppedBy(t, "stopper")
+}
+
+func TestStopLocalWhenTheContainerIsAlreadyGone(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	if err := os.RemoveAll(filepath.Dir(d.nodeDir)); err != nil {
+		t.Fatal(err)
+	}
+	run, out, err := d.stop(t, "stopper")
+	if err != nil || run.GetState() != RunStopped || !strings.Contains(out, "the node's container was already gone") {
+		t.Fatalf("StopLocal with the container gone = %v, %v\n%s", run, err, out)
+	}
+	if strings.Contains(d.dockerLog(t), "rm ") {
+		t.Fatal("a gone container was removed again")
+	}
+	d.stoppedBy(t, "stopper")
 }

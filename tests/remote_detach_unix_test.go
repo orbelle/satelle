@@ -125,8 +125,8 @@ func TestDockerLocalDetachedRunWhoseContainerIsGone(t *testing.T) {
 	}
 }
 
-func TestDockerLocalFireDetachRefusesACommandRemote(t *testing.T) {
-	t.Parallel()
+func commandRemoteSandbox(t *testing.T) (*sandbox, string) {
+	t.Helper()
 	s, id, _ := dockerLocalSandbox(t, false)
 	s.write(".satelle/remotes/cmd-probe/remote.toml", `version = 1
 name = "cmd-probe"
@@ -143,8 +143,62 @@ copy_in = ["cp", "{src}", "{dst}"]
 exec = ["true"]
 stop = ["true"]
 `)
+	return s, id
+}
+
+func TestDockerLocalFireDetachRefusesACommandRemote(t *testing.T) {
+	t.Parallel()
+	s, id := commandRemoteSandbox(t)
 	r := s.run("remote", "fire", "cmd-probe", id, "--detach")
 	if r.code == 0 || !strings.Contains(r.err, "--detach applies to a docker-local remote") {
 		t.Fatalf("fire --detach on a command remote = %d:\n%s%s", r.code, r.out, r.err)
+	}
+}
+
+func TestDockerLocalRemoteStopEndsADetachedNode(t *testing.T) {
+	t.Parallel()
+	s, id, fake, node, name := fireDetached(t)
+	before := len(fakeLines(t, fake))
+	out := s.must("remote", "stop", "docker-probe", id, "--session", "stop-it")
+	t.Logf("stop:\n%s", out)
+	if !strings.HasPrefix(out, "docker-probe on "+id+": stopped (node "+node+")") || !strings.Contains(out, "stopped by stop-it") {
+		t.Fatalf("remote stop output:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(fake, name)); !os.IsNotExist(err) {
+		t.Fatalf("the node's container is still there: %v", err)
+	}
+	lines := fakeLines(t, fake)
+	if logIndex(lines, before, func(l string) bool { return strings.HasPrefix(l, "rm -f "+name) }) < 0 {
+		t.Fatalf("the container was not removed:\n%s", strings.Join(lines[before:], "\n"))
+	}
+	var st struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	}
+	s.mustJSON(&st, "remote", "status", "docker-probe", id)
+	if st.State != "stopped" || !strings.Contains(st.Reason, "stopped by stop-it") {
+		t.Fatalf("status after the stop = %+v", st)
+	}
+	if len(seatsOf(s, id)) != 0 {
+		t.Fatalf("a seat is held after the stop: %v", seatsOf(s, id))
+	}
+	released := false
+	for _, e := range chainOf(s, id) {
+		released = released || e.Kind == "seat.released" && payloadField(t, e, "session") == node && e.Actor == "stop-it"
+	}
+	if !released {
+		t.Fatal("no seat.released for the node by stop-it")
+	}
+	if v := s.must("ledger", "verify"); !strings.Contains(v, "chains intact") {
+		t.Fatalf("ledger verify: %s", v)
+	}
+}
+
+func TestDockerLocalRemoteStopRefusesACommandRemote(t *testing.T) {
+	t.Parallel()
+	s, id := commandRemoteSandbox(t)
+	r := s.run("remote", "stop", "cmd-probe", id)
+	if r.code == 0 || !strings.Contains(r.err, "remote stop applies to a docker-local remote") {
+		t.Fatalf("remote stop on a command remote = %d:\n%s%s", r.code, r.out, r.err)
 	}
 }

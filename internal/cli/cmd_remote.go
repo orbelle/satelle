@@ -48,9 +48,11 @@ node contract over exec. Any other remote is started by
 satelle-server for the bound project: 'remote fire' pushes the item's chain
 to the bound project first, whatever [ledger] store names, and refuses an
 item that diverged from it; 'remote status' pulls it back once the run
-concluded. See 'satelle help remotes'.`,
+concluded. 'remote stop' ends a detached docker-local run's node: it removes
+the container, records the run stopped and releases the node's seat. See
+'satelle help remotes'.`,
 	}
-	cmd.AddCommand(remoteFireCmd(), remoteStatusCmd())
+	cmd.AddCommand(remoteFireCmd(), remoteStatusCmd(), remoteStopCmd())
 	return cmd
 }
 
@@ -286,6 +288,37 @@ func remoteStatusCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&wait, "wait", 0, "poll until the run concluded or stopped, for at most this long")
 	asJSON = jsonFlag(cmd)
 	return cmd
+}
+
+func remoteStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop <remote-id> <item-or-task>",
+		Short: "End a detached docker-local run's node: remove its container, record the run stopped, release its seat",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			k, r, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			def, _, local, err := localRemote(r, args[0])
+			if err != nil {
+				return err
+			}
+			if !local || def.Provider != remotedef.ProviderDockerLocal {
+				return errors.New("remote stop applies to a docker-local remote")
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			run, err := remotenode.StopLocal(ctx, remotenode.BringBackOptions{Kernel: k, Runs: localRuns(r), Remote: args[0], Item: args[1],
+				Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr()})
+			if err != nil {
+				return err
+			}
+			printRun(cmd.OutOrStdout(), args[0], args[1], run, 0)
+			return nil
+		},
+	}
 }
 
 func pollRun(parent context.Context, wait time.Duration, get func(ctx context.Context) (*satellepb.ItemRun, error)) (*satellepb.ItemRun, error) {

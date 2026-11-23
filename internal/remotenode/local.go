@@ -945,6 +945,49 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 	return run, nil
 }
 
+func StopLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, error) {
+	if err := o.Runs.check(o.Remote, o.Item); err != nil {
+		return nil, err
+	}
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	run, err := o.Runs.Load(o.Remote, o.Item)
+	if err != nil {
+		return nil, err
+	}
+	if RunFinished(run.GetState()) {
+		return nil, fmt.Errorf("the run of %s on %s is already %s; nothing to stop", o.Remote, o.Item, run.GetState())
+	}
+	sidecar, err := o.Runs.LoadDetached(o.Remote, o.Item)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("the run of %s on %s is not detached; an attached fire is stopped by interrupting it", o.Remote, o.Item)
+	}
+	if err != nil {
+		return nil, err
+	}
+	node := run.GetNodeId()
+	removed := false
+	if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
+		h := o.Docker.Node(o.Definition, node, sidecar.Egress)
+		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+			return nil, fmt.Errorf("removing the container %s failed: %w; remove it with %s", h.ID(), err, provider.RemoveHint(h))
+		}
+		removed = true
+		fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+	} else if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !removed {
+		fmt.Fprintln(o.Out, "the node's container was already gone")
+	}
+	reason := fmt.Sprintf("stopped by %s with satelle remote stop", o.Actor)
+	if err := stopLeftRun(o.Kernel, o.Runs, o.Remote, o.Item, run, reason, "it was stopped by "+o.Actor, o.Actor, o.Out); err != nil {
+		return run, err
+	}
+	return run, o.Runs.DropDetached(o.Remote, o.Item)
+}
+
 func detachedFailure(ctx context.Context, h provider.Handle) (code, log string, err error) {
 	tmp, err := os.MkdirTemp("", "satelle-back-")
 	if err != nil {

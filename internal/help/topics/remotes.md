@@ -10,6 +10,7 @@ brings the ledger back and concludes with a verdict.
 
     satelle remote fire <remote-id> <item> --session <session>     # fire a run of the remote for the item
     satelle remote status <remote-id> <item> --session <session>   # the run, and its verdict and notes
+    satelle remote stop <remote-id> <item> --session <session>     # end a detached run's node
 
 Providers: `docker-local` runs the definition as a local container, here;
 `command` reaches its node, from here, through the commands its definition
@@ -56,6 +57,14 @@ lost records nothing, stops nothing and releases no seat, and the next
 `[secrets]`, which reach a node only on the stdin of an attached run; the node
 itself refuses `--progress`, the flag a detached start passes, for such a
 definition.
+
+`remote stop <remote> <item>` ends a detached docker-local run's node that is
+still working, or hangs: it removes the node's container, which ends its work,
+then records the run stopped with who stopped it (the `--session`) as its
+reason and releases the node's seat, by that session. A removal that fails
+records nothing, so the stop can be run again. It refuses a run that already
+concluded or stopped, a run fired attached (interrupt that fire instead), and
+any remote that is not docker-local.
 
 A docker-local node may start from a plain image that [setup] prepares, as a
 sprite does. When `[machine] image` names one (debian, ubuntu), the image
