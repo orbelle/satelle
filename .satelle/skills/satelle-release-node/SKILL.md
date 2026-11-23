@@ -21,7 +21,9 @@ node's part`). The remote reaches a fly.io sprite through
   owner-less into a fresh temp dir and checked again. It always ends by
   destroying the sprite.
 - `scripts/tools.sh` installs make, bubblewrap, curl, go and gh at the
-  versions it pins (go at release.yml's `go-version`), and the user `release`. Each tarball's SHA-256 is pinned in the
+  versions it pins (go at release.yml's `go-version`), and the user `release`,
+  and makes `sh` bash: the suite has only ever passed where `sh` is bash, and
+  some check skills it runs use bash syntax that Ubuntu's dash refuses. Each tarball's SHA-256 is pinned in the
   script and checked with `sha256sum -c` before it is extracted; a mismatch
   exits 1. Upgrading a tool edits its version and digest together.
 - `scripts/release-node.sh run` is the node's entry, run by the check

@@ -18,6 +18,10 @@ if [ -z "${SATELLE_TOOLS_SKIP_APT:-}" ]; then
     apt-get update
     apt-get install -y --no-install-recommends $missing
   fi
+  if [ "$(readlink -f /bin/sh)" != "$(readlink -f "$(command -v bash)")" ]; then
+    ln -sfn bash /bin/sh || { echo "tools: cannot make sh bash" >&2; exit 1; }
+    echo "tools: sh is bash, as on the machine the release has tested on"
+  fi
 fi
 
 t=$(mktemp -d)
