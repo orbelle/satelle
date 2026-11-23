@@ -59,7 +59,7 @@ func checkAuthority(host, port string) error {
 	switch {
 	case host == "":
 		return errors.New("no host")
-	case strings.ContainsAny(host, "@/\\ \t\r\n"):
+	case strings.ContainsAny(host, "@/\\% \t\r\n"):
 		return fmt.Errorf("host %q is not a host", host)
 	}
 	if port == "" || strings.TrimLeft(port, "0123456789") != "" {

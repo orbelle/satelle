@@ -127,10 +127,10 @@ type Network struct {
 
 func (n Network) Permits(host string) bool {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-	if host == "" {
+	if host == "" || strings.ContainsAny(host, "%[]") {
 		return false
 	}
-	literal := net.ParseIP(host) != nil
+	literal := net.ParseIP(host) != nil || !dnsName(host)
 	for _, e := range n.Allow {
 		e = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
 		if e == "" {
@@ -144,6 +144,15 @@ func (n Network) Permits(host string) bool {
 		}
 	}
 	return false
+}
+
+func dnsName(host string) bool {
+	for _, c := range host {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 type LifecycleScope string

@@ -96,6 +96,20 @@ func TestNetworkPermits(t *testing.T) {
 	if (Network{Allow: []string{"*.0.0.7"}}).Permits("10.0.0.7") {
 		t.Error("a wildcard admitted an IP literal")
 	}
+	for _, host := range []string{
+		"::ffff:1.2.3.4%.example.org",
+		"2001:db8::1%.example.org",
+		"fe80::1%eth0.example.org",
+		"a_b.example.org",
+		"[::1].example.org",
+	} {
+		if n.Permits(host) {
+			t.Errorf("Permits(%q) = true through the wildcard, want false", host)
+		}
+	}
+	if (Network{Allow: []string{"fe80::1"}}).Permits("fe80::1%eth0") {
+		t.Error("an IPv6 entry admitted the same address with a zone")
+	}
 	if (Network{}).Permits("proxy.golang.org") {
 		t.Error("an empty allow-list admitted a host")
 	}

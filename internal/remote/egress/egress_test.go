@@ -179,6 +179,16 @@ func TestProxyWildcardEntry(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("CONNECT example.org = %d, want 403", resp.StatusCode)
 	}
+	for _, req := range []string{
+		"CONNECT [::ffff:127.0.0.1%25.example.org]:443 HTTP/1.1\r\nHost: a.example.org:443\r\n\r\n",
+		"GET http://[::ffff:127.0.0.1%25.example.org]:80/ HTTP/1.1\r\nHost: a.example.org\r\n\r\n",
+		"GET http://[2001:db8::1%25.example.org]/ HTTP/1.1\r\nHost: a.example.org\r\n\r\n",
+	} {
+		resp, _ = f.raw(t, req)
+		if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+			t.Errorf("%q = %d, want a refusal", strings.SplitN(req, "\r\n", 2)[0], resp.StatusCode)
+		}
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(dialled) != 1 || dialled[0] != "a.example.org:443" {
@@ -235,6 +245,8 @@ func TestProxyStrictConnect(t *testing.T) {
 		"permitted.example:99999",
 		"permitted.example:0",
 		"permitted.example:+443",
+		"[::ffff:127.0.0.1%25.permitted.example]:443",
+		"[::ffff:127.0.0.1%.permitted.example]:443",
 	} {
 		c, err := net.Dial("tcp", strings.TrimPrefix(f.proxy.URL, "http://"))
 		if err != nil {
