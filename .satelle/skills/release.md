@@ -544,7 +544,7 @@ SATELLE_RELEASE_IN="$rd/node-in" SATELLE_RELEASE_OUT="$rd/node-out" satelle remo
 
 Once, after the fire returned, whatever it printed and whatever its exit
 status (a rejected node part exits non-zero). It reads `satelle remote
-status release-sprite <task> --json`, then `release-node.sh verify`, which
+status release-sprite <task> --json --session <session>`, then `release-node.sh verify`, which
 reads only `$rd/node-out/<node>/back`. On accept, verify checks the result is
 this run's, that it tested the candidate, that origin/main is `main-after`
 and differs from the candidate only in `.version` and the notes (nothing on a
