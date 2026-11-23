@@ -1,0 +1,25 @@
+version = 1
+name = "sprite-probe"
+provider = "command"
+satelle_version = "1.0.130"
+
+[connect]
+check = ["sh", ".satelle/skills/satelle-node-sprite/scripts/check.sh"]
+start = ["sh", ".satelle/skills/satelle-node-sprite/scripts/start.sh", "{node}"]
+network = ["sh", ".satelle/skills/satelle-node-sprite/scripts/network.sh", "{node}"]
+copy_in = ["sh", ".satelle/skills/satelle-node-sprite/scripts/copy-in.sh", "{src}", "{node}", "{dst}"]
+exec = ["sh", ".satelle/skills/satelle-node-sprite/scripts/exec.sh", "{node}", "--"]
+stop = ["sh", ".satelle/skills/satelle-node-sprite/scripts/stop.sh", "{node}"]
+
+[drive]
+kind = "task"
+task = "tas_ebb785d9"
+
+[setup]
+on_create = ["satelle --version", "sh .satelle/skills/satelle-node-setup/scripts/base-tools.sh"]
+
+[network]
+allow = ["archive.ubuntu.com", "security.ubuntu.com"]
+
+[lifecycle]
+scope = "run"

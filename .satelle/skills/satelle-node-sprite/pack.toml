@@ -1,0 +1,6 @@
+name = "satelle-node-sprite"
+version = "1.0.0"
+skills = ["satelle-node-sprite"]
+
+[needs]
+scripts = ["satelle-node-sprite/scripts/name.sh", "satelle-node-sprite/scripts/check.sh", "satelle-node-sprite/scripts/start.sh", "satelle-node-sprite/scripts/network.sh", "satelle-node-sprite/scripts/copy-in.sh", "satelle-node-sprite/scripts/exec.sh", "satelle-node-sprite/scripts/stop.sh", "satelle-node-sprite/scripts/check-test.sh"]
