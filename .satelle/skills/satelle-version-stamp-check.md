@@ -1,7 +1,7 @@
 ---
 name: satelle-version-stamp-check
 type: check
-description: CI/CD gate on approved → done. On a binary-changed release origin/main's .version bumps satelle.version past the latest other v* tag and satelled.version past the latest other serve-v* tag, v<satelle.version> is not already published at another commit, and satelle.build is an RFC 3339 UTC datetime. On a binary-unchanged release (the run's release-binary record, release.md ### Decide) origin/main is the recorded candidate, .version is as v<satelle.version> published it, and the record's other paths are exactly origin/main's changes since the published tags. Deterministic, no agent.
+description: CI/CD gate on approved → done. On a binary-changed release origin/main's .version bumps satelle.version past the latest other v* tag and satelled.version past the latest other serve-v* tag, v<satelle.version> is not already published at another commit, and satelle.build is an RFC 3339 UTC datetime. On a binary-unchanged release (the run's release-binary record, release/SKILL.md ### Decide) origin/main is the recorded candidate, .version is as v<satelle.version> published it, and the record's other paths are exactly origin/main's changes since the published tags. Deterministic, no agent.
 ---
 
 # Version stamp
@@ -9,7 +9,7 @@ description: CI/CD gate on approved → done. On a binary-changed release origin
 Every binary-changed release bumps the version once (the release run does it).
 A binary-unchanged release bumps nothing: main fast-forwards to the tested
 candidate, and the run's `release-binary` record (written and attached by
-release.md, read through `scripts/release-binary.sh of`) says so. A run with
+release/SKILL.md, read through `scripts/release-binary.sh of`) says so. A run with
 no record (`binary: unrecorded`) gets the binary-changed checks.
 
 On a binary-changed release this check reads `origin/main:.version` and

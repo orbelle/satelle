@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 [ -n "${SATELLE_RELEASE_IN:-}" ] && [ -d "$SATELLE_RELEASE_IN" ] || {
-  echo "release-start: SATELLE_RELEASE_IN is not the node's input directory: write it with .satelle/skills/release.md ### The node's input" >&2
+  echo "release-start: SATELLE_RELEASE_IN is not the node's input directory: write it with .satelle/skills/release/SKILL.md ### The node's input" >&2
   exit 1
 }
 n="satelle-$(printf '%s' "$1" | tr '_' '-')"

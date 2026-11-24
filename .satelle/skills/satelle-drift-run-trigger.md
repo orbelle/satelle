@@ -7,7 +7,7 @@ description: Trigger of the drift-constitution and drift-closures gates on runbo
 # Drift run trigger
 
 The drift gates judge only runs of the drift review task (its procedure is
-`.satelle/skills/drift-review.md`, started by release.md step 11). Any other
+`.satelle/skills/drift-review.md`, started by release/SKILL.md step 11). Any other
 task's run skips them.
 
 ```sh

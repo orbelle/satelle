@@ -6,7 +6,7 @@ description: The node's part of this repo's release on a fly.io sprite, and the 
 
 # The release's node part
 
-The release task (`.satelle/skills/release.md`) builds and drift-gates the
+The release task (`.satelle/skills/release/SKILL.md`) builds and drift-gates the
 candidate here, then fires `.satelle/remotes/release-sprite` (`### Fire the
 node's part`). The remote reaches a fly.io sprite through
 `satelle-node-sprite`'s scripts in its `[connect]`; this skill's own start

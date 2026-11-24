@@ -67,7 +67,7 @@ func TestBuildStampFormatAgrees(t *testing.T) {
 		t.Errorf("the check's pattern %q still accepts the old stamp format", m[1])
 	}
 	const want, old = "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d-%H-%M-%S"
-	for _, rel := range []string{".satelle/skills/release.md", ".satelle/skills/satelle-version-stamp-check.md"} {
+	for _, rel := range []string{".satelle/skills/release/SKILL.md", ".satelle/skills/satelle-version-stamp-check.md"} {
 		body := readRepoFile(t, rel)
 		if !strings.Contains(body, want) || strings.Contains(body, old) {
 			t.Errorf("%s must write the stamp as date -u +%s and never %s", rel, want, old)

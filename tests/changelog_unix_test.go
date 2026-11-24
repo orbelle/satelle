@@ -170,7 +170,7 @@ func (c *changelogSandbox) assertFixtures(heads []string, dirs ...string) {
 
 func keptBlock(t *testing.T, id, head, tip string) string {
 	t.Helper()
-	return "head=" + head + "\ntip=" + tip + "\n" + idBlock(t, ".satelle/skills/release.md", "### Each kept item's changelog", id)
+	return "head=" + head + "\ntip=" + tip + "\n" + idBlock(t, releaseSkill, "### Each kept item's changelog", id)
 }
 
 func (c *changelogSandbox) verdict(id, head, tip string) string {
@@ -436,7 +436,7 @@ func TestChangelogEntryReadsOnlyDocsReleases(t *testing.T) {
 }
 
 func TestReleaseNotesRulesNameDocsReleases(t *testing.T) {
-	for _, f := range []string{".satelle/skills/release.md", ".satelle/skills/satelle-pr-ready-check/SKILL.md", ".satelle/skills/coder.md"} {
+	for _, f := range []string{releaseSkill, ".satelle/skills/satelle-pr-ready-check/SKILL.md", ".satelle/skills/coder.md"} {
 		if !strings.Contains(repoText(t, f), "docs/releases/v<version>.md") {
 			t.Errorf("%s does not name docs/releases/v<version>.md as where the release writes notes", f)
 		}
@@ -638,8 +638,8 @@ func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 func TestItemBackfillsReleasedNotes(t *testing.T) {
 	c := newChangelogSandbox(t)
 	const rule = ".satelle/skills/satelle-pr-ready-check/scripts/notes-paths.sh"
-	if release := repoText(t, ".satelle/skills/release.md"); strings.Contains(release, "satelle-pr-ready-check/scripts/") {
-		t.Error("release.md runs a script of satelle-pr-ready-check; a skill is self-contained and applies the backfill rule inline")
+	if release := repoText(t, releaseSkill); strings.Contains(release, "satelle-pr-ready-check/scripts/") {
+		t.Error("release/SKILL.md runs a script of satelle-pr-ready-check; a skill is self-contained and applies the backfill rule inline")
 	}
 	notes := func(ver string) [2]string {
 		return [2]string{"docs/releases/v" + ver + ".md", "## [" + ver + "] - 2026-01-01\n\n### Added\n- " + ver + "\n"}

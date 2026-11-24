@@ -98,7 +98,7 @@ load_report() {
   fi
   exe=$(printf '%s' "$runs" | jq -r '.[0].id // empty')
   if [ -z "$exe" ]; then
-    runwhy="no drift review run in progress: a drift key not carried closes only inside a run of $task (release.md step 11)"
+    runwhy="no drift review run in progress: a drift key not carried closes only inside a run of $task (release/SKILL.md step 11)"
     return 0
   fi
   if ! run=$(satelle execution get "$exe" --json 2>&1); then

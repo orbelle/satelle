@@ -36,7 +36,7 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 			t.Errorf("## Driving an epic still says %q", gone)
 		}
 	}
-	for _, want := range []string{".satelle/skills/release.md", "release-sendback", sendBackSentence} {
+	for _, want := range []string{releaseSkill, "release-sendback", sendBackSentence} {
 		if !strings.Contains(section, want) {
 			t.Errorf("## Driving an epic lacks %q", want)
 		}
@@ -175,7 +175,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	s.path = append(s.path, bin)
 
 	ready := shBlockVar(t, principle, "## Driving an epic", "epic", epic.ID)
-	step0 := shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)
+	step0 := shBlock(t, releaseSkill, "## 0.", task.ID)
 	openLine := "these children of " + epic.ID + " are open: the epic stays underway"
 	closeLine := "no open child of " + epic.ID + ": close it"
 	readiness := func() result {

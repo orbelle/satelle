@@ -3,7 +3,7 @@ panel = "Drift"
 
 [states.open]
 start = true
-waits = "a drift review run (release.md step 11) that no longer finds its keys"
+waits = "a drift review run (release/SKILL.md step 11) that no longer finds its keys"
 
 [states.done]
 terminal = true

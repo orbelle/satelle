@@ -860,7 +860,7 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	}
 
 	p.serveReviews("changes-requested")
-	block := idBlock(t, ".satelle/skills/release.md", "### Reviews on the heads", approved)
+	block := idBlock(t, releaseSkill, "### Reviews on the heads", approved)
 	if strings.Contains(block, "satelle github") {
 		t.Fatal("the release review read calls satelle.dev")
 	}
@@ -1497,7 +1497,7 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if block := idBlock(t, ".satelle/skills/release.md", "### Reviews on the heads", "sto_x"); strings.Contains(block, "satelle github") {
+	if block := idBlock(t, releaseSkill, "### Reviews on the heads", "sto_x"); strings.Contains(block, "satelle github") {
 		t.Error("the release review read calls satelle github")
 	}
 }
@@ -1546,11 +1546,7 @@ func runSkillCheck(t *testing.T, s *sandbox, skill string) result {
 
 func idBlock(t *testing.T, rel, heading, id string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", rel))
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := string(b)
+	doc := skillDoc(t, rel)
 	i := strings.Index(doc, heading)
 	if i < 0 {
 		t.Fatalf("%s has no %q", rel, heading)

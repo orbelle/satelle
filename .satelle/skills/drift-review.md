@@ -1,7 +1,7 @@
 ---
 name: drift-review
 type: skill
-description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate, run on the docker-local node docker-drift-check), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item. Fixes nothing inline.
+description: The procedure a run of the drift review task follows after every release (release/SKILL.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate, run on the docker-local node docker-drift-check), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item. Fixes nothing inline.
 ---
 
 # Drift review (after every release)
@@ -12,11 +12,11 @@ binary no longer has, or states a mechanism the source does not implement. And
 the binary drifts from the constitution, which matters more: a release puts
 process in Go, adds a non-gRPC interface, couples to one agent, or leaves dead
 code. The release itself refuses a candidate whose substrate names what its
-binary lacks (release.md, `### Drift gate on the candidate`), so a substrate
+binary lacks (release/SKILL.md, `### Drift gate on the candidate`), so a substrate
 finding here is rare.
 
 This run is the review. It runs from the main checkout after the release run
-and the worktree cleanup (release.md steps 10 and 11). Its head is the
+and the worktree cleanup (release/SKILL.md steps 10 and 11). Its head is the
 released tag after a binary-changed release, and main (the tested candidate
 main fast-forwarded to) after a binary-unchanged one, which publishes no tag.
 Its base is the previous release's tag, or, after a binary-unchanged release,
@@ -41,7 +41,7 @@ each block finds the in-progress run and the run-local directory
 session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id // empty')
-[ -n "$exe" ] || { echo "no in-progress run of $task: release.md step 11 starts it" >&2; exit 1; }
+[ -n "$exe" ] || { echo "no in-progress run of $task: release/SKILL.md step 11 starts it" >&2; exit 1; }
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"; mkdir -p "$rd"
 base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.base_ref // empty')
 ver=$(sed -n 's/^satelle\.version: *//p' .version)

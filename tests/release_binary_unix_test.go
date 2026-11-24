@@ -458,7 +458,7 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 
 func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	if got := fencedAfter(t, "## 7."); got != goldenStep7 {
-		t.Errorf("release.md ## 7. block changed:\n%s\nwant\n%s", got, goldenStep7)
+		t.Errorf("release/SKILL.md ## 7. block changed:\n%s\nwant\n%s", got, goldenStep7)
 	}
 	b := newBinarySandbox(t)
 	id, _ := b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 2 }\n"})
@@ -581,14 +581,14 @@ func TestReleaseNodeBumpFollowsTheVersionRule(t *testing.T) {
 
 func fencedAfter(t *testing.T, heading string) string {
 	t.Helper()
-	doc := repoText(t, ".satelle/skills/release.md")
+	doc := repoText(t, releaseSkill)
 	i := strings.Index(doc, "\n"+heading)
 	if i < 0 {
-		t.Fatalf("release.md has no %q", heading)
+		t.Fatalf("release/SKILL.md has no %q", heading)
 	}
 	_, rest, ok := strings.Cut(doc[i:], "```sh\n")
 	if !ok {
-		t.Fatalf("release.md has no sh block after %q", heading)
+		t.Fatalf("release/SKILL.md has no sh block after %q", heading)
 	}
 	block, _, _ := strings.Cut(rest, "```")
 	return block

@@ -1,7 +1,7 @@
 ---
 name: satelle-changelog-entry-check
 type: check
-description: CI/CD gate on approved → done. The published version's notes are read from docs/releases/v<satelle.version>.md on origin/main; their first version heading is "## [<satelle.version>] - <YYYY-MM-DD>". On a binary-unchanged release (the run's release-binary record, release.md ### Decide) the item's changelog attachment is valid, since the next binary-changed release writes its lines (release.md step 3, carried). Otherwise the version's notes hold every line of the item's changelog attachment under its section, ending with the item id; an item an earlier release already published (a landed item a later run carries to done, release.md step 2a) is accepted from the earlier release's notes (a docs/releases file) that hold its lines. Deterministic, no agent.
+description: CI/CD gate on approved → done. The published version's notes are read from docs/releases/v<satelle.version>.md on origin/main; their first version heading is "## [<satelle.version>] - <YYYY-MM-DD>". On a binary-unchanged release (the run's release-binary record, release/SKILL.md ### Decide) the item's changelog attachment is valid, since the next binary-changed release writes its lines (release/SKILL.md step 3, carried). Otherwise the version's notes hold every line of the item's changelog attachment under its section, ending with the item id; an item an earlier release already published (a landed item a later run carries to done, release/SKILL.md step 2a) is accepted from the earlier release's notes (a docs/releases file) that hold its lines. Deterministic, no agent.
 ---
 
 # Changelog entry
@@ -23,7 +23,7 @@ anything above the version section, whatever its name, is refused.
 A binary-unchanged release writes no notes: the run's `release-binary` record
 (read through `scripts/release-binary.sh of`) says so, and the item's lines
 stay on its `changelog` attachment until the next binary-changed run writes
-them first in its notes (release.md step 3,
+them first in its notes (release/SKILL.md step 3,
 `### Carried from binary-unchanged runs`). On that record the check accepts
 when the published version's notes still open with its heading and the item
 has a `changelog` attachment `scripts/changelog-items.sh lines` accepts; a
@@ -35,7 +35,7 @@ missing or malformed attachment is refused, so no line is lost. Otherwise
 - or, when they lack them, in an earlier release's notes: each
   `docs/releases/v*.md` on origin/main, newest first. An item whose head an earlier release already published,
   and which a later run carries to done, has its lines in that release's notes
-  and none in this one (release.md step 3 writes nothing for it). Every line
+  and none in this one (release/SKILL.md step 3 writes nothing for it). Every line
   ends with the item id and only step 3 writes them, so such lines exist only
   when a release published the item.
 
@@ -70,7 +70,7 @@ if printf '%s\n' "$rec" | grep -qx 'binary: unchanged'; then
     echo "binary unchanged, but $SATELLE_ITEM's changelog attachment is refused, so the next release's notes could not carry it: $why"
     exit 1
   fi
-  echo "binary unchanged since v$ver: $SATELLE_ITEM's lines are held on its changelog attachment; the next release's notes carry them (release.md step 3)"
+  echo "binary unchanged since v$ver: $SATELLE_ITEM's lines are held on its changelog attachment; the next release's notes carry them (release/SKILL.md step 3)"
   exit 0
 fi
 if why=$(bash scripts/changelog-items.sh has "$tmp/$notes" "$ver" "$SATELLE_ITEM:$tmp/item" 2>&1); then

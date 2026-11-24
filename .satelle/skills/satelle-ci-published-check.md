@@ -1,7 +1,7 @@
 ---
 name: satelle-ci-published-check
 type: check
-description: CI/CD gate on approved → done. On a binary-unchanged release (the run's release-binary decision, release.md ### Decide) the v<satelle.version> and serve-v<satelled.version> releases exist with assets and both tags are under origin/main; no release.yml run is read. Otherwise a release.yml run on origin/main's head completed with success, the v<satelle.version> and serve-v<satelled.version> releases exist with assets, and v<satelle.version> points at origin/main. GitHub runs no tests, so no test run is read. Deterministic, no agent.
+description: CI/CD gate on approved → done. On a binary-unchanged release (the run's release-binary decision, release/SKILL.md ### Decide) the v<satelle.version> and serve-v<satelled.version> releases exist with assets and both tags are under origin/main; no release.yml run is read. Otherwise a release.yml run on origin/main's head completed with success, the v<satelle.version> and serve-v<satelled.version> releases exist with assets, and v<satelle.version> points at origin/main. GitHub runs no tests, so no test run is read. Deterministic, no agent.
 ---
 
 # Published

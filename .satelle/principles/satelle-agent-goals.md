@@ -46,7 +46,7 @@ drive stays in this session.
 Drive a single engaged story to its terminal state before engaging another. A
 story's drive does not end at `approved`: the session that drove it there
 fires the release (`satelle queue fire release --session <session>`,
-release.md step 0) and follows the run until the story is `done`; it waits
+release/SKILL.md step 0) and follows the run until the story is `done`; it waits
 only at a park state or a state that declares `waits`.
 
 **When to release is a call, the agent's or the operator's.** The driving
@@ -68,7 +68,7 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 1. Drive each child on its own category workflow to `approved`.
 2. Release when the driving agent or the operator decides to: after one
    child, or once several are approved, by their number and the impact of
-   shipping them. Follow `.satelle/skills/release.md` from step 0 (it fires the
+   shipping them. Follow `.satelle/skills/release/SKILL.md` from step 0 (it fires the
    `release` queue) through step 11 (the drift review). The run takes every
    approved story in the queue, the epic's children among them. An epic may
    have one release or several.

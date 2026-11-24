@@ -31,6 +31,6 @@ the after-review gate can judge. You do **not** advance status.
 - Self-enact `done` or reopen a completed run (re-run = new execution).
 - Do work the task's ACTION does not name. A version bump, a push to main or a
   CI release is in scope only when the ACTION names it, as the release task's
-  ACTION does (`.satelle/skills/release.md`).
+  ACTION does (`.satelle/skills/release/SKILL.md`).
 
 See the task-workflow prose.

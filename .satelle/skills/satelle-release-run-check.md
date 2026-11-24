@@ -10,9 +10,9 @@ description: CI/CD's first gate on approved → done. Accepts only while an in-p
 item's head is on main, the version is bumped, the release is published and the
 build is installed (operator, 2026-11-06), or, when the run's landing left the
 shipped binaries unchanged, after main fast-forwarded to the tested candidate
-(release.md, `### Decide: did the binary change`). The run that lists the item
+(release/SKILL.md, `### Decide: did the binary change`). The run that lists the item
 is found by `scripts/release-binary.sh run`, which the version gates share. The release task is `tas_42301d36`
-(its procedure is `.satelle/skills/release.md`).
+(its procedure is `.satelle/skills/release/SKILL.md`).
 
 ```sh
 set -u
@@ -26,7 +26,7 @@ if [ $? -eq 2 ]; then
   exit 1
 fi
 if [ -z "$listed" ]; then
-  echo "no in-progress run of $task lists $SATELLE_ITEM: an item reaches done only through a release run (follow .satelle/skills/release.md step 0: satelle queue fire release --session <session>)"
+  echo "no in-progress run of $task lists $SATELLE_ITEM: an item reaches done only through a release run (follow .satelle/skills/release/SKILL.md step 0: satelle queue fire release --session <session>)"
   exit 1
 fi
 git fetch -q origin || { echo "git fetch origin failed"; exit 1; }

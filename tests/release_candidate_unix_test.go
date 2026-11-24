@@ -288,7 +288,7 @@ func (c *candidateSandbox) work() string { return filepath.Join(c.nodeRoot(), "w
 
 func (c *candidateSandbox) block(heading string) result {
 	c.t.Helper()
-	b := shBlock(c.t, ".satelle/skills/release.md", heading, c.task.ID)
+	b := shBlock(c.t, releaseSkill, heading, c.task.ID)
 	if heading == "### Build the candidate" {
 		re := regexp.MustCompile(`(?m)^<each "<id>: send back: <reason>" line the changelog verdicts printed>$`)
 		if len(re.FindAllString(b, -1)) != 1 {
@@ -583,13 +583,10 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 }
 
 func TestReleaseRulesRestated(t *testing.T) {
-	files := []string{".satelle/skills/release.md", ".satelle/skills/satelle-integration-check.md", ".satelle/skills/satelle-pr-ready-check/SKILL.md", ".satelle/workflows/delivery.toml"}
+	files := []string{releaseSkill, ".satelle/skills/satelle-integration-check.md", ".satelle/skills/satelle-pr-ready-check/SKILL.md", ".satelle/workflows/delivery.toml"}
 	text := map[string]string{}
 	for _, f := range files {
-		b, err := os.ReadFile("../" + f)
-		if err != nil {
-			t.Fatal(err)
-		}
+		b := []byte(skillDoc(t, f))
 		text[f] = string(b)
 		for _, old := range []string{"without re-testing", "without testing again", "never merges or rebases main"} {
 			if strings.Contains(string(b), old) {
@@ -598,7 +595,7 @@ func TestReleaseRulesRestated(t *testing.T) {
 		}
 	}
 	if !strings.Contains(strings.Join(strings.Fields(text[files[0]]), " "), "main only ever fast-forwards to a tree the release tested") {
-		t.Error("release.md does not say main only ever fast-forwards to a tree the release tested")
+		t.Error("release/SKILL.md does not say main only ever fast-forwards to a tree the release tested")
 	}
 	if !strings.Contains(text[files[0]], "Commit only `.version` and `docs/releases/v<ver>.md`") ||
 		!strings.Contains(repoText(t, releaseNodeScript), `-- . ':!.version' ":!docs/releases/v$ver.md"`) {
@@ -659,7 +656,7 @@ func TestReleaseCarriesALandedItemToDone(t *testing.T) {
 	c.merged(idC)
 	r2, rd2 := c.fire()
 	review := func(id string) string {
-		r := c.exec("bash", "", "-c", idBlock(t, ".satelle/skills/release.md", "### Reviews on the heads", id))
+		r := c.exec("bash", "", "-c", idBlock(t, releaseSkill, "### Reviews on the heads", id))
 		if r.code != 0 {
 			t.Fatalf("review block %s: exit %d\n%s%s", id, r.code, r.out, r.err)
 		}

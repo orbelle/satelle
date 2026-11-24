@@ -40,7 +40,7 @@ func TestTaskProceduresAttachTheirTask(t *testing.T) {
 		st := s.create("story", "--title", "story")
 		s.must("story", "set", st.ID, "--status", "approved")
 		s.must("queue", "add", q.ID, st.ID)
-		r := s.exec("bash", "", "-c", shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID))
+		r := s.exec("bash", "", "-c", shBlock(t, releaseSkill, "## 0.", task.ID))
 		if r.code != 0 {
 			t.Fatalf("release step 0: exit %d\n%s%s", r.code, r.out, r.err)
 		}
@@ -51,13 +51,13 @@ func TestTaskProceduresAttachTheirTask(t *testing.T) {
 		t.Parallel()
 		s, _, _ := releaseSandbox(t)
 		task := s.create("task", "--title", "Remove finished worktrees", "--input-kind", "story")
-		block := shBlock(t, ".satelle/skills/release.md", "## 10.", task.ID)
+		block := shBlock(t, releaseSkill, "## 10.", task.ID)
 		if strings.Contains(block, "clear-worktrees.sh") {
-			t.Fatalf("release.md step 10's start block runs the cleanup itself:\n%s", block)
+			t.Fatalf("release/SKILL.md step 10's start block runs the cleanup itself:\n%s", block)
 		}
 		cd := "cd <the main checkout>\n"
 		if !strings.Contains(block, cd) {
-			t.Fatalf("release.md step 10's start block has no %q line:\n%s", cd, block)
+			t.Fatalf("release/SKILL.md step 10's start block has no %q line:\n%s", cd, block)
 		}
 		r := s.exec("bash", "", "-c", strings.Replace(block, cd, "", 1))
 		if r.code != 0 {

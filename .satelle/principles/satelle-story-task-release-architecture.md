@@ -28,7 +28,7 @@ done, for a single story as for an epic's children. Task and story share only
 the PR and the story's chain; the task records its outcome
 on the story and never takes its seat or worktree. An epic's children release
 like any approved story: the driving agent or the operator decides when to
-fire the release queue (`.satelle/skills/release.md` step 0), so an epic may
+fire the release queue (`.satelle/skills/release/SKILL.md` step 0), so an epic may
 ship in one release or several, and the epic closes through its own gates once
 every child is done; a child the run sends back keeps the epic open.
 

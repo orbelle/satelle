@@ -23,7 +23,7 @@ import (
 const driftTaskLine = `(?m)^task=(tas_[A-Za-z0-9_]+)$`
 
 var driftTaskFiles = []string{
-	".satelle/skills/release.md",
+	releaseSkill,
 	".satelle/skills/drift-review.md",
 	".satelle/skills/satelle-drift-run-trigger.md",
 	".satelle/skills/satelle-drift-resolved-check.md",
@@ -31,6 +31,11 @@ var driftTaskFiles = []string{
 }
 
 func repoText(t *testing.T, rel string) string {
+	t.Helper()
+	return skillDoc(t, rel)
+}
+
+func repoTextRaw(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
 	if err != nil {
@@ -91,7 +96,7 @@ func driftTaskID(t *testing.T) string {
 	id := ""
 	for _, f := range driftTaskFiles {
 		text := repoText(t, f)
-		if f == ".satelle/skills/release.md" {
+		if f == releaseSkill {
 			text = releaseStep(t, "## 11.")
 		}
 		ms := re.FindAllStringSubmatch(text, -1)
@@ -112,10 +117,10 @@ func driftTaskID(t *testing.T) string {
 
 func releaseStep(t *testing.T, prefix string) string {
 	t.Helper()
-	md := repoText(t, ".satelle/skills/release.md")
+	md := repoText(t, releaseSkill)
 	i := strings.Index(md, "\n"+prefix)
 	if i < 0 {
-		t.Fatalf("release.md has no %q heading", prefix)
+		t.Fatalf("release/SKILL.md has no %q heading", prefix)
 	}
 	sec := md[i+1:]
 	if j := strings.Index(sec[3:], "\n## "); j >= 0 {
@@ -137,19 +142,19 @@ func lineWith(t *testing.T, text, prefix, where string) string {
 
 func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 	id := driftTaskID(t)
-	md := repoText(t, ".satelle/skills/release.md")
+	md := repoText(t, releaseSkill)
 	ten, eleven := strings.Index(md, "\n## 10."), strings.Index(md, "\n## 11.")
 	if ten < 0 || eleven < 0 || eleven < ten {
-		t.Fatalf("release.md: ## 11. must follow ## 10. (at %d and %d)", ten, eleven)
+		t.Fatalf("release/SKILL.md: ## 11. must follow ## 10. (at %d and %d)", ten, eleven)
 	}
 	step := releaseStep(t, "## 11.")
 	for _, want := range []string{`satelle task run "$task" --base "v$prev"`, "drift-review.md", "task=" + id} {
 		if !strings.Contains(step, want) {
-			t.Errorf("release.md step 11 lacks %q", want)
+			t.Errorf("release/SKILL.md step 11 lacks %q", want)
 		}
 	}
-	if seat := lineWith(t, step, "satelle execution seat", "release.md step 11"); !strings.Contains(seat, `--base "v$prev"`) {
-		t.Errorf("release.md step 11 seats without --base \"v$prev\": %s", seat)
+	if seat := lineWith(t, step, "satelle execution seat", "release/SKILL.md step 11"); !strings.Contains(seat, `--base "v$prev"`) {
+		t.Errorf("release/SKILL.md step 11 seats without --base \"v$prev\": %s", seat)
 	}
 	review := repoText(t, ".satelle/skills/drift-review.md")
 	_, step0, _ := strings.Cut(review, "## 0.")
@@ -160,10 +165,10 @@ func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 
 	goals := repoText(t, ".satelle/principles/satelle-agent-goals.md")
 	if !strings.Contains(goals, "through step 11") {
-		t.Error("satelle-agent-goals.md: the epic drive does not run release.md through step 11")
+		t.Error("satelle-agent-goals.md: the epic drive does not run release/SKILL.md through step 11")
 	}
 	if strings.Contains(goals, "through step 10") {
-		t.Error("satelle-agent-goals.md still runs release.md only through step 10")
+		t.Error("satelle-agent-goals.md still runs release/SKILL.md only through step 10")
 	}
 }
 
@@ -300,7 +305,7 @@ func (d *driftSandbox) start(task, seat string) string {
 }
 
 func stepSeat(t *testing.T) string {
-	return lineWith(t, releaseStep(t, "## 11."), "satelle execution seat", "release.md step 11")
+	return lineWith(t, releaseStep(t, "## 11."), "satelle execution seat", "release/SKILL.md step 11")
 }
 
 func (d *driftSandbox) assertJudgedFromPrev(exe string) {
@@ -748,7 +753,7 @@ const driftTaskBody = `ACTION: follow .satelle/skills/drift-review.md.
 
 ## Head after a binary-unchanged release
 This section overrides any statement above that the run's head is the released tag v<version> or that its base is the previous release's tag.
-ACTION: after a binary-changed release the run judges the previous tag to the released tag, as stated above. After a binary-unchanged release no new tag exists: the run judges from the published tag v<version> to main, the commit main fast-forwarded to (release.md step 11).
+ACTION: after a binary-changed release the run judges the previous tag to the released tag, as stated above. After a binary-unchanged release no new tag exists: the run judges from the published tag v<version> to main, the commit main fast-forwarded to (release/SKILL.md step 11).
 VERIFICATION: on a binary-unchanged head the drift-report opens "# Drift review of main <sha12> (binary-unchanged since v<version>)" and its Checks lines name the range v<version>..main <sha12>. A v<version> tag at the head is required only after a binary-changed release. A drift-constitution gate skipped because the range changed none of its paths is not a missing check.
 `
 
@@ -772,10 +777,10 @@ func unchangedDriftSandbox(t *testing.T, files map[string]string) (*driftCloseSa
 
 func (d *driftCloseSandbox) stepEleven() result {
 	d.t.Helper()
-	block := shBlock(d.t, ".satelle/skills/release.md", "## 11.", d.drift)
+	block := shBlock(d.t, releaseSkill, "## 11.", d.drift)
 	cd := "cd <the main checkout>\n"
 	if !strings.Contains(block, cd) {
-		d.t.Fatalf("release.md step 11 has no %q line", cd)
+		d.t.Fatalf("release/SKILL.md step 11 has no %q line", cd)
 	}
 	return d.exec("bash", "", "-c", strings.Replace(block, cd, "", 1))
 }

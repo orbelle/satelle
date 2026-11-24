@@ -24,7 +24,7 @@ the files step 3 commits. The suite, the binary decision, the bump, publishing
 and the push to main are the node's part, run on a fly.io sprite
 (`### Fire the node's part`); main moves last, after `release.yml` published
 from the run's `release/<exe>` branch. After the suite passes the node decides whether the
-candidate changes the shipped binaries (`scripts/release-binary.sh decide`):
+candidate changes the shipped binaries (the repository's scripts/release-binary.sh decide):
 when it does not, main fast-forwards to the tested candidate and the run does
 not bump, tag, dispatch `release.yml` or install (steps 3, 5, 6 and 7 are
 skipped), and the items still reach done on the recorded decision. A sent-back item goes back through the loop (merge
@@ -39,7 +39,7 @@ pushed-back item reopens; it never becomes a new story, and its worktree stays
 Items never edit a file under `docs/releases/`, beyond
 backfilling the notes of versions already released (step 2a): each records
 its lines as an attachment named `changelog` (format in
-`satelle-pr-ready-check/SKILL.md`, owned by `scripts/changelog-items.sh`), and
+`satelle-pr-ready-check/SKILL.md`, owned by the repository's scripts/changelog-items.sh), and
 this run writes the version's notes to `docs/releases/v<version>.md` from the
 items it lands (step 3). Every released version has its own notes file there
 (`docs/releases/v0.md` holds the 0.0.x and serve-v0.0.x notes), and no release
@@ -72,23 +72,14 @@ the run (`release-kept` and `release-drift`, `### The node's input`;
 `release-binary` and `release-node`, `### Read the node's result`; and
 `release-evidence`).
 
+Each step's script is a file under this skill's `scripts/`, named at its
+`Run` line. Read it, fill each `<...>` placeholder as the step says, and run
+it with bash from the repository root; a `scripts/` path inside a script is
+the repository's own, not this skill's.
+
 ## 0. Start and read the run
 
-```sh
-session=<session>
-task=tas_42301d36
-que=release
-git fetch -q origin
-satelle queue get "$que" --json --session "$session" 2>/dev/null | jq -e --arg t "$task" '.trigger.task == $t' >/dev/null || { echo "release queue $que (.satelle/queues/$que.toml) is missing or does not trigger $task; a satelle older than the build origin/main carries cannot read queue files: install that build (step 7), then start again" >&2; exit 1; }
-satelle task get "$task" --session "$session" | grep -q 'release-binary' || { echo "the release task $task does not name the run's release-binary record: restate its body (plan of sto_da9775c1, Configuration to apply) before firing" >&2; exit 1; }
-fired=$(satelle queue fire "$que" --json --session "$session") || exit $?
-exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')
-[ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
-satelle execution set "$exe" --status in_progress --session "$session"
-satelle execution seat "$exe" --session "$session"
-satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1
-satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.inputs[]'
-```
+Run `scripts/start-run.sh`.
 
 The after-review (`satelle-task-validate-after-review`) reads only the run's
 record folder, so the run carries its parent task as the attachment `task`
@@ -134,38 +125,7 @@ requests. A carried item (no open pull request, a merged one whose head is on
 `origin/main`) has no review to read: the run that landed it read the app's
 review on that head, and a review of a landed head sends nothing back.
 
-```sh
-session=<session>
-id=<id>
-app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check/SKILL.md)
-[ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check/SKILL.md" >&2; exit 1; }
-pr=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100 |
-  jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
-if [ -z "$pr" ]; then
-  mpr=$(gh pr list --state merged --base main --json number,headRefOid,title --limit 200 |
-    jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
-  mhead=$(printf '%s' "$mpr" | jq -r '.headRefOid // empty')
-  if [ -n "$mhead" ] && git merge-base --is-ancestor "$mhead" origin/main 2>/dev/null; then
-    echo "$id: PR #$(printf '%s' "$mpr" | jq -r .number) merged, head $mhead on origin/main: contained, no review to read"
-  else
-    echo "$id: no open pull request (send it back)"
-  fi
-  exit 0
-fi
-n=$(printf '%s' "$pr" | jq -r .number)
-head=$(printf '%s' "$pr" | jq -r .headRefOid)
-review=$(gh api "repos/{owner}/{repo}/pulls/$n/reviews" --paginate | jq -s -c --argjson app "$app_account" --arg h "$head" '
-  (add // []) | [.[] | select(.user.id == $app and .commit_id == $h and
-    (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))]
-  | sort_by(.submitted_at) | last // empty')
-if [ "$(printf '%s' "$review" | jq -r '.state // empty')" = CHANGES_REQUESTED ]; then
-  printf '%s' "$review" | jq -j '.body // ""' | satelle story attach "$id" --name pr-review --type text/markdown --file - --session "$session"
-  satelle story set "$id" --status in_progress --session "$session"
-  echo "$id: sent back: the satelle app requested changes on head $head ($(printf '%s' "$review" | jq -r .html_url))"
-else
-  echo "$id: PR #$n head $head: no changes requested by the satelle app"
-fi
-```
+Run `scripts/review-heads.sh`.
 
 Record `sha256sum` of `$(command -v satelle)` and of the
 satelled binary in the `installed` line of `satelle service status --session <session>`; the same
@@ -196,7 +156,7 @@ and exits 0, so a send-back never stops the run. It exits 1 only when it
 cannot judge at all (git, satelle or bash is not on PATH, or git cannot diff
 the head, named on stderr):
 that is a failed step, which stops the run. The head's own
-`scripts/changelog-items.sh` validates the attachment, so a legacy head
+scripts/changelog-items.sh validates the attachment, so a legacy head
 without the script is sent back too. The release-notes test (every file under
 `docs/releases/`, and any `CHANGELOG.md`) reads the head's own commits only
 (`$tip...$head`, from their merge base), so a head cut from an older main is
@@ -208,54 +168,7 @@ versions is the one change it keeps: adding `docs/releases/v<ver>.md` (or
 never the head, so a head cannot relax it; a tip without a `.version` sends
 back every path); every other change is sent back naming the path.
 
-```sh
-session=<session>
-id=<id>
-for tool in git satelle bash; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not on PATH, so the changelog of $id cannot be judged" >&2; exit 1; }
-done
-why=
-if ! cl=$(satelle story attachment "$id" changelog --session "$session" 2>/dev/null); then
-  why="no changelog attachment"
-elif ! git cat-file -e "$head:scripts/changelog-items.sh" 2>/dev/null; then
-  why="head has no scripts/changelog-items.sh"
-elif ! out=$(printf '%s\n' "$cl" | bash <(git show "$head:scripts/changelog-items.sh") lines "$id" 2>&1 >/dev/null); then
-  why=${out:-the attachment is refused}
-fi
-paths=
-if [ -z "$why" ]; then
-  diff=$(git diff --no-renames --name-status "$tip...$head" -- CHANGELOG.md docs/releases) || { echo "git diff $tip...$head failed, so the changelog of $id cannot be judged" >&2; exit 1; }
-  cur=$(git show "$tip:.version" 2>/dev/null | awk '$1 == "satelle.version:" { print $2; exit }')
-  while IFS=$'\t' read -r st p; do
-    [ -n "$p" ] || continue
-    case "$st:$p" in
-      D:CHANGELOG.md) continue ;;
-      A:docs/releases/v*.md)
-        v=${p#docs/releases/v}
-        v=${v%.md}
-        if [ -n "$cur" ] && [[ $v =~ ^[0-9]+(\.[0-9]+)*$ ]] && [ "$v" != "$cur" ] &&
-          [ "$(printf '%s\n%s\n' "$v" "$cur" | sort -V | head -n 1)" = "$v" ] &&
-          ! git cat-file -e "$tip:$p" 2>/dev/null; then
-          continue
-        fi
-        ;;
-    esac
-    paths="${paths:+$paths }$p"
-  done <<<"$diff"
-fi
-if [ -n "$why" ]; then
-  echo "$id: send back: no valid changelog attachment on head $head: merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and record the lines with satelle story attach $id --name changelog --file - --session <session> ($why)"
-elif [ -n "$paths" ]; then
-  cmds=
-  for p in $paths; do
-    if git cat-file -e "$tip:$p" 2>/dev/null; then c="git checkout origin/main -- $p"; else c="git rm $p"; fi
-    cmds="${cmds:+$cmds && }$c"
-  done
-  echo "$id: send back: head $head edits $paths; restore them ($cmds), move the lines to the changelog attachment, and merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force)"
-else
-  echo "$id: keep head $head"
-fi
-```
+Run `scripts/changelog-verdict.sh`.
 
 ### Build the candidate
 
@@ -280,70 +193,13 @@ order). Each item prints one line, `<id>: <fast-forward|merged|contained|sent
 back|skipped> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
 "nothing lands" when no item is kept (send back, step 2c, and stop).
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
-held=$(cat <<'HELD'
-<each "<id>: send back: <reason>" line the changelog verdicts printed>
-HELD
-)
-git fetch -q origin --tags || { echo "git fetch origin failed" >&2; exit 1; }
-[ ! -e "$wt" ] || git worktree remove --force "$wt"
-rm -rf "$rd" && mkdir -p "$rd" || exit 1
-git worktree add -q --detach "$wt" origin/main || exit 1
-: >"$rd/kept"
-: >"$rd/released"
-printf '%s\n' "$held" | sed -n 's/^\([a-z]*_[0-9a-f]*\): send back: /\1\t/p' >"$rd/sendback"
-prs=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100) || { echo "gh pr list failed" >&2; exit 1; }
-mprs=$(gh pr list --state merged --base main --json number,headRefOid,title --limit 200) || { echo "gh pr list failed" >&2; exit 1; }
-kept=
-for id in $(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.inputs[]'); do
-  st=$(satelle story get "$id" --json --session "$session" | jq -r .status)
-  if [ "$st" != approved ]; then echo "$id: skipped: $st, not approved"; continue; fi
-  if cut -f1 "$rd/sendback" | grep -qx "$id"; then echo "$id: sent back: its changelog"; continue; fi
-  head=$(printf '%s' "$prs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
-  if [ -z "$head" ]; then
-    mhead=$(printf '%s' "$mprs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
-    [ -n "$mhead" ] && git -C "$wt" merge-base --is-ancestor "$mhead" origin/main 2>/dev/null && head=$mhead
-  fi
-  if [ -z "$head" ]; then
-    printf '%s\tno open pull request against main has a title ending (%s); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), push, open one and come through integration again\n' "$id" "$id" >>"$rd/sendback"
-    echo "$id: sent back: no open pull request"; continue
-  fi
-  tip=$(git -C "$wt" rev-parse HEAD)
-  if git -C "$wt" merge-base --is-ancestor "$head" "$tip"; then
-    how=contained
-  elif git -C "$wt" merge-base --is-ancestor "$tip" "$head"; then
-    git -C "$wt" merge -q --ff-only "$head" || exit 1
-    how=fast-forward
-  elif git -C "$wt" merge -q --no-ff --no-edit -m "release candidate: merge $id head $head" "$head" >/dev/null 2>&1; then
-    [ -s "$rd/ff" ] || echo "$tip" >"$rd/ff"
-    how=merged
-  else
-    paths=$(git -C "$wt" diff --name-only --diff-filter=U | paste -sd ' ' -)
-    git -C "$wt" merge --abort 2>/dev/null
-    printf '%s\thead %s conflicts with the release candidate after %s in: %s; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again\n' \
-      "$id" "$head" "${kept:-origin/main}" "${paths:-(the merge failed without unmerged paths)}" >>"$rd/sendback"
-    echo "$id: sent back: head $head conflicts in: $paths"; continue
-  fi
-  echo "$id $head" >>"$rd/kept"; kept="${kept:+$kept }$id"
-  rel=
-  [ "$how" = contained ] && rel=$(git -C "$wt" tag -l 'v*' --contains "$head" | sort -V | head -n1)
-  if [ -n "$rel" ]; then echo "$id $rel" >>"$rd/released"; echo "$id: contained, released in $rel head $head"; else echo "$id: $how head $head"; fi
-done
-[ -s "$rd/ff" ] || git -C "$wt" rev-parse HEAD >"$rd/ff"
-[ -s "$rd/kept" ] || { echo "nothing lands: send back (step 2c) and stop the run" >&2; exit 1; }
-echo "candidate $(git -C "$wt" rev-parse HEAD) at $wt"
-```
+Run `scripts/build-candidate.sh`.
 
 ### Drift gate on the candidate
 
 Once the candidate is built, and again after each drift-fix commit, before the
 suite runs. It builds the candidate's own satelle into `$rd/bin/satelle` and
-runs the candidate's own `scripts/drift-check.sh` with it in the candidate
+runs the candidate's own scripts/drift-check.sh with it in the candidate
 worktree: the rules are that binary's `satelle validate --session <session>` substrate check, so a
 release whose substrate names a command, flag, help topic, skill or link the
 candidate binary lacks is refused here, before anything is tested or pushed.
@@ -352,37 +208,7 @@ On exit 0 it records the candidate's sha in `$rd/drift-checked` and writes
 `### The node's input` and the node's `fetch` and `guard` steps refuse a
 candidate whose sha is not in `$rd/drift-checked`.
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
-[ -d "$wt" ] && [ -s "$rd/ff" ] || { echo "no candidate at $wt: build it (step 2a) first" >&2; exit 1; }
-rm -f "$rd/drift-checked"
-cand=$(git -C "$wt" rev-parse HEAD)
-mkdir -p "$rd/bin" || exit 2
-go build -C "$wt" -o "$rd/bin/satelle" ./cmd/satelle || { echo "cannot build the candidate binary: stop the run" >&2; exit 2; }
-SATELLE_BIN="$rd/bin/satelle" bash "$wt/scripts/drift-check.sh" "$wt" >"$rd/drift.txt"
-code=$?
-case $code in
-  0)
-    echo "$cand" >"$rd/drift-checked"
-    { echo "drift-check exit 0 on $cand"; echo "fixed in this run:"; if [ -s "$rd/drift-fixed" ]; then cat "$rd/drift-fixed"; else echo none; fi; } >"$rd/release-drift"
-    echo "the drift gate passed on the candidate $cand"
-    ;;
-  1)
-    cat "$rd/drift.txt" >>"$rd/drift-fixed"
-    cat "$rd/drift.txt"
-    echo "the candidate $cand names what its binary lacks: fix each line in $wt, commit, and run this block again" >&2
-    exit 1
-    ;;
-  *)
-    echo "drift-check could not check the candidate (exit $code): stop the run" >&2
-    exit 2
-    ;;
-esac
-```
+Run `scripts/drift-gate.sh`.
 
 The release fixes a miss in the same run, before the suite:
 
@@ -400,7 +226,7 @@ The release fixes a miss in the same run, before the suite:
    nothing, and raise a story for it.
 
 b. The tree that presents the moves below must carry the config being
-   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh scripts/release-binary.sh scripts/check-serve-version.sh`,
+   released: git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh scripts/release-binary.sh scripts/check-serve-version.sh,
    with `tip` the candidate's HEAD, else stop with "check out the run's tip
    first: git checkout --detach $tip".
 
@@ -412,22 +238,7 @@ c. Send back each item on the list. It reopens, and the coder's next run
 Runs over `$rd/sendback` and empties it, so a second pass sends back only
 what was added since. An item no longer `approved` is not moved again.
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"
-[ -f "$rd/sendback" ] || { echo "no $rd/sendback: build the candidate (step 2a) first" >&2; exit 1; }
-while IFS=$'\t' read -r id reason <&3; do
-  [ -n "$id" ] || continue
-  if [ "$(satelle story get "$id" --json --session "$session" | jq -r .status)" != approved ]; then echo "$id: not approved, not moved"; continue; fi
-  printf '%s\n' "$reason" | satelle story attach "$id" --name release-sendback --file - --session "$session" || exit 1
-  satelle story set "$id" --status in_progress --session "$session" || exit 1
-  echo "$id: sent back: $reason"
-done 3<"$rd/sendback"
-: >"$rd/sendback"
-```
+Run `scripts/send-back.sh`.
 
    When the installed satelle refuses the tip's workflows (an unknown key, such
    as a gate's `after`, from a satelle older than the build origin/main
@@ -444,7 +255,7 @@ d. Hand the candidate to the node's part, fire it on a sprite, and read what
    the drift gate and the send-back, and ends when main has fast-forwarded;
    steps 7 to 11 stay on this machine. Its steps and what each refuses are
    `.satelle/skills/satelle-release-node/SKILL.md`; each is
-   `scripts/release-node.sh <step>` there, run as root on the node, with `make
+   its scripts/release-node.sh <step>, run as root on the node, with `make
    test` run once as user `release` from `env -i`.
 
 ### The node's input
@@ -465,54 +276,7 @@ attaches `release-kept` and `release-drift` to the run (step 4) and pushes the
 candidate to `release/<exe>`, removing a stale one from an earlier attempt of
 this run first (`git push --delete`, never a force).
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
-[ -d "$wt" ] && [ -s "$rd/ff" ] || { echo "no candidate at $wt: build it (step 2a) first" >&2; exit 1; }
-cand=$(git -C "$wt" rev-parse HEAD)
-[ "$(cat "$rd/drift-checked" 2>/dev/null)" = "$cand" ] || { echo "the drift gate has not passed on the candidate $cand: run ### Drift gate on the candidate first" >&2; exit 1; }
-git fetch -q origin || { echo "git fetch origin failed" >&2; exit 1; }
-carried=$(bash "$wt/scripts/release-binary.sh" carried "$task" "$wt" "$cand") || { echo "cannot list the items earlier binary-unchanged runs carried: stop the run" >&2; exit 1; }
-in="$rd/node-in"
-rm -rf "$in" "$rd/node-out" && mkdir -p "$in/changelog" || exit 1
-ids=
-for id in $carried $(cut -d' ' -f1 "$rd/kept"); do
-  case " $ids " in *" $id "*) continue ;; esac
-  awk -v id="$id" '$1 == id { f = 1 } END { exit !f }' "$rd/released" 2>/dev/null && continue
-  ids="${ids:+$ids }$id"
-done
-for id in $ids; do
-  satelle story attachment "$id" changelog --session "$session" >"$in/changelog/$id" 2>/dev/null ||
-    { rm -f "$in/changelog/$id"; echo "no changelog attachment on $id: a binary-changed run stops at the node's bump" >&2; }
-done
-printf '%s\n' $ids >"$in/notes-ids"
-cp "$rd/kept" "$in/kept" || exit 1
-repo=$(git config --get remote.origin.url | sed 's#^git@github\.com:#https://github.com/#')
-ident=$(git var GIT_AUTHOR_IDENT) || { echo "git has no author identity" >&2; exit 1; }
-{
-  echo "run: $exe"
-  echo "candidate: $cand"
-  echo "drift-checked: $cand"
-  echo "branch: release/$exe"
-  echo "ff: $(cat "$rd/ff")"
-  echo "base: $(git rev-parse origin/main)"
-  echo "repo: $repo"
-  echo "author: ${ident%% <*}"
-  echo "email: $(printf '%s\n' "$ident" | sed -n 's/.*<\(.*\)>.*/\1/p')"
-  echo "mode: release"
-} >"$in/run"
-if grep -rlE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' "$rd/kept" "$rd/release-drift" "$in"; then
-  echo "a token-shaped string is in the node's input (the files above): stop the run" >&2; exit 1
-fi
-satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" --session "$session" || exit 1
-satelle execution attach "$exe" --name release-drift --type text/plain --file "$rd/release-drift" --session "$session" || exit 1
-if [ -n "$(git ls-remote origin "refs/heads/release/$exe")" ]; then git push -q origin --delete "release/$exe" || exit 1; fi
-git push -q origin "$cand:refs/heads/release/$exe" || exit 1
-echo "the node's input is $in; release/$exe is the candidate $cand"
-```
+Run `scripts/node-input.sh`.
 
 ### Fire the node's part
 
@@ -527,19 +291,7 @@ with margin for setup, the suite and `release.yml`; read that timeout with
 gives it to the node on the exec command's stdin only; this block never reads
 either. The task is the remote's `[drive] task`.
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"
-cand=$(cat "$rd/drift-checked" 2>/dev/null)
-[ -n "$cand" ] && [ -d "$rd/node-in" ] || { echo "no node input at $rd/node-in: run ### The node's input first" >&2; exit 1; }
-[ "$(git rev-parse HEAD)" = "$cand" ] || { echo "check out the run's candidate first: git checkout --detach $cand" >&2; exit 1; }
-ntask=$(sed -n 's/^task = "\(tas_[0-9a-f]*\)"$/\1/p' .satelle/remotes/release-sprite/remote.toml)
-[ -n "$ntask" ] || { echo ".satelle/remotes/release-sprite/remote.toml names no [drive] task" >&2; exit 1; }
-SATELLE_RELEASE_IN="$rd/node-in" SATELLE_RELEASE_OUT="$rd/node-out" satelle remote fire release-sprite "$ntask" --session "$session"
-```
+Run `scripts/fire-node.sh`.
 
 ### Read the node's result
 
@@ -569,68 +321,7 @@ refuses the attach.
   It stops; cancel the run and fire again, and the next run carries the landed
   items as contained (step 2a).
 
-```sh
-session=<session>
-task=tas_42301d36
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
-[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
-rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
-ntask=$(sed -n 's/^task = "\(tas_[0-9a-f]*\)"$/\1/p' .satelle/remotes/release-sprite/remote.toml)
-st=$(satelle remote status release-sprite "$ntask" --json --session "$session") || exit 1
-node=$(printf '%s' "$st" | jq -r '.node // empty')
-verdict=$(printf '%s' "$st" | jq -r '.verdict // empty')
-line=$(printf '%s' "$st" | jq -r '"state \(.state) node \(.node) verdict \(.verdict) \(.reason // "")"')
-back="$rd/node-out/$node/back"
-shaped() {
-  local p f=()
-  for p in "$@"; do [ -e "$p" ] && f+=("$p"); done
-  [ "${#f[@]}" -gt 0 ] || return 1
-  grep -rlE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' "${f[@]}"
-  case $? in
-    0) echo "a token-shaped string is in the files above: nothing is attached" >&2; return 0 ;;
-    1) return 1 ;;
-    *) echo "the token scan could not read ${f[*]}: nothing is attached" >&2; return 0 ;;
-  esac
-}
-v=$(bash scripts/release-node-verify.sh "$rd" "$node" "$session" 2>&1); vcode=$?
-printf '%s\n' "$v"
-if [ "$verdict" = accept ] && [ "$vcode" = 0 ] && ! grep -q '^failed step ' "$back/result"; then
-  { cat "$back/result"; echo "$line"; printf '%s\n' "$v"; } >"$rd/release-node"
-  shaped "$back" "$rd/release-node" && exit 1
-  satelle execution attach "$exe" --name release-binary --type text/plain --file "$back/release-binary" --session "$session" || exit 1
-  satelle execution attach "$exe" --name release-node --type text/plain --file "$rd/release-node" --session "$session" || exit 1
-  ma=$(sed -n 's/^main-after //p' "$back/result")
-  git worktree remove --force "$wt"
-  rm -rf "$rd"
-  echo "the node's part landed: main is $ma"
-  exit 0
-fi
-if [ "$verdict" = accept ] || grep -q '^main-after ' "$back/result" 2>/dev/null; then
-  echo "the node concluded accept but verify refused it (above) or its records did not come back whole; main may have moved: cancel the run (satelle execution set $exe --status cancelled --session <session>) and fire again; the next run carries the landed items as contained" >&2
-  exit 1
-fi
-{
-  echo "the node's part of $exe did not land: nothing is pushed to main and no item moved"
-  echo "$line"
-  [ -f "$back/result" ] && cat "$back/result"
-  printf '%s\n' "$v"
-  [ -f "$back/failing" ] && { echo "failing:"; cat "$back/failing"; }
-  ff=$(cat "$rd/ff")
-  while read -r id head; do
-    git merge-base --is-ancestor "$head" "$ff" && continue
-    echo "suspect $id: printf '%s\n' 'the release candidate $(cat "$rd/drift-checked") failed in run $exe (release-evidence); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and come through integration again' | satelle story attach $id --name release-sendback --file - --session <session> && satelle story set $id --status in_progress --session <session>"
-  done <"$rd/kept"
-} >"$rd/release-evidence"
-shaped "$rd/release-evidence" "$back" && exit 1
-satelle execution attach "$exe" --name release-evidence --type text/plain --file "$rd/release-evidence" --session "$session" || exit 1
-if [ -n "$(git ls-remote origin "refs/heads/release/$exe")" ]; then git push -q origin --delete "release/$exe"; fi
-satelle execution set "$exe" --status cancelled --session "$session" || exit 1
-cat "$rd/release-evidence"
-git worktree remove --force "$wt"
-rm -rf "$rd"
-echo "the node's part was rejected: $exe is cancelled and its items stay approved" >&2
-exit 1
-```
+Run `scripts/read-node-result.sh`.
 
 A suspect is sent back only on the session's reading of the failure (a red
 suite names its tests in `failing`): run the line `release-evidence` gives it,
@@ -658,7 +349,7 @@ one implementation is `release-node.sh bump`.
 ### Carried from binary-unchanged runs
 
 The items earlier binary-unchanged runs landed since the published version
-have no release notes yet. The candidate's `scripts/release-binary.sh carried` lists
+have no release notes yet. The candidate's scripts/release-binary.sh carried lists
 them, oldest first: it walks this task's finished runs back to the last
 binary-changed one, and keeps each landed item whose head is under the
 candidate and not under the published `v*` tag (read from the tags merged into
@@ -679,7 +370,7 @@ left, no notes file is written. The file holds one section, `## [<ver>] -
 <date>` (UTC date) with each item's lines under their `### <Section>` in fixed
 order (Added, Changed, Deprecated, Removed, Fixed, Security, Breaking), each
 line ending with its item id, and ends in exactly one newline; nothing is
-staged above it. `scripts/changelog-items.sh write` renders the section before
+staged above it. The repository's scripts/changelog-items.sh write renders the section before
 it creates the file, so a malformed attachment writes nothing, and it refuses
 a file that exists. The lines are copied verbatim; the run never edits an
 item's content. A resumed run whose `docs/releases/v<ver>.md` exists changes
@@ -733,16 +424,7 @@ is at the bump. The result carries the `release.yml` run and both tags.
 
 Binary changed only.
 
-```sh
-session=<session>
-sbin=$(command -v satelle)
-dbin=<the path in the [...] of the "installed" line of satelle service status>
-bk="$(satelle runtime path --session "$session")/backups/bin/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$bk"; cp -p "$sbin" "$dbin" "$bk/"
-printf 'restore: install -m 0755 %s %s && install -m 0755 %s %s && satelle service restart --session <session>\n' "$bk/satelle" "$sbin" "$bk/satelled" "$dbin"
-satelle update --version <ver> --session "$session"
-"$sbin" update --version <ver> --session "$session"
-satelle service restart --session "$session"
-```
+Run `scripts/install.sh`.
 
 The restore line is printed, with real paths and no placeholder, before
 anything is replaced. The backup is never deleted by the run. The second
@@ -814,26 +496,13 @@ main checkout, so the block first fast-forwards the checkout to origin/main
 `--base origin/main` is not in HEAD's history and its move to in_progress and
 its seat are refused:
 
-```sh
-session=<session>
-cd <the main checkout>
-git fetch -q origin
-git merge --ff-only origin/main || { echo "the main checkout cannot fast-forward to origin/main: the cleanup run's base must be in its history" >&2; exit 1; }
-task=tas_b3424a1c
-exe=$(satelle task run "$task" --base origin/main --json --session "$session" | jq -r '.id // empty')
-[ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
-satelle execution set "$exe" --status in_progress --session "$session"
-satelle execution seat "$exe" --base origin/main --session "$session"
-satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1
-```
+Run `scripts/clear-worktrees-run.sh`.
 
 Then the task's ACTION, whose output is the run's `worktree-evidence`:
 
-```sh
-bash scripts/clear-worktrees.sh
-```
+Run `scripts/clear-worktrees-action.sh`.
 
-The cleanup (`scripts/clear-worktrees.sh`) removes each linked worktree that
+The cleanup (the repository's scripts/clear-worktrees.sh) removes each linked worktree that
 has no uncommitted or untracked change, whose HEAD is on a remote branch, and
 whose branch names no item or an item in a terminal state of its own workflow
 (so every released item's worktree), deletes its local branch, keeps and
@@ -857,27 +526,7 @@ tag exists: HEAD is main (origin/main, ahead of `v<ver>`) and the range is
 covered. The block decides which from git alone; on the second it refuses a
 drift task whose body does not state that head, before any run is created.
 
-```sh
-session=<session>
-cd <the main checkout>
-git fetch -q origin --tags
-task=tas_a45ba066
-ver=$(sed -n 's/^satelle\.version: *//p' .version)
-prev=$(git tag -l 'v*' | sed 's/^v//' | sort -V | awk -v v="$ver" '$0 == v { print p; exit } { p = $0 }')
-head=$(git rev-parse HEAD); tag=$(git rev-parse -q --verify "v$ver^{commit}")
-if [ -n "$ver" ] && [ -n "$tag" ] && [ "$head" = "$tag" ]; then
-  [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }
-elif [ -n "$ver" ] && [ -n "$tag" ] && git merge-base --is-ancestor "$tag" HEAD && [ "$head" = "$(git rev-parse origin/main)" ]; then
-  prev=$ver
-  satelle task get "$task" --session "$session" | grep -q 'binary-unchanged' || { echo "the drift review task $task does not state the head of a binary-unchanged release: restate its body (plan of sto_da9775c1, Configuration to apply) before this run" >&2; exit 1; }
-else
-  echo "the main checkout is neither at v$ver nor at origin/main ahead of it: the drift review judges the released tree or the main a binary-unchanged release fast-forwarded to" >&2; exit 1
-fi
-exe=$(satelle task run "$task" --base "v$prev" --json --session "$session" | jq -r '.id')
-satelle execution set "$exe" --status in_progress --session "$session"
-satelle execution seat "$exe" --base "v$prev" --session "$session"
-[ "$(satelle execution diff "$exe" --json --session "$session" | jq -r .base)" = "$(git rev-parse "v$prev^{commit}")" ] || { echo "run $exe is not judged from v$prev" >&2; exit 1; }
-```
+Run `scripts/drift-review-run.sh`.
 
 Then follow `.satelle/skills/drift-review.md` to `done`. The seat carries the
 same `--base` as the run: a seat without it records HEAD (the released tag
@@ -886,6 +535,6 @@ the one the gates judge from, and the diff the `drift-constitution` gate
 judges would be empty.
 
 A drift finding never reopens the release: it goes into the release's one
-drift-fix item (`scripts/drift-fix.sh`), and that item is the fix. The release
+drift-fix item (the repository's scripts/drift-fix.sh), and that item is the fix. The release
 run is already done when this starts; its drift gate (step 2a) already refused
 any substrate miss, so the review's findings are mostly the judges'.

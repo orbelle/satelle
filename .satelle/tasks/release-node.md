@@ -1,6 +1,6 @@
 # Release node part
 
-The task the release fires on a fly.io sprite: `.satelle/skills/release.md`
+The task the release fires on a fly.io sprite: `.satelle/skills/release/SKILL.md`
 `### Fire the node's part` runs `satelle remote fire release-sprite <task>
 --session <session>`, and the node runs the release's steps from the suite to
 the push to main (`.satelle/skills/satelle-release-node/SKILL.md`). The remote
@@ -34,7 +34,7 @@ session=<session>
 satelle task create --title "Release node part" --input-kind story --input-tag release-node --body - --session "$session" <<'BODY'
 The release's node part on a fly.io sprite (.satelle/tasks/release-node.md): test the drift-checked candidate once, decide the binary, bump, publish release.yml from release/<run> and fast-forward main.
 
-ACTION: fired by .satelle/skills/release.md ### Fire the node's part as satelle remote fire release-sprite <this task> --session <session>, with SATELLE_RELEASE_IN and SATELLE_RELEASE_OUT set; the node creates one execution of this task and drives it on the release-node workflow, whose backlog -> done move runs the satelle-release-node check (release-node.sh run) in the node.
+ACTION: fired by .satelle/skills/release/SKILL.md ### Fire the node's part as satelle remote fire release-sprite <this task> --session <session>, with SATELLE_RELEASE_IN and SATELLE_RELEASE_OUT set; the node creates one execution of this task and drives it on the release-node workflow, whose backlog -> done move runs the satelle-release-node check (release-node.sh run) in the node.
 VERIFICATION: satelle remote status release-sprite <this task> --session <session> shows the run concluded; the execution's gate.run notes of release-node are the compact result (secret-scan clean, or failed step <name>); scripts/release-node-verify.sh reads the brought-back result and finds the sprite destroyed.
 BODY
 ```

@@ -22,13 +22,61 @@ func shBlock(t *testing.T, rel, heading, task string) string {
 	return shBlockVar(t, rel, heading, "task", task)
 }
 
-func shBlockVar(t *testing.T, rel, heading, name, value string) string {
+const releaseSkill = ".satelle/skills/release/SKILL.md"
+
+var skillRunLine = regexp.MustCompile("(?m)^Run `(scripts/[a-z0-9-]+\\.sh)`\\.\n")
+
+// skillDoc reads rel, and for a skill directory's SKILL.md puts each of its
+// "Run `scripts/<name>.sh`." lines back as the sh block the script was
+// extracted from, so a block is read and run as the script's exact text.
+func skillDoc(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := string(b)
+	if filepath.Base(rel) != "SKILL.md" {
+		return string(b)
+	}
+	dir := filepath.Join("..", filepath.Dir(rel))
+	return skillRunLine.ReplaceAllStringFunc(string(b), func(line string) string {
+		script := skillRunLine.FindStringSubmatch(line)[1]
+		s, err := os.ReadFile(filepath.Join(dir, script))
+		if err != nil {
+			t.Fatalf("%s runs %s: %v", rel, script, err)
+		}
+		return "```sh\n" + string(s) + "```\n"
+	})
+}
+
+func TestReleaseSkillRunsEachScriptOnce(t *testing.T) {
+	raw := repoTextRaw(t, releaseSkill)
+	named := map[string]int{}
+	for _, m := range skillRunLine.FindAllStringSubmatch(raw, -1) {
+		named[m[1]]++
+	}
+	if strings.Contains(raw, "```sh") {
+		t.Errorf("%s still holds an sh block; each step's script is a file under scripts/", releaseSkill)
+	}
+	entries, err := os.ReadDir(filepath.Join("..", filepath.Dir(releaseSkill), "scripts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		rel := "scripts/" + e.Name()
+		if named[rel] != 1 {
+			t.Errorf("%s names %s %d times, want once", releaseSkill, rel, named[rel])
+		}
+		delete(named, rel)
+	}
+	for rel := range named {
+		t.Errorf("%s runs %s, which is not under its scripts/", releaseSkill, rel)
+	}
+}
+
+func shBlockVar(t *testing.T, rel, heading, name, value string) string {
+	t.Helper()
+	doc := skillDoc(t, rel)
 	if heading != "" {
 		i := strings.Index(doc, heading)
 		if i < 0 {
@@ -123,11 +171,11 @@ to = "retired"
 	return s, origin, s.create("task", "--title", "Release approved items", "--body", releaseTaskBody)
 }
 
-const releaseTaskBody = `ACTION: follow .satelle/skills/release.md over the run's items.
+const releaseTaskBody = `ACTION: follow .satelle/skills/release/SKILL.md over the run's items.
 
 ## Binary decision
 This section overrides any statement above that every run bumps, tags, publishes or installs.
-ACTION: after the suite passes, the run records as its release-binary attachment whether the candidate changes the shipped binaries (release.md, Decide: did the binary change). binary: changed: bump, tag, publish and install as stated above. binary: unchanged: main fast-forwards to the tested candidate; the run does not bump, tag, dispatch release.yml or install.
+ACTION: after the suite passes, the run records as its release-binary attachment whether the candidate changes the shipped binaries (release/SKILL.md, Decide: did the binary change). binary: changed: bump, tag, publish and install as stated above. binary: unchanged: main fast-forwards to the tested candidate; the run does not bump, tag, dispatch release.yml or install.
 VERIFICATION: release-binary is attached and its candidate is the tested sha.
 `
 
@@ -210,7 +258,7 @@ to = "done"
 	if shown.ID != q.ID || shown.DefinedBy != ".satelle/queues/release.toml" {
 		t.Fatalf("queue show release %+v", shown)
 	}
-	step0 := shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)
+	step0 := shBlock(t, releaseSkill, "## 0.", task.ID)
 	if m := regexp.MustCompile(`(?m)^que=(\S+)$`).FindAllStringSubmatch(step0, -1); len(m) != 1 || m[0][1] != "release" {
 		t.Fatalf("step 0 names release queue %v, want one que=release line", m)
 	}
@@ -473,7 +521,7 @@ func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 
 func TestReleaseRefusesATaskWithoutTheBinaryDecision(t *testing.T) {
 	s, _, _ := releaseSandbox(t)
-	task := s.create("task", "--title", "Release approved items", "--body", "ACTION: follow .satelle/skills/release.md.\n")
+	task := s.create("task", "--title", "Release approved items", "--body", "ACTION: follow .satelle/skills/release/SKILL.md.\n")
 	q := s.create("queue", "--title", "release")
 	writeReleaseQueue(t, s, q.ID, task.ID)
 	s.must("validate")
@@ -485,7 +533,7 @@ func TestReleaseRefusesATaskWithoutTheBinaryDecision(t *testing.T) {
 		s.mustJSON(&out, "execution", "list", "--parent", task.ID)
 		return len(out)
 	}
-	r := s.exec("bash", "", "-c", shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID))
+	r := s.exec("bash", "", "-c", shBlock(t, releaseSkill, "## 0.", task.ID))
 	if r.code != 1 || !strings.Contains(r.err, "does not name the run's release-binary record") {
 		t.Fatalf("step 0 on a task without the binary decision: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -493,7 +541,7 @@ func TestReleaseRefusesATaskWithoutTheBinaryDecision(t *testing.T) {
 		t.Fatalf("a refused step 0 created %d runs", n)
 	}
 	s.must("task", "set", task.ID, "--body", releaseTaskBody)
-	if r := s.exec("bash", "", "-c", shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)); r.code != 0 {
+	if r := s.exec("bash", "", "-c", shBlock(t, releaseSkill, "## 0.", task.ID)); r.code != 0 {
 		t.Fatalf("step 0 on the restated task: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if n := runs(); n != 1 {
