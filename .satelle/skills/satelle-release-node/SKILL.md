@@ -46,5 +46,5 @@ and stop scripts call the sprite CLI themselves, so no script is shared.
 ## The check
 
 ```sh
-bash .satelle/skills/satelle-release-node/scripts/release-node.sh run
+bash "$SATELLE_SKILL_DIR/scripts/release-node.sh" run
 ```

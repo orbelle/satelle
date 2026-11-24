@@ -70,7 +70,8 @@ session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
-dtask=$(sed -n 's/^task = "\(.*\)"$/\1/p' .satelle/remotes/docker-drift-check/remote.toml)
+sub=${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}
+dtask=$(sed -n 's/^task = "\(.*\)"$/\1/p' "$sub/remotes/docker-drift-check/remote.toml")
 [ -n "$dtask" ] || { echo "docker-drift-check names no [drive] task" >&2; exit 1; }
 satelle remote fire docker-drift-check "$dtask" --session "$session" > "$rd/node-fire.txt" 2>&1
 echo "fire exit $?" >> "$rd/node-fire.txt"

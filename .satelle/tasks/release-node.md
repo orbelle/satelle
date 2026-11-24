@@ -51,7 +51,8 @@ task=<the task id found above>
 sha=$(git rev-parse HEAD)
 base=$(git rev-parse origin/main)
 d=$(mktemp -d)
-branch=$(bash .satelle/skills/satelle-release-node/scripts/release-node.sh dry-input "$d/in" "$sha" "$base")
+sub=${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}
+branch=$(bash "$sub/skills/satelle-release-node/scripts/release-node.sh" dry-input "$d/in" "$sha" "$base")
 git push origin "$sha:refs/heads/$branch"
 SATELLE_RELEASE_IN="$d/in" SATELLE_RELEASE_OUT="$d/node-out" satelle remote fire release-sprite "$task" --session "$session"
 satelle remote status release-sprite "$task" --session "$session"

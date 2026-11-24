@@ -21,9 +21,10 @@ the new tag cannot be written: the item might keep an earlier, lighter tag that
 ```sh
 #!/usr/bin/env bash
 set -u -o pipefail
-key=$(sed -n 's/^tier_tag *= *"\([^"]*\)".*/\1/p' .satelle/satelle.toml | head -1)
+sub=${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}
+key=$(sed -n 's/^tier_tag *= *"\([^"]*\)".*/\1/p' "$sub/satelle.toml" | head -1)
 if [ -z "$key" ]; then
-  echo "no tier_tag in .satelle/satelle.toml [review]: nothing recorded"
+  echo "no tier_tag in $sub/satelle.toml [review]: nothing recorded"
   exit 0
 fi
 in=$(cat)
