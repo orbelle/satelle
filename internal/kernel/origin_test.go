@@ -259,3 +259,17 @@ func TestQueueMirrorCarriesNoOrigin(t *testing.T) {
 		t.Fatalf("mirror events differ:\n%+v\n%+v", x, y)
 	}
 }
+
+func TestSetOriginRecordsOnlyAKnownRole(t *testing.T) {
+	k, _ := originKernel(t)
+	for _, r := range ledger.Roles() {
+		k.SetOrigin("m1", r, "")
+		if k.Ledger.Origin.Role != r {
+			t.Fatalf("SetOrigin(%q) recorded role %q", r, k.Ledger.Origin.Role)
+		}
+	}
+	k.SetOrigin("m1", "operator", "")
+	if k.Ledger.Origin.Role != ledger.RoleSession {
+		t.Fatalf("SetOrigin(unknown) recorded role %q, want %q", k.Ledger.Origin.Role, ledger.RoleSession)
+	}
+}
