@@ -200,8 +200,7 @@ func GitLookupEnv(environ, withhold []string) []string {
 
 func credentialName(name string) bool {
 	u := strings.ToUpper(name)
-	return strings.HasPrefix(u, "GH_") || strings.HasPrefix(u, "GITHUB_") ||
-		strings.Contains(u, "TOKEN") || strings.Contains(u, "SECRET") || strings.Contains(u, "PASSWORD")
+	return strings.Contains(u, "TOKEN") || strings.Contains(u, "SECRET") || strings.Contains(u, "PASSWORD")
 }
 
 func LogsDir(runtime string) string { return filepath.Join(runtime, "logs") }
