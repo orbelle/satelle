@@ -24,7 +24,7 @@ func shBlock(t *testing.T, rel, heading, task string) string {
 
 const releaseSkill = ".satelle/skills/release/SKILL.md"
 
-var skillRunLine = regexp.MustCompile("(?m)^Run `(scripts/[a-z0-9-]+\\.sh)`\\.\n")
+var skillRunLine = regexp.MustCompile("(?m)^Run `(\\.satelle/skills/release/scripts/[a-z0-9-]+\\.sh)`\\.\n")
 
 func skillDoc(t *testing.T, rel string) string {
 	t.Helper()
@@ -35,10 +35,9 @@ func skillDoc(t *testing.T, rel string) string {
 	if filepath.Base(rel) != "SKILL.md" {
 		return string(b)
 	}
-	dir := filepath.Join("..", filepath.Dir(rel))
 	return skillRunLine.ReplaceAllStringFunc(string(b), func(line string) string {
 		script := skillRunLine.FindStringSubmatch(line)[1]
-		s, err := os.ReadFile(filepath.Join(dir, script))
+		s, err := os.ReadFile(filepath.Join("..", script))
 		if err != nil {
 			t.Fatalf("%s runs %s: %v", rel, script, err)
 		}
@@ -55,12 +54,13 @@ func TestReleaseSkillRunsEachScriptOnce(t *testing.T) {
 	if strings.Contains(raw, "```sh") {
 		t.Errorf("%s still holds an sh block; each step's script is a file under scripts/", releaseSkill)
 	}
-	entries, err := os.ReadDir(filepath.Join("..", filepath.Dir(releaseSkill), "scripts"))
+	scriptsDir := filepath.Dir(releaseSkill) + "/scripts/"
+	entries, err := os.ReadDir(filepath.Join("..", scriptsDir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		rel := "scripts/" + e.Name()
+		rel := scriptsDir + e.Name()
 		if named[rel] != 1 {
 			t.Errorf("%s names %s %d times, want once", releaseSkill, rel, named[rel])
 		}
@@ -68,6 +68,20 @@ func TestReleaseSkillRunsEachScriptOnce(t *testing.T) {
 	}
 	for rel := range named {
 		t.Errorf("%s runs %s, which is not under its scripts/", releaseSkill, rel)
+	}
+}
+
+func TestReleaseSkillScriptNamesAreNotRepoScriptNames(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("..", filepath.Dir(releaseSkill), "scripts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if _, err := os.Stat(filepath.Join("..", "scripts", e.Name())); err == nil {
+			t.Errorf("%s/scripts/%s has the name of the repository's scripts/%s", filepath.Dir(releaseSkill), e.Name(), e.Name())
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
 	}
 }
 

@@ -72,14 +72,19 @@ the run (`release-kept` and `release-drift`, `### The node's input`;
 `release-binary` and `release-node`, `### Read the node's result`; and
 `release-evidence`).
 
-Each step's script is a file under this skill's `scripts/`, named at its
-`Run` line. Read it, fill each `<...>` placeholder as the step says, and run
-it with bash from the repository root; a `scripts/` path inside a script is
-the repository's own, not this skill's.
+Each step's script is a file under `.satelle/skills/release/scripts/`, named
+by its full path at its `Run` line. At step 0, while the session's tree is
+still its own and not detached, read every step script from
+`.satelle/skills/release/scripts/`. For each step, fill that step's `<...>`
+placeholders in the text read at step 0 and give the filled text to bash
+(`bash -s` or a heredoc) with the repository root as the working directory.
+Never run a step script by a path in a tree detached at the candidate: the
+candidate's tree must not supply a step's text. A `scripts/` path inside a
+script is the repository's own, not this skill's.
 
 ## 0. Start and read the run
 
-Run `scripts/start-run.sh`.
+Run `.satelle/skills/release/scripts/start-run.sh`.
 
 The after-review (`satelle-task-validate-after-review`) reads only the run's
 record folder, so the run carries its parent task as the attachment `task`
@@ -125,7 +130,7 @@ requests. A carried item (no open pull request, a merged one whose head is on
 `origin/main`) has no review to read: the run that landed it read the app's
 review on that head, and a review of a landed head sends nothing back.
 
-Run `scripts/review-heads.sh`.
+Run `.satelle/skills/release/scripts/review-heads.sh`.
 
 Record `sha256sum` of `$(command -v satelle)` and of the
 satelled binary in the `installed` line of `satelle service status --session <session>`; the same
@@ -168,7 +173,7 @@ versions is the one change it keeps: adding `docs/releases/v<ver>.md` (or
 never the head, so a head cannot relax it; a tip without a `.version` sends
 back every path); every other change is sent back naming the path.
 
-Run `scripts/changelog-verdict.sh`.
+Run `.satelle/skills/release/scripts/changelog-verdict.sh`.
 
 ### Build the candidate
 
@@ -193,7 +198,7 @@ order). Each item prints one line, `<id>: <fast-forward|merged|contained|sent
 back|skipped> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
 "nothing lands" when no item is kept (send back, step 2c, and stop).
 
-Run `scripts/build-candidate.sh`.
+Run `.satelle/skills/release/scripts/build-candidate.sh`.
 
 ### Drift gate on the candidate
 
@@ -208,7 +213,7 @@ On exit 0 it records the candidate's sha in `$rd/drift-checked` and writes
 `### The node's input` and the node's `fetch` and `guard` steps refuse a
 candidate whose sha is not in `$rd/drift-checked`.
 
-Run `scripts/drift-gate.sh`.
+Run `.satelle/skills/release/scripts/drift-gate.sh`.
 
 The release fixes a miss in the same run, before the suite:
 
@@ -238,7 +243,7 @@ c. Send back each item on the list. It reopens, and the coder's next run
 Runs over `$rd/sendback` and empties it, so a second pass sends back only
 what was added since. An item no longer `approved` is not moved again.
 
-Run `scripts/send-back.sh`.
+Run `.satelle/skills/release/scripts/send-back.sh`.
 
    When the installed satelle refuses the tip's workflows (an unknown key, such
    as a gate's `after`, from a satelle older than the build origin/main
@@ -276,7 +281,7 @@ attaches `release-kept` and `release-drift` to the run (step 4) and pushes the
 candidate to `release/<exe>`, removing a stale one from an earlier attempt of
 this run first (`git push --delete`, never a force).
 
-Run `scripts/node-input.sh`.
+Run `.satelle/skills/release/scripts/node-input.sh`.
 
 ### Fire the node's part
 
@@ -291,7 +296,7 @@ with margin for setup, the suite and `release.yml`; read that timeout with
 gives it to the node on the exec command's stdin only; this block never reads
 either. The task is the remote's `[drive] task`.
 
-Run `scripts/fire-node.sh`.
+Run `.satelle/skills/release/scripts/fire-node.sh`.
 
 ### Read the node's result
 
@@ -321,7 +326,7 @@ refuses the attach.
   It stops; cancel the run and fire again, and the next run carries the landed
   items as contained (step 2a).
 
-Run `scripts/read-node-result.sh`.
+Run `.satelle/skills/release/scripts/read-node-result.sh`.
 
 A suspect is sent back only on the session's reading of the failure (a red
 suite names its tests in `failing`): run the line `release-evidence` gives it,
@@ -424,7 +429,7 @@ is at the bump. The result carries the `release.yml` run and both tags.
 
 Binary changed only.
 
-Run `scripts/backup-install.sh`.
+Run `.satelle/skills/release/scripts/backup-install.sh`.
 
 The restore line is printed, with real paths and no placeholder, before
 anything is replaced. The backup is never deleted by the run. The second
@@ -496,11 +501,11 @@ main checkout, so the block first fast-forwards the checkout to origin/main
 `--base origin/main` is not in HEAD's history and its move to in_progress and
 its seat are refused:
 
-Run `scripts/clear-worktrees-run.sh`.
+Run `.satelle/skills/release/scripts/clear-worktrees-run.sh`.
 
 Then the task's ACTION, whose output is the run's `worktree-evidence`:
 
-Run `scripts/clear-worktrees-action.sh`.
+Run `.satelle/skills/release/scripts/clear-worktrees-action.sh`.
 
 The cleanup (the repository's scripts/clear-worktrees.sh) removes each linked worktree that
 has no uncommitted or untracked change, whose HEAD is on a remote branch, and
@@ -526,7 +531,7 @@ tag exists: HEAD is main (origin/main, ahead of `v<ver>`) and the range is
 covered. The block decides which from git alone; on the second it refuses a
 drift task whose body does not state that head, before any run is created.
 
-Run `scripts/drift-review-run.sh`.
+Run `.satelle/skills/release/scripts/drift-review-run.sh`.
 
 Then follow `.satelle/skills/drift-review.md` to `done`. The seat carries the
 same `--base` as the run: a seat without it records HEAD (the released tag
