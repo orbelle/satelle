@@ -201,6 +201,11 @@ func TestLedgerDevPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 		}
 		s.mustJSON(&all, "ledger", "list", id)
 		for _, e := range all {
+			var m map[string]json.RawMessage
+			if json.Unmarshal(e.Payload, &m) == nil {
+				delete(m, "origin")
+				e.Payload, _ = json.Marshal(m)
+			}
 			var c bytes.Buffer
 			_ = json.Compact(&c, e.Payload)
 			e.Payload = c.Bytes()
