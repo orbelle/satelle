@@ -48,9 +48,11 @@ node contract over exec. Any other remote is started by
 satelle-server for the bound project: 'remote fire' pushes the item's chain
 to the bound project first, whatever [ledger] store names, and refuses an
 item that diverged from it; 'remote status' pulls it back once the run
-concluded. 'remote stop' ends a detached docker-local run's node: it removes
-the container, records the run stopped and releases the node's seat. See
-'satelle help remotes'.`,
+concluded. 'remote fire --detach' returns once a docker-local or command node
+has started its run (a command node gets its secrets on that start's stdin);
+'remote status' brings the run back. 'remote stop' ends a detached run's node:
+it removes the container or runs [connect] stop, records the run stopped and
+releases the node's seat. See 'satelle help remotes'.`,
 	}
 	cmd.AddCommand(remoteFireCmd(), remoteStatusCmd(), remoteStopCmd())
 	return cmd
@@ -116,6 +118,41 @@ func takeFireSecrets(id string) (remotenode.Secrets, error) {
 	return s, nil
 }
 
+func takeHeldSecrets(id, itemID string) (remotenode.Secrets, string, error) {
+	dataDir, ok := config.FindDataDir("")
+	if !ok {
+		return remotenode.Secrets{}, "", nil
+	}
+	def, _, err := remotenode.LoadLocal(dataDir, id)
+	if err != nil || !remotenode.RunsHere(def) {
+		return remotenode.Secrets{}, "", nil
+	}
+	var declared []string
+	for _, e := range def.SecretEntries() {
+		declared = append(declared, e.Key)
+	}
+	runtime := config.RuntimeDirEnv(filepath.Dir(dataDir), config.GitLookupEnv(os.Environ(), declared))
+	sidecar, err := localRuns(repo{DataDir: dataDir, Runtime: runtime}).LoadDetached(id, itemID)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if _, uerr := remotenode.TakeHeldSecrets(def, nil, os.LookupEnv, dataDir); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
+		return remotenode.Secrets{}, "", err
+	}
+	s, err := remotenode.TakeHeldSecrets(def, sidecar.SecretNames, os.LookupEnv, dataDir)
+	if err != nil {
+		return remotenode.Secrets{}, "", fmt.Errorf("remote %s: %w", id, err)
+	}
+	return s, runtime, nil
+}
+
+func sameRuntime(withheld string, r repo) error {
+	if withheld != "" && withheld != r.Runtime {
+		return fmt.Errorf("the runtime directory found with the secrets withheld (%s) is not the repo's (%s); nothing was run on the node", withheld, r.Runtime)
+	}
+	return nil
+}
+
 func firingBinary() string {
 	p, err := os.Executable()
 	if err != nil {
@@ -142,13 +179,9 @@ func remoteFireCmd() *cobra.Command {
 			if steps < 0 {
 				return fmt.Errorf("--steps %d: a step count is 0 or more", steps)
 			}
-			var secrets remotenode.Secrets
-			if !detach {
-				s, err := takeFireSecrets(args[0])
-				if err != nil {
-					return err
-				}
-				secrets = s
+			secrets, err := takeFireSecrets(args[0])
+			if err != nil {
+				return err
 			}
 			k, r, err := openKernel()
 			if err != nil {
@@ -184,12 +217,12 @@ func remoteFireCmd() *cobra.Command {
 				return errors.New("--steps applies to a remote that runs here")
 			}
 			if detach {
-				return errors.New("--detach applies to a docker-local remote")
+				return errors.New("--detach applies to a remote that runs here (docker-local or command)")
 			}
 			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error { return fireOnServer(cmd, k, b, args) })
 		},
 	}
-	cmd.Flags().BoolVar(&detach, "detach", false, "a docker-local node: return once the node has started and been given its work; bring the run back with satelle remote status")
+	cmd.Flags().BoolVar(&detach, "detach", false, "a docker-local or command node: return once the node has started its run (a command node gets its secrets on that start's stdin); bring the run back with satelle remote status")
 	cmd.Flags().IntVar(&steps, "steps", 0, "a node that runs here (docker-local or command) drives at most this many steps (default 0: as far as the item goes)")
 	return cmd
 }
@@ -233,11 +266,18 @@ func remoteStatusCmd() *cobra.Command {
 		Short: "Show the latest run of the remote for the item; pull its chain once it concluded",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			secrets, withheld, err := takeHeldSecrets(args[0], args[1])
+			if err != nil {
+				return err
+			}
 			k, r, err := openKernel()
 			if err != nil {
 				return err
 			}
 			defer k.Close()
+			if err := sameRuntime(withheld, r); err != nil {
+				return err
+			}
 			def, _, local, err := localRemote(r, args[0])
 			if err != nil {
 				return err
@@ -265,7 +305,7 @@ func remoteStatusCmd() *cobra.Command {
 				defer stop()
 				cmd.SetContext(ctx)
 				o := remotenode.BringBackOptions{Kernel: k, Runs: localRuns(r), Remote: args[0], Item: args[1],
-					Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr()}
+					Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr(), Secrets: secrets}
 				return show(func(ctx context.Context) (*satellepb.ItemRun, error) { return remotenode.BringBackLocal(ctx, o) }, nil)
 			}
 			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error {
@@ -293,25 +333,32 @@ func remoteStatusCmd() *cobra.Command {
 func remoteStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop <remote-id> <item-or-task>",
-		Short: "End a detached docker-local run's node: remove its container, record the run stopped, release its seat",
+		Short: "End a detached run's node (docker-local or command): stop it, record the run stopped, release its seat",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			secrets, withheld, err := takeHeldSecrets(args[0], args[1])
+			if err != nil {
+				return err
+			}
 			k, r, err := openKernel()
 			if err != nil {
 				return err
 			}
 			defer k.Close()
+			if err := sameRuntime(withheld, r); err != nil {
+				return err
+			}
 			def, _, local, err := localRemote(r, args[0])
 			if err != nil {
 				return err
 			}
-			if !local || def.Provider != remotedef.ProviderDockerLocal {
-				return errors.New("remote stop applies to a docker-local remote")
+			if !local {
+				return errors.New("remote stop applies to a remote that runs here (docker-local or command)")
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			run, err := remotenode.StopLocal(ctx, remotenode.BringBackOptions{Kernel: k, Runs: localRuns(r), Remote: args[0], Item: args[1],
-				Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr()})
+				Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr(), Secrets: secrets})
 			if err != nil {
 				return err
 			}
@@ -457,16 +504,31 @@ It exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 
 func nodeRunLocalCmd() *cobra.Command {
 	var dir string
-	var progress bool
+	var progress, detach bool
 	cmd := &cobra.Command{
 		Use:   "run-local",
 		Short: "Run the local node a docker-local fire started, from the files it handed over",
 		Long: `run-local is what a docker-local node runs in its container. It reads its
 definition, substrate, run and the item's chain from <dir>/in, drives the item
 and writes its outcome to <dir>/out; the starter copies the chain back. It
-exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
+exits 0 when the run concluded accepting, 2 when it concluded rejecting. With
+--detach it starts that run in its own session, hands it its stdin, and exits
+0 once the run has started; the run writes its log and exit status to
+<dir>/out/node.log and <dir>/out/exit.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if detach {
+				self, err := os.Executable()
+				if err != nil {
+					return err
+				}
+				abs, err := filepath.Abs(dir)
+				if err != nil {
+					return err
+				}
+				return remotenode.StartDetachedRun(remotenode.StartDetachedOptions{Dir: abs, Self: self, Progress: progress,
+					Stdin: cmd.InOrStdin(), Out: cmd.OutOrStdout()})
+			}
 			out, err := remotenode.RunLocal(cmd.Context(), remotenode.LocalOptions{Dir: dir, Log: cmd.ErrOrStderr(), Version: buildinfo.Version, Secrets: cmd.InOrStdin(), Progress: progress})
 			if err != nil {
 				return err
@@ -480,6 +542,7 @@ exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 	}
 	cmd.Flags().StringVar(&dir, "dir", remotenode.LocalNodeDir, "the node's root")
 	cmd.Flags().BoolVar(&progress, "progress", false, "write the step the node last started to <dir>/out/progress; refused when the definition declares [secrets]")
+	cmd.Flags().BoolVar(&detach, "detach", false, "start the run in its own session, hand it this command's stdin, and return once it has started")
 	return cmd
 }
 

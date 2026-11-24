@@ -30,6 +30,7 @@ case "$cmd" in
     dst="$ROOT/$1$3"
     mkdir -p "$(dirname "$dst")" && cp -R "$2" "$dst" ;;
   exec)
+    [ -f "$ROOT/lost" ] && { echo "fixture: lost" >&2; exit 255; }
     node=$1; shift
     [ -d "$ROOT/$node" ] || { echo "fixture: no node $node" >&2; exit 1; }
     if [ "$1 $2 $3" = "satelle node run-local" ] && [ -f "$ROOT/fail-run-local" ]; then
@@ -44,7 +45,9 @@ case "$cmd" in
     done
     shift $n
     PATH="$ROOT/$node/usr/local/bin:$PATH" HOME="$ROOT/$node/home" exec "$@" ;;
-  stop) rm -rf "$ROOT/$1" ;;
+  stop)
+    [ -f "$ROOT/fail-stop" ] && { echo "fixture: stop failed" >&2; exit 1; }
+    rm -rf "$ROOT/$1" ;;
   *) echo "fixture: $cmd is not a command" >&2; exit 2 ;;
 esac
 `
@@ -299,7 +302,23 @@ func commandSecretSandbox(t *testing.T) (sb *secretBox, root, guard string) {
 	s.git("add", ".satelle")
 	s.git("commit", "-q", "-m", "command secret probe")
 	root, guard = installCommandNode(t, s)
+	nodeGitIsTheNodes(t, s, root)
 	return sb, root, guard
+}
+
+func nodeGitIsTheNodes(t *testing.T, s *sandbox, root string) {
+	t.Helper()
+	const placeholder = "/nonexistent-satelle-node-dir"
+	for _, dir := range s.path {
+		shim := filepath.Join(dir, "git")
+		b, err := os.ReadFile(shim)
+		if err != nil || !strings.Contains(string(b), placeholder) {
+			continue
+		}
+		writeFile(t, shim, strings.ReplaceAll(string(b), placeholder, root), 0o755)
+		return
+	}
+	t.Fatal("no git shim to tell the fixture node's git from the host's")
 }
 
 func assertCommandProbe(t *testing.T, sb *secretBox, guard string, r result) string {

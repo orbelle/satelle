@@ -39,32 +39,54 @@ imports it, releases the seat (also on failure) and records the run, which
 `node:<node>`.
 
 `remote fire <remote> <item> --detach` does not hold the session: it returns
-once the docker-local node has started and been given its work, printing the
-node, and records the run running while the node goes on working. Nothing
-brings the run back on its own: `remote status <remote> <item>` does, when a
-command asks. Once the node has concluded it imports the node's chains,
-verified as a fire does, records the run concluded with its verdict, releases
-the node's seat and, with `scope = "run"`, removes the container; a node that
-failed, or whose container is gone, is recorded stopped with the reason and
-its seat released. A node still working that answers within the status bound
-(15s) is reported running, with the step it last started: its start, a setup
-command, a drive, an agent dispatch or its conclusion. That progress line is
-satelle's own step text and never carries command or agent output. A node that
-does not answer within the bound is reported lost, with when it last answered;
-lost records nothing, stops nothing and releases no seat, and the next
-`remote status` asks again. An interrupted status records nothing either.
-`--detach` is refused for a command remote and for a definition with
-`[secrets]`, which reach a node only on the stdin of an attached run; the node
-itself refuses `--progress`, the flag a detached start passes, for such a
-definition.
+once the docker-local or command node has started its run, printing the node,
+and records the run running while the node goes on working. Nothing brings
+the run back on its own: `remote status <remote> <item>` does, when a command
+asks. Once the node has concluded it imports the node's chains, verified as a
+fire does, records the run concluded with its verdict, releases the node's
+seat and, with `scope = "run"`, removes the container or runs `[connect]
+stop`; a node that failed, or whose container is gone, is recorded stopped
+with the reason and its seat released. A node still working that answers
+within the status bound (15s) is reported running, with the step it last
+started: its start, a setup command, a drive, an agent dispatch or its
+conclusion. That progress line is satelle's own step text and never carries
+command or agent output. A node that does not answer within the bound is
+reported lost, with when it last answered; lost records nothing, stops nothing
+and releases no seat, and the next `remote status` asks again. An interrupted
+status records nothing either.
 
-`remote stop <remote> <item>` ends a detached docker-local run's node that is
-still working, or hangs: it removes the node's container, which ends its work,
-then records the run stopped with who stopped it (the `--session`) as its
-reason and releases the node's seat, by that session. A removal that fails
-records nothing, so the stop can be run again. It refuses a run that already
-concluded or stopped, a run fired attached (interrupt that fire instead), and
-any remote that is not docker-local.
+A command remote detaches with or without `[secrets]`. The `[connect] exec`
+that starts the node's run (`node run-local --detach`) carries the
+secrets on its stdin, as an attached run's does, and returns once the run has
+started: the node runs on in its own session, holding none of that exec's
+output, so no process stays alive here. The detached record keeps the names
+of the secrets handed, never a value. `remote status` and `remote stop` take
+those names, and the definition's, from the shell or `.satelle/.env` and
+unset them at entry, before any git or `[connect]` command runs (the one
+lookup of the runtime directory before then runs with only PATH, HOME,
+XDG_CONFIG_HOME and the GIT_ variables); one that cannot be taken refuses
+the command, naming it, and nothing runs on the node. Status brings the run
+back through `[connect] exec`, scans what comes back for every value before
+it imports, redacts every reason it records, reads no progress for a secret
+run, and runs `[connect] stop` for a secret or `scope = "run"` node. A secret
+node that is lost (its exec fails or does not answer) or failed is stopped
+and recorded stopped with the reason. A `[connect] stop` that fails records
+nothing new, keeps the detached record and names the stop command, and a
+re-fire of that remote on that item is refused until `remote stop` (or the
+next status) stops the node. `--detach` is refused only for a docker-local
+definition with `[secrets]`: a docker-local detached start has no stdin. The
+node itself refuses `--progress`, the flag a detached start passes when the
+definition declares no secret, for a definition with `[secrets]`.
+
+`remote stop <remote> <item>` ends a detached run's node that is still
+working, or hangs: it removes the docker-local node's container, or runs the
+command remote's `[connect] stop`, which ends its work, then records the run
+stopped with who stopped it (the `--session`) as its reason and releases the
+node's seat, by that session. A removal or stop that fails records nothing,
+so the stop can be run again. It refuses a run that already concluded or
+stopped (unless its command node's stop failed: then it stops the node), a
+run fired attached (interrupt that fire instead), and any remote that does
+not run here.
 
 A docker-local node may start from a plain image that [setup] prepares, as a
 sprite does. When `[machine] image` names one (debian, ubuntu), the image

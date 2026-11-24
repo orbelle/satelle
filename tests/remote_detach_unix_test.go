@@ -125,36 +125,37 @@ func TestDockerLocalDetachedRunWhoseContainerIsGone(t *testing.T) {
 	}
 }
 
-func commandRemoteSandbox(t *testing.T) (*sandbox, string) {
+func serverRemoteSandbox(t *testing.T) (*sandbox, string) {
 	t.Helper()
 	s, id, _ := dockerLocalSandbox(t, false)
-	s.write(".satelle/remotes/cmd-probe/remote.toml", `version = 1
-name = "cmd-probe"
-provider = "command"
+	s.write(".satelle/remotes/srv-probe/remote.toml", `version = 1
+name = "srv-probe"
+provider = "fly-sprite"
 satelle_version = "1.0.21"
 
 [drive]
 kind = "item"
-
-[connect]
-start = ["true"]
-network = ["true"]
-copy_in = ["cp", "{src}", "{dst}"]
-exec = ["true"]
-stop = ["true"]
 `)
 	return s, id
 }
 
-func TestDockerLocalFireDetachRefusesACommandRemote(t *testing.T) {
+func TestRemoteFireDetachRefusesAServerRemote(t *testing.T) {
 	t.Parallel()
-	s, id := commandRemoteSandbox(t)
-	r := s.run("remote", "fire", "cmd-probe", id, "--detach")
-	if r.code == 0 || !strings.Contains(r.err, "--detach applies to a docker-local remote") {
-		t.Fatalf("fire --detach on a command remote = %d:\n%s%s", r.code, r.out, r.err)
+	s, id := serverRemoteSandbox(t)
+	r := s.run("remote", "fire", "srv-probe", id, "--detach")
+	if r.code == 0 || !strings.Contains(r.err, "--detach applies to a remote that runs here (docker-local or command)") {
+		t.Fatalf("fire --detach on a server remote = %d:\n%s%s", r.code, r.out, r.err)
 	}
 }
 
+func TestRemoteStopRefusesAServerRemote(t *testing.T) {
+	t.Parallel()
+	s, id := serverRemoteSandbox(t)
+	r := s.run("remote", "stop", "srv-probe", id)
+	if r.code == 0 || !strings.Contains(r.err, "remote stop applies to a remote that runs here (docker-local or command)") {
+		t.Fatalf("remote stop on a server remote = %d:\n%s%s", r.code, r.out, r.err)
+	}
+}
 func TestDockerLocalRemoteStopEndsADetachedNode(t *testing.T) {
 	t.Parallel()
 	s, id, fake, node, name := fireDetached(t)
@@ -191,14 +192,5 @@ func TestDockerLocalRemoteStopEndsADetachedNode(t *testing.T) {
 	}
 	if v := s.must("ledger", "verify"); !strings.Contains(v, "chains intact") {
 		t.Fatalf("ledger verify: %s", v)
-	}
-}
-
-func TestDockerLocalRemoteStopRefusesACommandRemote(t *testing.T) {
-	t.Parallel()
-	s, id := commandRemoteSandbox(t)
-	r := s.run("remote", "stop", "cmd-probe", id)
-	if r.code == 0 || !strings.Contains(r.err, "remote stop applies to a docker-local remote") {
-		t.Fatalf("remote stop on a command remote = %d:\n%s%s", r.code, r.out, r.err)
 	}
 }

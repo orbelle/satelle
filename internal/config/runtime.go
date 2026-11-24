@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
@@ -93,7 +94,7 @@ func gitCommonIdentity(repoRoot string) (identity, basename string, ok bool) {
 	if hit {
 		return r.identity, r.basename, r.ok
 	}
-	identity, basename, ok = gitCommonIdentityUncached(repoRoot)
+	identity, basename, ok = gitCommonIdentityEnv(repoRoot, nil)
 	if memo {
 		gitIdentityMemo.mu.Lock()
 		if gitIdentityMemo.byRoot != nil {
@@ -104,10 +105,17 @@ func gitCommonIdentity(repoRoot string) (identity, basename string, ok bool) {
 	return identity, basename, ok
 }
 
-func gitCommonIdentityUncached(repoRoot string) (identity, basename string, ok bool) {
-	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+func gitCommonIdentityEnv(repoRoot string, env []string) (identity, basename string, ok bool) {
+	git := func(args ...string) ([]byte, error) {
+		cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
+		if env != nil {
+			cmd.Env = env
+		}
+		return cmd.Output()
+	}
+	out, err := git("rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
-		out, err = exec.Command("git", "-C", repoRoot, "rev-parse", "--git-common-dir").Output()
+		out, err = git("rev-parse", "--git-common-dir")
 		if err != nil {
 			return "", "", false
 		}
@@ -162,6 +170,38 @@ func sanitiseBasename(s string) string {
 
 func RuntimeDir(repoRoot string) string {
 	return filepath.Join(GlobalDir(), RepoKey(repoRoot))
+}
+
+func RuntimeDirEnv(repoRoot string, env []string) string {
+	root := strings.TrimSpace(repoRoot)
+	if root == "" {
+		root = "."
+	}
+	identity, base, ok := gitCommonIdentityEnv(root, env)
+	if !ok {
+		identity, base = pathIdentity(root)
+	}
+	return filepath.Join(GlobalDir(), keyFromIdentity(identity, base))
+}
+
+func GitLookupEnv(environ, withhold []string) []string {
+	out := []string{}
+	for _, kv := range environ {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || slices.Contains(withhold, name) || credentialName(name) {
+			continue
+		}
+		if name == "PATH" || name == "HOME" || name == "XDG_CONFIG_HOME" || strings.HasPrefix(name, "GIT_") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+func credentialName(name string) bool {
+	u := strings.ToUpper(name)
+	return strings.HasPrefix(u, "GH_") || strings.HasPrefix(u, "GITHUB_") ||
+		strings.Contains(u, "TOKEN") || strings.Contains(u, "SECRET") || strings.Contains(u, "PASSWORD")
 }
 
 func LogsDir(runtime string) string { return filepath.Join(runtime, "logs") }

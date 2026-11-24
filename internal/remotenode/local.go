@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,10 +197,11 @@ func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
 }
 
 type LocalDetached struct {
-	Chains   []string  `json:"chains"`
-	Remove   bool      `json:"remove,omitempty"`
-	Egress   bool      `json:"egress,omitempty"`
-	Answered time.Time `json:"answered,omitzero"`
+	Chains      []string  `json:"chains"`
+	Remove      bool      `json:"remove,omitempty"`
+	Egress      bool      `json:"egress,omitempty"`
+	SecretNames []string  `json:"secret_names,omitempty"`
+	Answered    time.Time `json:"answered,omitzero"`
 }
 
 func (r LocalRuns) SaveDetached(remote, itemID string, d LocalDetached) error {
@@ -277,35 +279,9 @@ func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool), d
 		return Secrets{}, err
 	}
 	names := secretNames(def)
-	if len(names) == 0 {
-		return Secrets{}, nil
-	}
-	shell := map[string]string{}
-	for _, n := range names {
-		if v, ok := lookup(n); ok && v != "" {
-			shell[n] = v
-		}
-	}
-	for _, n := range names {
-		if err := os.Unsetenv(n); err != nil {
-			return Secrets{}, fmt.Errorf("secret %s: %w", n, err)
-		}
-	}
-	file, err := fileSecrets(dataDir)
-	if err != nil {
+	values, missing, err := collectSecrets(names, nil, lookup, dataDir)
+	if err != nil || len(names) == 0 {
 		return Secrets{}, err
-	}
-	values := map[string]string{}
-	var missing []string
-	for _, n := range names {
-		switch {
-		case shell[n] != "":
-			values[n] = shell[n]
-		case file[n] != "":
-			values[n] = file[n]
-		default:
-			missing = append(missing, n)
-		}
 	}
 	switch len(missing) {
 	case 0:
@@ -315,6 +291,66 @@ func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool), d
 		return Secrets{}, fmt.Errorf("secrets %s are not set in the firing shell's environment or in %s", strings.Join(missing, ", "), secretsFileName)
 	}
 	return Secrets{Names: names, Values: values, Redact: longestFirst(values)}, nil
+}
+
+func TakeHeldSecrets(def remotedef.Definition, recorded []string, lookup func(string) (string, bool), dataDir string) (Secrets, error) {
+	values, missing, err := collectSecrets(recorded, secretNames(def), lookup, dataDir)
+	if err != nil {
+		return Secrets{}, err
+	}
+	if len(missing) > 0 {
+		return Secrets{}, fmt.Errorf("secret %s was handed to the node and is not set in the shell or %s: it is needed to redact what the node sends back and to check its record before import; set it and run the command again", missing[0], secretsFileName)
+	}
+	if len(recorded) == 0 {
+		return Secrets{}, nil
+	}
+	return Secrets{Names: slices.Clone(recorded), Values: values, Redact: longestFirst(values)}, nil
+}
+
+func collectSecrets(take, unset []string, lookup func(string) (string, bool), dataDir string) (values map[string]string, missing []string, err error) {
+	shell := map[string]string{}
+	for _, n := range take {
+		if v, ok := lookup(n); ok && v != "" {
+			shell[n] = v
+		}
+	}
+	for _, n := range append(slices.Clone(take), unset...) {
+		if err := os.Unsetenv(n); err != nil {
+			return nil, nil, fmt.Errorf("secret %s: %w", n, err)
+		}
+	}
+	if len(take) == 0 {
+		return nil, nil, nil
+	}
+	file, err := fileSecrets(dataDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	values = map[string]string{}
+	for _, n := range take {
+		switch {
+		case shell[n] != "":
+			values[n] = shell[n]
+		case file[n] != "":
+			values[n] = file[n]
+		default:
+			missing = append(missing, n)
+		}
+	}
+	return values, missing, nil
+}
+
+func (s Secrets) clean(text string) string { return s.cleanN(text, 2000) }
+
+func (s Secrets) cleanN(text string, n int) string { return tailOf(redact(text, s.Redact), n) }
+
+func heldRefusal(recorded []string, s Secrets) error {
+	for _, n := range recorded {
+		if _, ok := s.Values[n]; !ok {
+			return fmt.Errorf("secret %s: secrets were not taken before the bring-back", n)
+		}
+	}
+	return nil
 }
 
 func secretNames(def remotedef.Definition) []string {
@@ -440,10 +476,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	secret := len(secretNames(def)) > 0
 	remove := def.Lifecycle.Scope != remotedef.ScopeJob
-	torn := false
+	torn, tornOK, handed := false, false, false
 	tear := func() error {
 		torn = true
 		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+			err = errors.New(redact(err.Error(), o.Secrets.Redact))
 			if command {
 				fmt.Fprintf(o.Out, "stopping the node %s failed: %v; stop it with %s\n", node, err, provider.RemoveHint(h))
 			} else {
@@ -451,6 +488,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			}
 			return err
 		}
+		tornOK = true
 		if command {
 			fmt.Fprintf(o.Out, "the node %s is stopped\n", node)
 		} else {
@@ -459,7 +497,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		return nil
 	}
 	defer func() {
-		if secret && !torn {
+		if secret && !torn && !handed {
 			_ = tear()
 		}
 	}()
@@ -501,9 +539,13 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 
 	if o.Detach {
 		if err := startDetached(ctx, o, h, node, chains, remove); err != nil {
-			return failAfterStart(err)
+			run, err := failAfterStart(err)
+			if !torn || tornOK {
+				err = errors.Join(err, o.Runs.DropDetached(o.Remote, o.Item))
+			}
+			return run, err
 		}
-		seated = false
+		handed, seated = true, false
 		fmt.Fprintf(o.Out, "node %s is running on %s; bring it back with satelle remote status %s %s\n", node, o.Item, o.Remote, o.Item)
 		return run, nil
 	}
@@ -550,10 +592,10 @@ func localRefusal(def remotedef.Definition) error {
 
 func detachRefusal(def remotedef.Definition) error {
 	switch {
-	case def.Provider != remotedef.ProviderDockerLocal:
-		return errors.New("--detach applies to a docker-local remote")
-	case len(secretNames(def)) > 0:
-		return errors.New("--detach cannot hand a node its secrets: they reach it only on the stdin of an attached run")
+	case !RunsHere(def):
+		return errors.New("--detach applies to a remote that runs here (docker-local or command)")
+	case def.Provider == remotedef.ProviderDockerLocal && len(secretNames(def)) > 0:
+		return errors.New("--detach cannot hand a docker-local node its secrets: a docker-local detached start has no stdin; fire it attached")
 	}
 	return nil
 }
@@ -604,10 +646,23 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 	if err != nil {
 		return err
 	}
+	node := prev.GetNodeId()
+	if o.Definition.Provider == remotedef.ProviderCommand {
+		_, err := o.Runs.LoadDetached(o.Remote, o.Item)
+		switch {
+		case err == nil && RunFinished(prev.GetState()):
+			return fmt.Errorf("the run of %s on %s is %s but its node %s was not stopped; stop it with satelle remote stop %s %s",
+				o.Remote, o.Item, prev.GetState(), node, o.Remote, o.Item)
+		case err == nil:
+			return fmt.Errorf("a run of %s on %s is running detached on node %s; bring it back with satelle remote status %s %s or end it with satelle remote stop %s %s",
+				o.Remote, o.Item, node, o.Remote, o.Item, o.Remote, o.Item)
+		case !errors.Is(err, fs.ErrNotExist):
+			return err
+		}
+	}
 	if RunFinished(prev.GetState()) {
 		return nil
 	}
-	node := prev.GetNodeId()
 	reason, left := "the node's container is gone", "its container is gone"
 	if o.Definition.Provider == remotedef.ProviderCommand {
 		reason, left = "the run was left running; its node was stopped", "its node was stopped"
@@ -689,11 +744,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if !ok {
 		return LocalOutcome{}, fmt.Errorf("the node's handle %s cannot pass stdin to the node", h.ID())
 	}
-	values := o.Secrets.Values
-	if values == nil {
-		values = map[string]string{}
-	}
-	payload, err := json.Marshal(values)
+	payload, err := stdinPayload(o.Secrets)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
@@ -800,6 +851,11 @@ func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node s
 	if _, err := h.Exec(ctx, "mkdir", "-p", outDir); err != nil {
 		return err
 	}
+	side := LocalDetached{Chains: chains, Remove: remove, Egress: len(o.Definition.Network.Allow) > 0,
+		SecretNames: o.Secrets.Names, Answered: time.Now().UTC()}
+	if o.Definition.Provider == remotedef.ProviderCommand {
+		return startCommandDetached(ctx, o, h, side)
+	}
 	dx, ok := h.(provider.DetachedExec)
 	if !ok {
 		return fmt.Errorf("the node's handle %s cannot run detached", h.ID())
@@ -810,8 +866,49 @@ func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node s
 	if err := dx.ExecDetached(ctx, "sh", "-c", script); err != nil {
 		return err
 	}
-	return o.Runs.SaveDetached(o.Remote, o.Item, LocalDetached{Chains: chains, Remove: remove,
-		Egress: len(o.Definition.Network.Allow) > 0, Answered: time.Now().UTC()})
+	return o.Runs.SaveDetached(o.Remote, o.Item, side)
+}
+
+func startCommandDetached(ctx context.Context, o FireOptions, h provider.Handle, side LocalDetached) error {
+	sx, ok := h.(provider.StdinExec)
+	if !ok {
+		return fmt.Errorf("the node's handle %s cannot pass stdin to the node", h.ID())
+	}
+	payload, err := stdinPayload(o.Secrets)
+	if err != nil {
+		return err
+	}
+	if err := o.Runs.SaveDetached(o.Remote, o.Item, side); err != nil {
+		return err
+	}
+	argv := []string{"satelle", "node", "run-local", "--dir", LocalNodeDir, "--detach"}
+	if len(secretNames(o.Definition)) == 0 {
+		argv = append(argv, "--progress")
+	}
+	fmt.Fprintf(o.Out, "running the node on %s, detached\n", o.Item)
+	raw, err := sx.ExecStdin(ctx, bytes.NewReader(payload), argv...)
+	if said := strings.TrimSpace(redact(string(raw), o.Secrets.Redact)); said != "" {
+		fmt.Fprintln(o.Out, said)
+	}
+	if err != nil {
+		return errors.New(redact(err.Error(), o.Secrets.Redact))
+	}
+	return nil
+}
+
+func stdinPayload(s Secrets) ([]byte, error) {
+	values := s.Values
+	if values == nil {
+		values = map[string]string{}
+	}
+	return json.Marshal(values)
+}
+
+type StartDetachedOptions struct {
+	Dir, Self string
+	Progress  bool
+	Stdin     io.Reader
+	Out       io.Writer
 }
 
 type BringBackOptions struct {
@@ -824,6 +921,7 @@ type BringBackOptions struct {
 	Actor      string
 	Out        io.Writer
 	Bound      time.Duration
+	Secrets    Secrets
 }
 
 const AnswerBound = 15 * time.Second
@@ -839,9 +937,6 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 	if err != nil {
 		return nil, err
 	}
-	if RunFinished(run.GetState()) {
-		return run, nil
-	}
 	sidecar, err := o.Runs.LoadDetached(o.Remote, o.Item)
 	if errors.Is(err, fs.ErrNotExist) {
 		return run, nil
@@ -849,10 +944,26 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 	if err != nil {
 		return nil, err
 	}
+	if err := heldRefusal(sidecar.SecretNames, o.Secrets); err != nil {
+		return nil, err
+	}
+	command := o.Definition.Provider == remotedef.ProviderCommand
+	secret := len(sidecar.SecretNames) > 0
+	mustStop := secret || (command && sidecar.Remove)
 	node := run.GetNodeId()
 	k := o.Kernel
+	if RunFinished(run.GetState()) {
+		if !command || node == "" {
+			return run, nil
+		}
+		h := detachedHandle(o, node, sidecar)
+		if err := endNode(ctx, o, h); err != nil {
+			return run, err
+		}
+		return run, o.Runs.DropDetached(o.Remote, o.Item)
+	}
 	stop := func(reason, left string) (*satellepb.ItemRun, error) {
-		err := stopLeftRun(k, o.Runs, o.Remote, o.Item, run, tailOf(reason, 2000), left, o.Actor, o.Out)
+		err := stopLeftRun(k, o.Runs, o.Remote, o.Item, run, o.Secrets.clean(reason), o.Secrets.clean(left), o.Actor, o.Out)
 		return run, errors.Join(err, o.Runs.DropDetached(o.Remote, o.Item))
 	}
 	if node == "" {
@@ -876,7 +987,7 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 		}
 		return l, nil
 	}
-	if !o.Docker.Exists(probe, provider.ContainerName(node)) {
+	if !command && !o.Docker.Exists(probe, provider.ContainerName(node)) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -885,13 +996,19 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 		}
 		return stop("the node's container is gone", "its container is gone")
 	}
-	h := o.Docker.Node(o.Definition, node, sidecar.Egress)
+	h := detachedHandle(o, node, sidecar)
 	listing, err := h.Exec(probe, "ls", "-A", path.Join(LocalNodeDir, "out"))
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if lost() {
+		switch {
+		case command && secret:
+			if serr := endNode(ctx, o, h); serr != nil {
+				return nil, serr
+			}
+			return stop(fmt.Sprintf("the node did not answer within %s (%s); [connect] stop ran", bound, firstLine(err.Error())), "it did not answer")
+		case lost() || command:
 			return lostRun()
 		}
 		return nil, fmt.Errorf("reading what node %s left: %w", node, err)
@@ -899,7 +1016,7 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 	names := strings.Fields(string(listing))
 	if !slices.Contains(names, detachedExit) {
 		var progress string
-		if slices.Contains(names, detachedProgress) {
+		if !secret && slices.Contains(names, detachedProgress) {
 			b, err := h.Exec(probe, "cat", path.Join(LocalNodeDir, "out", detachedProgress))
 			if err != nil {
 				if ctx.Err() != nil {
@@ -923,27 +1040,46 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 		}
 		return working, nil
 	}
-	left := func(reason string) (*satellepb.ItemRun, error) {
-		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+	end := func(reason string) (*satellepb.ItemRun, error) {
+		switch {
+		case mustStop:
+			if err := endNode(ctx, o, h); err != nil {
+				return nil, errors.Join(errors.New(o.Secrets.clean(reason)), err)
+			}
+		case command:
+			fmt.Fprintf(o.Out, "the node %s is left; stop it with %s\n", node, provider.RemoveHint(h))
+		default:
+			fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+		}
 		return stop(reason, "it stopped: "+firstLine(reason))
 	}
 	if !slices.Contains(names, localOutcome) {
 		code, log, err := detachedFailure(ctx, h)
 		if err != nil {
-			return left(err.Error())
+			return end(err.Error())
 		}
-		return left(fmt.Sprintf("the node failed: exit %s\n%s", code, tailOf(log, 2000)))
+		return end(fmt.Sprintf("the node failed: exit %d\n%s", code, o.Secrets.cleanN(log, 1900)))
 	}
-	out, err := bringBack(ctx, k, h, sidecar.Chains, node, Secrets{}, nil, "")
+	out, err := bringBack(ctx, k, h, sidecar.Chains, node, o.Secrets, nil, "")
 	if err != nil {
-		return left(err.Error())
+		return end(err.Error())
 	}
 	if _, err := releaseNodeSeat(k, o.Item, node, o.Actor); err != nil {
-		return left(err.Error())
+		return end(err.Error())
 	}
 	run.State, run.Verdict, run.Notes = RunConcluded, out.Verdict, out.Notes
 	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
 		return run, err
+	}
+	switch {
+	case mustStop:
+		if err := endNode(ctx, o, h); err != nil {
+			return run, err
+		}
+		return run, o.Runs.DropDetached(o.Remote, o.Item)
+	case command:
+		fmt.Fprintf(o.Out, "the node %s is left running; stop it with %s\n", node, provider.RemoveHint(h))
+		return run, o.Runs.DropDetached(o.Remote, o.Item)
 	}
 	if err := o.Runs.DropDetached(o.Remote, o.Item); err != nil {
 		return run, err
@@ -960,6 +1096,21 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 	return run, nil
 }
 
+func detachedHandle(o BringBackOptions, node string, sidecar LocalDetached) provider.Handle {
+	if o.Definition.Provider == remotedef.ProviderCommand {
+		return provider.Command{}.Node(o.Definition, node)
+	}
+	return o.Docker.Node(o.Definition, node, sidecar.Egress)
+}
+
+func endNode(ctx context.Context, o BringBackOptions, h provider.Handle) error {
+	if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+		return fmt.Errorf("stopping the node %s failed: %s; stop it with %s", h.ID(), o.Secrets.clean(err.Error()), provider.RemoveHint(h))
+	}
+	fmt.Fprintf(o.Out, "the node %s is stopped\n", h.ID())
+	return nil
+}
+
 func StopLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, error) {
 	if err := o.Runs.check(o.Remote, o.Item); err != nil {
 		return nil, err
@@ -971,30 +1122,48 @@ func StopLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, err
 	if err != nil {
 		return nil, err
 	}
-	if RunFinished(run.GetState()) {
+	finished := RunFinished(run.GetState())
+	sidecar, err := o.Runs.LoadDetached(o.Remote, o.Item)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && finished:
+		return nil, fmt.Errorf("the run of %s on %s is already %s; nothing to stop", o.Remote, o.Item, run.GetState())
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, fmt.Errorf("the run of %s on %s is not detached; an attached fire is stopped by interrupting it", o.Remote, o.Item)
+	case err != nil:
+		return nil, err
+	}
+	if err := heldRefusal(sidecar.SecretNames, o.Secrets); err != nil {
+		return nil, err
+	}
+	command := o.Definition.Provider == remotedef.ProviderCommand
+	if finished && !command {
 		return nil, fmt.Errorf("the run of %s on %s is already %s; nothing to stop", o.Remote, o.Item, run.GetState())
 	}
-	sidecar, err := o.Runs.LoadDetached(o.Remote, o.Item)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("the run of %s on %s is not detached; an attached fire is stopped by interrupting it", o.Remote, o.Item)
-	}
-	if err != nil {
-		return nil, err
-	}
 	node := run.GetNodeId()
-	removed := false
-	if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
-		h := o.Docker.Node(o.Definition, node, sidecar.Egress)
-		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
-			return nil, fmt.Errorf("removing the container %s failed: %w; remove it with %s", h.ID(), err, provider.RemoveHint(h))
+	if command {
+		if node != "" {
+			if err := endNode(ctx, o, detachedHandle(o, node, sidecar)); err != nil {
+				return nil, err
+			}
 		}
-		removed = true
-		fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
-	} else if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if !removed {
-		fmt.Fprintln(o.Out, "the node's container was already gone")
+		if finished {
+			return run, o.Runs.DropDetached(o.Remote, o.Item)
+		}
+	} else {
+		removed := false
+		if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
+			h := o.Docker.Node(o.Definition, node, sidecar.Egress)
+			if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+				return nil, fmt.Errorf("removing the container %s failed: %w; remove it with %s", h.ID(), err, provider.RemoveHint(h))
+			}
+			removed = true
+			fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+		} else if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !removed {
+			fmt.Fprintln(o.Out, "the node's container was already gone")
+		}
 	}
 	reason := fmt.Sprintf("stopped by %s with satelle remote stop", o.Actor)
 	if err := stopLeftRun(o.Kernel, o.Runs, o.Remote, o.Item, run, reason, "it was stopped by "+o.Actor, o.Actor, o.Out); err != nil {
@@ -1003,10 +1172,12 @@ func StopLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, err
 	return run, o.Runs.DropDetached(o.Remote, o.Item)
 }
 
-func detachedFailure(ctx context.Context, h provider.Handle) (code, log string, err error) {
+var errNoExitStatus = errors.New("the node failed: its exit file does not hold an exit status")
+
+func detachedFailure(ctx context.Context, h provider.Handle) (code int, log string, err error) {
 	tmp, err := os.MkdirTemp("", "satelle-back-")
 	if err != nil {
-		return "", "", err
+		return 0, "", err
 	}
 	defer os.RemoveAll(tmp)
 	read := func(name string) (string, error) {
@@ -1017,13 +1188,17 @@ func detachedFailure(ctx context.Context, h provider.Handle) (code, log string, 
 		b, err := readRegular(f)
 		return string(b), err
 	}
-	if code, err = read(detachedExit); err != nil {
-		return "", "", err
+	raw, err := read(detachedExit)
+	if err != nil {
+		return 0, "", err
+	}
+	if code, err = strconv.Atoi(strings.TrimSpace(raw)); err != nil {
+		return 0, "", errNoExitStatus
 	}
 	if log, err = read(detachedLog); err != nil {
 		log = fmt.Sprintf("the node's log could not be read: %v", err)
 	}
-	return strings.TrimSpace(code), log, nil
+	return code, log, nil
 }
 
 func firstLine(s string) string {

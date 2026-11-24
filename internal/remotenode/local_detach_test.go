@@ -6,10 +6,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -178,15 +181,25 @@ func TestFireLocalDetachRefusals(t *testing.T) {
 	script, log := fakeDockerFor(t, "exit 0\n")
 	o := f.def
 	o.Docker, o.Runs, o.Detach = provider.DockerLocal{Docker: script}, LocalRuns{Dir: t.TempDir()}, true
-	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--detach cannot hand a node its secrets") {
-		t.Fatalf("FireLocal --detach with [secrets] = %v", err)
+	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--detach cannot hand a docker-local node its secrets: a docker-local detached start has no stdin; fire it attached") {
+		t.Fatalf("FireLocal --detach of docker-local with [secrets] = %v", err)
 	}
 	if _, err := o.Runs.LoadDetached(o.Remote, o.Item); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a refused --detach saved a detached record: %v", err)
 	}
-	o.Definition = remotedef.Definition{Provider: remotedef.ProviderCommand}
-	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--detach applies to a docker-local remote") {
-		t.Fatalf("FireLocal --detach on a command remote = %v", err)
+	if err := detachRefusal(remotedef.Definition{Provider: remotedef.ProviderCommand, Secrets: o.Definition.Secrets}); err != nil {
+		t.Fatalf("--detach of a command remote with [secrets] = %v", err)
+	}
+	for _, p := range remotedef.Providers {
+		if def := (remotedef.Definition{Provider: p}); !RunsHere(def) {
+			o.Definition = def
+			if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "does not run locally") {
+				t.Fatalf("FireLocal --detach of %s = %v", p, err)
+			}
+			if err := detachRefusal(def); err == nil || !strings.Contains(err.Error(), "--detach applies to a remote that runs here (docker-local or command)") {
+				t.Fatalf("detachRefusal(%s) = %v", p, err)
+			}
+		}
 	}
 	if _, err := os.Stat(log); err == nil {
 		t.Fatal("docker ran for a refused --detach")
@@ -747,4 +760,128 @@ func TestStopLocalWhenTheContainerIsAlreadyGone(t *testing.T) {
 		t.Fatal("a gone container was removed again")
 	}
 	d.stoppedBy(t, "stopper")
+}
+
+func (d detached) bringBackHolding(t *testing.T, s Secrets) (*satellepb.ItemRun, string, error) {
+	t.Helper()
+	var out strings.Builder
+	run, err := BringBackLocal(context.Background(), BringBackOptions{Kernel: d.o.Kernel, Runs: d.o.Runs, Remote: d.o.Remote,
+		Item: d.o.Item, Definition: d.o.Definition, Docker: d.o.Docker, Actor: "ada", Out: &out, Secrets: s})
+	return run, out.String(), err
+}
+
+func (d detached) recordSecret(t *testing.T, names ...string) {
+	t.Helper()
+	side, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	side.SecretNames = names
+	if err := d.o.Runs.SaveDetached(d.o.Remote, d.o.Item, side); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBringBackLocalRefusesANonIntegerExit(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	d.exit(t, "3; leaked-text", "")
+	run, out, err := d.bringBack(t)
+	if err != nil || run.GetState() != RunStopped || !strings.Contains(run.GetReason(), "does not hold an exit status") {
+		t.Fatalf("BringBackLocal of a non-integer exit = %v, %v\n%s", run, err, out)
+	}
+	if strings.Contains(run.GetReason()+out, "leaked-text") {
+		t.Fatalf("the exit file's text was echoed:\n%s\n%s", run.GetReason(), out)
+	}
+}
+
+func TestBringBackLocalCleansASecretRunsStrings(t *testing.T) {
+	value := randomHex(t, 16)
+	held := Secrets{Names: []string{"S"}, Values: map[string]string{"S": value}, Redact: []string{value}}
+	stoppedThroughStop := func(t *testing.T, d detached) {
+		t.Helper()
+		if !strings.Contains(d.dockerLog(t), "rm -f "+provider.ContainerName(d.run.GetNodeId())) {
+			t.Fatalf("the secret node was not stopped:\n%s", d.dockerLog(t))
+		}
+		if _, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the detached record is kept after the stop: %v", err)
+		}
+	}
+	t.Run("a node-named file", func(t *testing.T) {
+		d := fireDetached(t, itemFire(t))
+		d.recordSecret(t, "S")
+		d.conclude(t)
+		blobs := filepath.Join(d.nodeDir, "runtime", "blobs")
+		if err := os.MkdirAll(blobs, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(blobs, ".."), filepath.Join(blobs, value)); err != nil {
+			t.Fatal(err)
+		}
+		run, out, err := d.bringBackHolding(t, held)
+		if err != nil || run.GetState() != RunStopped || !strings.Contains(run.GetReason(), "[secret]") {
+			t.Fatalf("BringBackLocal = %v, %v\n%s", run, err, out)
+		}
+		if strings.Contains(run.GetReason()+out, value) {
+			t.Fatalf("the value is in the reason or the output:\n%s\n%s", run.GetReason(), out)
+		}
+		stoppedThroughStop(t, d)
+	})
+	t.Run("a log cut across the value", func(t *testing.T) {
+		d := fireDetached(t, itemFire(t))
+		d.recordSecret(t, "S")
+		d.exit(t, "1", strings.Repeat("x", 1990)+value+strings.Repeat("y", 100))
+		run, out, err := d.bringBackHolding(t, held)
+		if err != nil || run.GetState() != RunStopped || !strings.Contains(run.GetReason(), "the node failed: exit 1") {
+			t.Fatalf("BringBackLocal = %v, %v\n%s", run, err, out)
+		}
+		for i := 0; i+4 <= len(value); i++ {
+			if strings.Contains(run.GetReason()+out, value[i:i+4]) {
+				t.Fatalf("the reason or output holds %q of the value at %d", value[i:i+4], i)
+			}
+		}
+		stoppedThroughStop(t, d)
+	})
+}
+
+func TestBringBackLocalRefusesUntakenRecordedSecrets(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	d.recordSecret(t, "S")
+	d.conclude(t)
+	before := d.snapshot(t)
+	if _, _, err := d.bringBack(t); err == nil || !strings.Contains(err.Error(), "secret S: secrets were not taken before the bring-back") {
+		t.Fatalf("BringBackLocal with untaken secrets = %v", err)
+	}
+	if _, _, err := d.stop(t, "stopper"); err == nil || !strings.Contains(err.Error(), "secret S: secrets were not taken before the bring-back") {
+		t.Fatalf("StopLocal with untaken secrets = %v", err)
+	}
+	if after := d.snapshot(t); after != before {
+		t.Fatalf("a refused bring-back or stop ran or recorded something: %+v, was %+v", after, before)
+	}
+}
+
+func TestLocalDetachedSidecarCarriesNoValue(t *testing.T) {
+	runs := LocalRuns{Dir: t.TempDir()}
+	const value = "the-secret-value-of-s"
+	if err := runs.SaveDetached("probe", "sto_1", LocalDetached{Chains: []string{"sto_1"}, Remove: true, Egress: true,
+		SecretNames: []string{"S"}, Answered: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(runs.detachedPath("probe", "sto_1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]any
+	if err := json.Unmarshal(b, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(keys)); !slices.Equal(got, []string{"answered", "chains", "egress", "remove", "secret_names"}) {
+		t.Fatalf("the detached record's keys = %v", got)
+	}
+	if !strings.Contains(string(b), `"S"`) || strings.Contains(string(b), value) {
+		t.Fatalf("the detached record:\n%s", b)
+	}
+	back, err := runs.LoadDetached("probe", "sto_1")
+	if err != nil || !slices.Equal(back.SecretNames, []string{"S"}) {
+		t.Fatalf("LoadDetached = %+v, %v", back, err)
+	}
 }

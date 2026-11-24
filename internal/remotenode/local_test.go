@@ -924,6 +924,38 @@ func TestTakeSecretsRefusesUnsetName(t *testing.T) {
 	}
 }
 
+func TestTakeHeldSecretsTakesTheRecordedNames(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	def := f.def.Definition
+	def.Secrets.Names = []string{"SATELLE_HELD_B"}
+	t.Setenv("SATELLE_HELD_A", "value-of-a")
+	t.Setenv("SATELLE_HELD_B", "value-of-b")
+	s, err := TakeHeldSecrets(def, []string{"SATELLE_HELD_A"}, os.LookupEnv, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(s.Values, map[string]string{"SATELLE_HELD_A": "value-of-a"}) || !slices.Equal(s.Names, []string{"SATELLE_HELD_A"}) ||
+		!slices.Equal(s.Redact, []string{"value-of-a"}) {
+		t.Fatalf("TakeHeldSecrets = %+v", s)
+	}
+	for _, n := range []string{"SATELLE_HELD_A", "SATELLE_HELD_B"} {
+		if v, ok := os.LookupEnv(n); ok {
+			t.Fatalf("%s is still set after it was taken: %q", n, v)
+		}
+	}
+	const want = "secret SATELLE_HELD_A was handed to the node and is not set in the shell or .satelle/.env: it is needed to redact what the node sends back and to check its record before import; set it and run the command again"
+	if _, err := TakeHeldSecrets(def, []string{"SATELLE_HELD_A"}, os.LookupEnv, t.TempDir()); err == nil || err.Error() != want {
+		t.Fatalf("TakeHeldSecrets with A set nowhere = %v", err)
+	}
+	t.Setenv("SATELLE_HELD_B", "value-of-b")
+	if s, err := TakeHeldSecrets(def, nil, os.LookupEnv, t.TempDir()); err != nil || len(s.Values) != 0 || len(s.Names) != 0 {
+		t.Fatalf("TakeHeldSecrets of a run handed nothing = %+v, %v", s, err)
+	}
+	if v, ok := os.LookupEnv("SATELLE_HELD_B"); ok {
+		t.Fatalf("a declared name is still set after a run handed nothing: %q", v)
+	}
+}
+
 func secretsRepo(t *testing.T, ignore bool, body string) string {
 	t.Helper()
 	tree := t.TempDir()
