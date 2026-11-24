@@ -36,7 +36,7 @@ workflow = "chore"
 category = "chore"
 
 [gate]
-edit_exempt_paths = [".satelle/**", ".claude/**", ".grok/**", ".gitignore"]
+edit_exempt_paths = [".claude/**", ".grok/**", ".gitignore"]
 
 [hook]
 inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-reference-not-restate.md", ".satelle/skills/satelle-workflow-standard.md"]
