@@ -46,8 +46,8 @@ tier_tag = "risk"
 
 [review.panels.code-ac]
 low = ["reviewer-gemini-4-hydrogen-high"]
-high = ["reviewer-gemini-4-neon-high"]
+high = ["reviewer-gemini-4-neon-high", "reviewer-grok-4-7"]
 
 [review.panels.security]
 low = ["reviewer-gemini-4-hydrogen-high"]
-high = ["reviewer-gemini-4-neon-high"]
+high = ["reviewer-gemini-4-neon-high", "reviewer-grok-4-7"]
