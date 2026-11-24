@@ -14,9 +14,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-const (
-	lowTier  = "reviewer-gemini-4-hydrogen-high"
-	highTier = "reviewer-gemini-4-neon-high"
+// lowTier is the one judge of the risk:low panel; highTier is the risk:high
+// panel, which an item with no risk tag is judged by too.
+var (
+	lowTier  = []string{"reviewer-gemini-4-hydrogen-high"}
+	highTier = []string{"reviewer-gemini-4-neon-high", "reviewer-grok-4.7"}
 )
 
 func TestAnUntieredItemIsJudgedByTheHighTierPanel(t *testing.T) {
@@ -34,11 +36,11 @@ func TestAnUntieredItemIsJudgedByTheHighTierPanel(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, gate := range []string{"security", "code-ac"} {
-		if got := cfg.Review.Panels[gate]["low"]; !slices.Equal(got, []string{lowTier}) {
-			t.Errorf("[review.panels.%s] low = %v, want [%s]", gate, got, lowTier)
+		if got := cfg.Review.Panels[gate]["low"]; !slices.Equal(got, lowTier) {
+			t.Errorf("[review.panels.%s] low = %v, want %v", gate, got, lowTier)
 		}
-		if got := cfg.Review.Panels[gate]["high"]; !slices.Equal(got, []string{highTier}) {
-			t.Errorf("[review.panels.%s] high = %v, want [%s]", gate, got, highTier)
+		if got := cfg.Review.Panels[gate]["high"]; !slices.Equal(got, highTier) {
+			t.Errorf("[review.panels.%s] high = %v, want %v", gate, got, highTier)
 		}
 		for _, wf := range []string{"delivery", "chore"} {
 			g, ok := routes[wf].Gates[gate]
@@ -46,17 +48,17 @@ func TestAnUntieredItemIsJudgedByTheHighTierPanel(t *testing.T) {
 				t.Errorf("%s has no gate %s", wf, gate)
 				continue
 			}
-			if !slices.Equal(g.Judges(), []string{highTier}) {
-				t.Errorf("%s gates.%s judges %v, want [%s] so an item with no risk tag is never judged more lightly", wf, gate, g.Judges(), highTier)
+			if !slices.Equal(g.Judges(), highTier) {
+				t.Errorf("%s gates.%s judges %v, want %v so an item with no risk tag is never judged more lightly", wf, gate, g.Judges(), highTier)
 			}
 			resolved, tier, err := cfg.Review.Resolve(gate, g, nil)
-			if err != nil || tier != "" || !slices.Equal(resolved.Judges(), []string{highTier}) {
-				t.Errorf("%s gates.%s with no risk tag resolves to %v (tier %q, err %v), want [%s]", wf, gate, resolved.Judges(), tier, err, highTier)
+			if err != nil || tier != "" || !slices.Equal(resolved.Judges(), highTier) {
+				t.Errorf("%s gates.%s with no risk tag resolves to %v (tier %q, err %v), want %v", wf, gate, resolved.Judges(), tier, err, highTier)
 			}
-			for tag, want := range map[string]string{"low": lowTier, "high": highTier} {
+			for tag, want := range map[string][]string{"low": lowTier, "high": highTier} {
 				resolved, tier, err := cfg.Review.Resolve(gate, g, []string{tag})
-				if err != nil || tier != tag || !slices.Equal(resolved.Judges(), []string{want}) {
-					t.Errorf("%s gates.%s at risk:%s resolves to %v (tier %q, err %v), want [%s]", wf, gate, tag, resolved.Judges(), tier, err, want)
+				if err != nil || tier != tag || !slices.Equal(resolved.Judges(), want) {
+					t.Errorf("%s gates.%s at risk:%s resolves to %v (tier %q, err %v), want %v", wf, gate, tag, resolved.Judges(), tier, err, want)
 				}
 			}
 		}
