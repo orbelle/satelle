@@ -15,6 +15,15 @@ terminal = true
 [states.cancelled]
 terminal = true
 
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
+[gates.epic-ready]
+skill = "satelle-epic-ready-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
 [gates.children-closed]
 skill = "satelle-children-closed-check"
 
@@ -39,6 +48,7 @@ after = ["satelle-verdict-notes-check"]
 [[transition]]
 from = ["backlog"]
 to = "underway"
+groups = [{ mode = "sequential", gates = ["judge-differs", "epic-ready"] }]
 
 [[transition]]
 from = ["underway"]
