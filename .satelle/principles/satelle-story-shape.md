@@ -48,7 +48,7 @@ Scenario: the held story prints its resume command
 
 ## Check the draft before you file it
 
-Before `satelle story create`, read the draft against each property that
+Before `satelle story create --session <session>`, read the draft against each property that
 story review judges ([[satelle-story-review]],
 `.satelle/skills/satelle-story-review.md`), as that skill states them, and
 fix every one the draft fails. File only a draft that meets them all. The
