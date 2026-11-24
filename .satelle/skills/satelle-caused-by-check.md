@@ -15,7 +15,7 @@ and tags are read with `satelle story get <id> --json --session <session>`.
 - No `caused-by:` tag: refuse, naming the tag to add.
 - `caused-by:unknown`: accept.
 - `caused-by:<id>`: accept when every such id resolves to an item
-  (`satelle <kind> get <id>`); refuse naming each that does not.
+  (`satelle <kind> get <id> --session <session>`); refuse naming each that does not.
 
 Exit 0 accepts; exit 1 refuses or could not read the story.
 
@@ -42,7 +42,7 @@ case "$cat" in
 esac
 causes=$(printf '%s' "$js" | jq -r '(.tags // [])[] | select(startswith("caused-by:")) | sub("^caused-by:"; "")' 2>/dev/null) || { echo "could not read the tags of $sid"; exit 1; }
 if [ -z "$causes" ]; then
-  echo "$sid is a $cat story with no caused-by tag: add caused-by:<the id of the story that introduced the defect>, or caused-by:unknown when it cannot be found (satelle story set $sid --add-tag caused-by:<id>)"
+  echo "$sid is a $cat story with no caused-by tag: add caused-by:<the id of the story that introduced the defect>, or caused-by:unknown when it cannot be found (satelle story set $sid --add-tag caused-by:<id> --session <session>)"
   exit 1
 fi
 missing=()
