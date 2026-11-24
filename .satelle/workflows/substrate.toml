@@ -29,6 +29,10 @@ skill = "satelle-judge-differs-from-performer-check"
 [gates.volatile-literals]
 skill = "satelle-volatile-literal-check"
 
+[gates.substrate-suite]
+skill = "satelle-substrate-suite-check"
+timeout = "40m"
+
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
 panel = ["reviewer-gemini-4-neon-high"]
@@ -63,7 +67,7 @@ to = "in_progress"
 from = ["in_progress"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals"] },
+  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals", "substrate-suite"] },
   { mode = "sequential", gates = ["workflow-change", "reference-review"] },
 ]
 
