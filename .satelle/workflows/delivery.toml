@@ -43,6 +43,9 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.caused-by]
+skill = "satelle-caused-by-check"
+
 [gates.constitution]
 skill = "satelle-constitution-review"
 panel = ["reviewer-gemini-4-hydrogen-high"]
@@ -155,7 +158,7 @@ after = ["satelle-verdict-notes-check"]
 [[transition]]
 from = ["backlog"]
 to = "plan"
-groups = [{ mode = "sequential", gates = ["story-review"] }]
+groups = [{ mode = "sequential", gates = ["caused-by", "story-review"] }]
 
 [[transition]]
 from = ["plan"]
