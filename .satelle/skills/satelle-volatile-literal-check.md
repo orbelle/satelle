@@ -60,9 +60,9 @@ if [ -n "$marker" ]; then
   marked=
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    case "$p" in
-      .satelle/volatile.toml) continue ;;
-      .satelle/*) ;;
+    case "$root/$p" in
+      "$root"/.satelle/volatile.toml) continue ;;
+      "$root"/.satelle/*) ;;
       *) continue ;;
     esac
     [ -f "$root/$p" ] || continue

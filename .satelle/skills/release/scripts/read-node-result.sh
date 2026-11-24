@@ -3,7 +3,8 @@ task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
 rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
-ntask=$(sed -n 's/^task = "\(tas_[0-9a-f]*\)"$/\1/p' .satelle/remotes/release-sprite/remote.toml)
+sub=${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}
+ntask=$(sed -n 's/^task = "\(tas_[0-9a-f]*\)"$/\1/p' "$sub/remotes/release-sprite/remote.toml")
 st=$(satelle remote status release-sprite "$ntask" --json --session "$session") || exit 1
 node=$(printf '%s' "$st" | jq -r '.node // empty')
 verdict=$(printf '%s' "$st" | jq -r '.verdict // empty')

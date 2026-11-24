@@ -53,7 +53,7 @@ post() {
 }
 if [ -z "${SATELLE_GATE:-}" ]; then
   posting=
-  for f in .satelle/workflows/*.toml; do
+  for f in "${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}"/workflows/*.toml; do
     [ -e "$f" ] || continue
     w=$(basename "$f" .toml)
     if ! shown=$(satelle workflow show "$w" --json 2>/dev/null); then

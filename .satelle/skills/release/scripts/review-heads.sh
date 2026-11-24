@@ -1,7 +1,8 @@
 session=<session>
 id=<id>
-app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check/SKILL.md)
-[ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check/SKILL.md" >&2; exit 1; }
+sub=${SATELLE_SUBSTRATE_DIR:-$(git rev-parse --show-toplevel)/.satelle}
+app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' "$sub/skills/satelle-pr-approval-check/SKILL.md")
+[ -n "$app_account" ] || { echo "no app_account= line in $sub/skills/satelle-pr-approval-check/SKILL.md" >&2; exit 1; }
 pr=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100 |
   jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
 if [ -z "$pr" ]; then
