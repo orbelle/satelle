@@ -3,6 +3,7 @@ package ledgerrepl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -345,6 +346,24 @@ func TestStatusOnEveryStore(t *testing.T) {
 		got := map[string]string{}
 		for _, r := range rows {
 			got[r.Item] = r.State
+			wantFork := -1
+			if r.Item == "fork" {
+				wantFork = 2
+			}
+			if r.Fork != wantFork {
+				t.Errorf("%s: Fork %d, want %d", r.Item, r.Fork, wantFork)
+			}
+			body, err := json.Marshal(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var keys map[string]any
+			if err := json.Unmarshal(body, &keys); err != nil {
+				t.Fatal(err)
+			}
+			if len(keys) != 4 || keys["fork"] != nil || keys["Fork"] != nil {
+				t.Errorf("%s: row serialises more than item, local, store and state: %s", r.Item, body)
+			}
 		}
 		want := map[string]string{"same": InSync, "ahead": Ahead, "behind": Behind, "fork": "diverged at 2", "theirs": StoreOnly, "mine": LocalOnly}
 		for k, v := range want {

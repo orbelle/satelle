@@ -44,11 +44,13 @@ This repo's `.satelle/queues/release.toml`:
   until a command in the main checkout creates its chain. When git cannot say
   whether the checkout is linked, the command treats it as linked and writes
   nothing.
-- A `que_<name>` chain the file wrote before this runtime's first ledger pull
-  gives way to the store's chain for that id: while it holds only the file's
-  mirror events, pull and sync replace it with the store's chain and mirror the
-  file onto that. Once it holds any other event (a `queue add`, a fire), a fork
-  is refused like any other.
+- A `que_<name>` chain gives way to the store's chain for that id whenever its
+  local events past the fork point are only the file's mirror events: a chain
+  the file wrote before this runtime's first ledger pull, or a mirror event
+  written while another machine appended. Pull and sync replace it with the
+  store's chain and mirror the file onto that. A fork with a local `queue add`
+  or fire past that point is refused like any other;
+  `satelle ledger adopt <item> --session <session>` resolves it.
 - `satelle validate --session <session>` refuses an unknown key, a missing title, an empty
   `[filter]`, a trigger naming both or neither target, a negative `min_size`, a
   trigger workflow that is not configured, and two files binding one chain.

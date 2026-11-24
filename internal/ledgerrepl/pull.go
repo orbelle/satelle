@@ -118,8 +118,8 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 		return err
 	}
 	if s < min(n, len(local)) {
-		if r.Mirrors != nil && r.Mirrors.MirrorOnly(item, local) {
-			return r.adopt(ctx, res, item, c, local)
+		if r.Mirrors != nil && r.Mirrors.MirrorTail(item, local, s) {
+			return r.adopt(ctx, res, item, c, local, s)
 		}
 		r.diverge(res, Divergence{Item: item, Seq: s, StoreHash: seen[s], LocalHash: local[s].Hash}, "nothing appended")
 		return nil
@@ -154,15 +154,23 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 	return err
 }
 
-func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chain, local []ledger.Event) error {
+func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chain, local []ledger.Event, fork int) error {
 	fetched, err := r.fetchVerified(ctx, item, c)
 	if err != nil {
 		return err
 	}
+	if fork > 0 && (len(fetched) < fork || fetched[fork-1].Hash != local[fork-1].Hash) {
+		d := Divergence{Item: item, Seq: fork - 1, LocalHash: local[fork-1].Hash}
+		if len(fetched) >= fork {
+			d.StoreHash = fetched[fork-1].Hash
+		}
+		r.diverge(res, d, "nothing appended")
+		return nil
+	}
 	if err := r.replaceWith(item, local, fetched); err != nil {
 		return err
 	}
-	r.printf("adopted: %s: this runtime's %d queue-file event(s) replaced by the store's %d\n", item, len(local), len(fetched))
+	r.printf("adopted: %s: this runtime's %d queue-file event(s) replaced by the store's %d\n", item, len(local)-fork, len(fetched))
 	res.Events += len(fetched)
 	res.Items++
 	res.Written = append(res.Written, item)

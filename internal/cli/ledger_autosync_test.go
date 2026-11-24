@@ -639,6 +639,158 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 	}
 }
 
+const draftFile = "title = \"Draft\"\n[filter]\nkind = \"story\"\n"
+
+// mirrorTailFork leaves B holding the store's que_release up to event k-1 and
+// then one file mirror event of its own at k, while A has pushed a queue.added
+// at k: a fork whose only local event past the fork point is a mirror event.
+// It returns the store's chain as A pushed it, with B in use.
+func mirrorTailFork(t *testing.T, srv *fakeserver.Server) (b machine, k int, store []ledger.Event) {
+	t.Helper()
+	a, _, aChain := legacyA(t, srv)
+	b, own := mirrorOnB(t, srv, releaseFile)
+	adoptsA(t, srv, b, aChain, own)
+	queueFileOn(t, b, draftFile)
+	must(t, "queue", "show", "release")
+	local := releaseChain(t)
+	k = len(local) - 1
+	if e := local[k]; e.Kind != item.KindUpdated || e.Actor != "satelle" || !strings.Contains(string(e.Payload), `"title":"Draft"`) {
+		t.Fatalf("B's event %d is %s by %s, not the Draft mirror: %s", k, e.Kind, e.Actor, e.Payload)
+	}
+	autosync(t, a)
+	sto := createID(t, "story", "create", "--title", "from a again", "--criteria", "c")
+	must(t, "queue", "add", "que_release", sto)
+	autosync(t, a)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("A's pass: %s", st.SyncReason)
+	}
+	store = releaseChain(t)
+	if len(store) != k+1 || store[k].Kind != item.KindQueueAdded || len(srv.Events("shared", "que_release")) != k+1 {
+		t.Fatalf("A holds %d events of que_release, want a queue.added at %d pushed", len(store), k)
+	}
+	b.use(t)
+	if _, _, state := releaseStatus(t); state != "diverged at "+strconv.Itoa(k) {
+		t.Fatalf("B's que_release is %s, want diverged at %d", state, k)
+	}
+	return b, k, store
+}
+
+// holdsStoreThenDraft checks B's que_release is the store's chain and then one
+// mirror item.updated carrying the file's Draft title.
+func holdsStoreThenDraft(t *testing.T, store []ledger.Event) []ledger.Event {
+	t.Helper()
+	got := releaseChain(t)
+	if len(got) != len(store)+1 {
+		t.Fatalf("B holds %d events, want the store's %d and one mirror event", len(got), len(store))
+	}
+	for i, e := range store {
+		if got[i].Hash != e.Hash {
+			t.Fatalf("B's event %d is %s, the store's %s", i, got[i].Hash, e.Hash)
+		}
+	}
+	last := got[len(got)-1]
+	var p struct {
+		Title string `json:"title"`
+		Cause string `json:"cause"`
+	}
+	if err := json.Unmarshal(last.Payload, &p); err != nil || last.Kind != item.KindUpdated || last.Actor != "satelle" ||
+		p.Cause != "queue file .satelle/queues/release.toml" || p.Title != "Draft" {
+		t.Fatalf("B's last event %s by %s: %s", last.Kind, last.Actor, last.Payload)
+	}
+	return got
+}
+
+func TestLedgerPullAdoptsMirrorTail(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	_, k, store := mirrorTailFork(t, srv)
+	out, err := run(t, "", "ledger", "pull")
+	if err != nil {
+		t.Fatalf("ledger pull: %v\n%s", err, out)
+	}
+	if want := "adopted: que_release: this runtime's 1 queue-file event(s) replaced by the store's " + strconv.Itoa(k+1); !strings.Contains(out, want) {
+		t.Fatalf("output lacks %q:\n%s", want, out)
+	}
+	if !strings.Contains(out, "mirrored: que_release") {
+		t.Fatalf("output lacks the mirrored line:\n%s", out)
+	}
+	holdsStoreThenDraft(t, store)
+}
+
+func TestLedgerPullAdoptsMatchingMirrorTailAppendsNothing(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	b, _, store := mirrorTailFork(t, srv)
+	queueFileOn(t, b, releaseFile)
+	out, err := run(t, "", "ledger", "pull")
+	if err != nil {
+		t.Fatalf("ledger pull: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "adopted: que_release") || strings.Contains(out, "mirrored:") {
+		t.Fatalf("output:\n%s", out)
+	}
+	got := releaseChain(t)
+	if len(got) != len(store) || got[len(got)-1].Hash != store[len(store)-1].Hash {
+		t.Fatalf("B holds %d events, the store %d", len(got), len(store))
+	}
+}
+
+func TestAutosyncAdoptsMirrorTail(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	b, _, store := mirrorTailFork(t, srv)
+	out := autosync(t, b)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("B's pass: %s\n%s", st.SyncReason, out)
+	}
+	got := holdsStoreThenDraft(t, store)
+	if n := len(srv.Events("shared", "que_release")); n != len(got) {
+		t.Fatalf("satelle.dev holds %d events of que_release, B %d: the mirror event was not pushed in the pass", n, len(got))
+	}
+	if _, _, state := releaseStatus(t); state != "in sync" {
+		t.Fatalf("B's que_release is %s, want in sync", state)
+	}
+	if out := autosync(t, b); !strings.Contains(out, "pushed 0 event(s) on 0 item(s), pulled 0 event(s) on 0 item(s)") {
+		t.Fatalf("B's second pass wrote:\n%s", out)
+	}
+}
+
+func TestAutosyncRefusesMirrorTailWithLocalWork(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	_, k, store := mirrorTailFork(t, srv)
+	mine := createID(t, "story", "create", "--title", "on b", "--criteria", "c")
+	must(t, "queue", "add", "release", mine)
+	if got := releaseChain(t); len(got) != k+2 || got[k+1].Kind != item.KindQueueAdded {
+		t.Fatalf("B's chain is %d events", len(got))
+	}
+	path := runtimeLedger(t).Path("que_release")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged := func(what string) {
+		t.Helper()
+		if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+			t.Fatalf("%s changed B's que_release chain", what)
+		}
+		if n := len(srv.Events("shared", "que_release")); n != len(store) {
+			t.Fatalf("after %s satelle.dev holds %d events of que_release, A pushed %d", what, n, len(store))
+		}
+	}
+	out, err := run(t, "", "ledger", "pull")
+	if err == nil {
+		t.Fatalf("ledger pull of a worked fork succeeded:\n%s", out)
+	}
+	if !strings.Contains(out, "diverged: que_release at event "+strconv.Itoa(k)) || !strings.Contains(out, "nothing appended") {
+		t.Fatalf("ledger pull output:\n%s", out)
+	}
+	unchanged("pull")
+	if _, err := run(t, "", "ledger", "autosync"); err == nil {
+		t.Fatal("autosync of a worked fork succeeded")
+	}
+	if st := syncStateOf(t); !strings.Contains(st.SyncReason, "que_release (diverged at "+strconv.Itoa(k)+")") {
+		t.Fatalf("B's pass reason: %q", st.SyncReason)
+	}
+	unchanged("autosync")
+}
+
 func seedPartition(t *testing.T, m machine, key, root string) {
 	t.Helper()
 	ctx, now := context.Background(), time.Now()
