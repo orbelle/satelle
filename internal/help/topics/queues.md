@@ -40,7 +40,10 @@ This repo's `.satelle/queues/release.toml`:
 - Only the repository's main checkout writes the mirror. A command in a linked
   git worktree reads its own file but appends nothing to the chain (neither the
   genesis nor an `item.updated`), so worktrees holding an older or newer file
-  cannot flip the chain's definition.
+  cannot flip the chain's definition. A new queue's commands there are refused
+  until a command in the main checkout creates its chain. When git cannot say
+  whether the checkout is linked, the command treats it as linked and writes
+  nothing.
 - A `que_<name>` chain the file wrote before this runtime's first ledger pull
   gives way to the store's chain for that id: while it holds only the file's
   mirror events, pull and sync replace it with the store's chain and mirror the

@@ -173,7 +173,7 @@ func (k *Kernel) notHeldYet(id string) error {
 		return err
 	}
 	if def.ID == "" {
-		return fmt.Errorf("queue %s has no chain yet; a queue file is mirrored onto its chain only from the main checkout, so run a satelle command there first (%s)", def.Name, k.RelPath(def.File))
+		return fmt.Errorf("queue %s has no chain yet: %s is mirrored onto the ledger only by a command in the repository's main checkout, not in a linked worktree", def.Name, k.RelPath(def.File))
 	}
 	return fmt.Errorf("queue %s adopts %s, which this runtime does not hold yet; it arrives with the next ledger pull (or remove id from %s to start a new queue)", def.Name, id, k.RelPath(def.File))
 }

@@ -356,3 +356,48 @@ func TestStat(t *testing.T) {
 		}
 	}
 }
+
+func TestIsLinked(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	tmp := t.TempDir()
+	main := filepath.Join(tmp, "main repo")
+	os.MkdirAll(main, 0o755)
+	gittest.Git(t, main, "init", "-q")
+	os.WriteFile(filepath.Join(main, "a.txt"), []byte("1\n"), 0o644)
+	gittest.Git(t, main, "add", ".")
+	gittest.Git(t, main, "commit", "-qm", "one")
+	wt := filepath.Join(tmp, "linked wt")
+	gittest.Git(t, main, "worktree", "add", "-q", wt, "-b", "wt")
+	if linked, err := (Repo{Dir: main}).IsLinked(); linked || err != nil {
+		t.Fatalf("main checkout: linked %v, %v", linked, err)
+	}
+	if linked, err := (Repo{Dir: wt}).IsLinked(); !linked || err != nil {
+		t.Fatalf("linked worktree: linked %v, %v", linked, err)
+	}
+	if _, err := (Repo{Dir: t.TempDir()}).IsLinked(); err == nil {
+		t.Fatal("a directory outside git gave no error")
+	}
+}
+
+func TestLinkedFrom(t *testing.T) {
+	for _, c := range []struct {
+		out     string
+		linked  bool
+		wantErr bool
+	}{
+		{"/a b/.git\n/a b/.git\n", false, false},
+		{"/a b/.git/worktrees/w x\n/a b/.git\n", true, false},
+		{"/a b/.git\r\n/a b/.git\r\n", false, false},
+		{"", false, true},
+		{"/a b/.git\n", false, true},
+		{"/a\n/b\n/c\n", false, true},
+		{"/a b/.git\n\n", false, true},
+	} {
+		linked, err := linkedFrom(c.out)
+		if linked != c.linked || (err != nil) != c.wantErr {
+			t.Errorf("linkedFrom(%q) = %v, %v; want %v, error %v", c.out, linked, err, c.linked, c.wantErr)
+		}
+	}
+}
