@@ -4,7 +4,7 @@ type: principle
 tags: [type:principle]
 applies_to: ["*"]
 commands: story create
-description: A story is one behaviour, written as a Feature (As a / I want / so that) with a Background; its acceptance criteria are Given/When/Then scenarios that meet that behaviour, each provable at the gate that judges it.
+description: A story is one behaviour, written as a Feature (As a / I want / so that) with a Background; its acceptance criteria are Given/When/Then scenarios that meet that behaviour, each provable at the gate that judges it. Before filing, check the draft against each property satelle-story-review judges and file it only once it meets them.
 ---
 
 # Story shape
@@ -45,5 +45,13 @@ Scenario: the held story prints its resume command
   When I show the story
   Then the output names the move back to plan
 ```
+
+## Check the draft before you file it
+
+Before `satelle story create`, read the draft against each property that
+story review judges ([[satelle-story-review]],
+`.satelle/skills/satelle-story-review.md`), as that skill states them, and
+fix every one the draft fails. File only a draft that meets them all. The
+gate stays the judge; this check is so that it judges a shaped story.
 
 Operator ruling, 2026-11-07.
