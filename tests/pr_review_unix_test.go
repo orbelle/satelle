@@ -201,11 +201,12 @@ func newPRSandboxNamed(t *testing.T, n prNames) *prSandbox {
 
 	gs := repoPRGateSet(t)
 	codeAC, approve, approval, pending, ready := gs["code-ac"], gs["pr-review"], gs["pr-approval"], gs["pr-pending"], gs["pr-ready"]
-	if codeAC.Skill != "satelle-code-ac-review" || codeAC.Agent != "" || len(codeAC.Panel) != 1 || codeAC.Combine != "all" || !codeAC.Carry ||
+	if codeAC.Skill != "satelle-code-ac-review" || codeAC.Agent != "" || len(codeAC.Panel) == 0 || codeAC.Combine != "all" || !codeAC.Carry ||
 		!slices.Equal(codeAC.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check"}) {
 		t.Fatalf("code-ac is %+v", codeAC)
 	}
 	reviewer := codeAC.Panel[0]
+	codeAC.Panel = []string{reviewer}
 	if approve.Skill != approveFromReviewSkill || approve.Agent != "" || !slices.Equal(approve.After, []string{statusSkill}) {
 		t.Fatalf("pr-review is %+v", approve)
 	}
@@ -1149,7 +1150,9 @@ func TestPRApproveFromReviewTakesTheRouteValues(t *testing.T) {
 	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
 	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
 
-	refReview := gateTOML(t, "reference-review", repoPRGateSet(t)["code-ac"])
+	refGate := repoPRGateSet(t)["code-ac"]
+	refGate.Panel = []string{p.reviewer}
+	refReview := gateTOML(t, "reference-review", refGate)
 	p.write(".satelle/workflows/substrate.toml", substrateRoute("substrate", refReview))
 	p.write(".satelle/satelle.toml", prSandboxConfig(t)+"\n[[workflows.rule]]\nworkflow = \"substrate\"\ncategory = \"substrate\"\n")
 	p.git("add", "-A")
