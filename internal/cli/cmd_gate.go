@@ -30,8 +30,8 @@ func gateRunCmd() *cobra.Command {
 		Short: "Run one gate against an item as its transition would, recording nothing",
 		Long: `Run one gate of a workflow against an item exactly as presenting its
 transition would: the same check env and stdin, or the same judge prompt and
-record folder. It prints the gate's result, each panel member's verdict and
-the full notes, and writes nothing to the ledger: no gate.run, no hold round.
+record folder. It prints the gate's result, the judge's binding and model,
+each panel member's binding, model and verdict and the full notes, and writes nothing to the ledger: no gate.run, no hold round.
 A judged gate really dispatches its judges.
 
 --from defaults to the item's state and --to to the one transition from it
@@ -243,10 +243,10 @@ func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 		fmt.Fprintf(w, "  tier %s\n", r.Tier)
 	}
 	if r.Binding != "" && len(r.Members) == 0 {
-		fmt.Fprintf(w, "  judge %s\n", r.Binding)
+		fmt.Fprintf(w, "  judge %s  %s\n", r.Binding, modelOr(r.Model))
 	}
 	for _, m := range r.Members {
-		line := fmt.Sprintf("  %s  %s", m.Binding, m.Result)
+		line := fmt.Sprintf("  %s  %s  %s", m.Binding, modelOr(m.Model), m.Result)
 		if m.Class != "" {
 			line += "  " + m.Class
 		}
@@ -262,6 +262,15 @@ func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 		return &exitError{code: ExitBlocked, msg: fmt.Sprintf("gate %s %s on %s (%s -> %s); nothing recorded", r.Gate, r.Result, res.Item, res.From, res.To), quiet: true}
 	}
 	return nil
+}
+
+// modelOr is the model a judge's harness reported, or kernel.UnknownModel
+// when none was recorded.
+func modelOr(model string) string {
+	if model == "" {
+		return kernel.UnknownModel
+	}
+	return model
 }
 
 func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {

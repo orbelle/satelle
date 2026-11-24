@@ -108,12 +108,15 @@ func TestGateRunPrintsTheResult(t *testing.T) {
 	}
 
 	out = must(t, "gate", "run", "dry/one", "--item", id, "--from", "st-a")
-	if !strings.Contains(out, "gate one  accept") || !strings.Contains(out, "judge judge-yes") || !strings.Contains(out, "looks right\nsecond line of notes") {
+	if !strings.Contains(out, "  judge judge-yes  fake-yes\n") || !strings.Contains(out, "looks right\nsecond line of notes") {
 		t.Fatalf("one:\n%s", out)
+	}
+	if !strings.HasPrefix(out, "gate one  accept  (st-a -> st-b; dry run, nothing recorded)\n  judge judge-yes  fake-yes\n\n") {
+		t.Fatalf("one: the judge line adds the model and nothing else changes:\n%s", out)
 	}
 
 	out, err = run(t, "", "gate", "run", "dry/split", "--item", id, "--from", "st-a")
-	for _, want := range []string{"gate split  reject", "  judge-yes  accept", "  judge-no  reject", "panel (all): 1 of 2 accept", "AC1: missing"} {
+	for _, want := range []string{"gate split  reject", "  judge-yes  fake-yes  accept", "  judge-no  fake-no  reject", "panel (all): 1 of 2 accept", "AC1: missing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("split: no %q in\n%s", want, out)
 		}
