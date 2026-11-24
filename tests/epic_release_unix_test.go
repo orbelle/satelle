@@ -80,10 +80,10 @@ kind = "task"
 	}
 	s.write(".satelle/workflows/epic.toml", repoFile(".satelle/workflows/epic.toml"))
 	s.write(".satelle/skills/satelle-children-closed-check.md", repoFile(".satelle/skills/satelle-children-closed-check.md"))
-	for _, name := range []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
+	for _, name := range []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-judge-differs-from-performer-check"} {
 		s.write(".satelle/skills/"+name+".md", repoFile(".satelle/skills/"+name+".md"))
 	}
-	for _, name := range []string{"satelle-story-done-review", "satelle-story-blocked-review", "satelle-story-cancel-review"} {
+	for _, name := range []string{"satelle-epic-ready-review", "satelle-story-done-review", "satelle-story-blocked-review", "satelle-story-cancel-review"} {
 		s.write(".satelle/skills/"+name+".md", "---\nname: "+name+"\n---\nJudge it.\n")
 	}
 	s.write(".satelle/agents.toml", judgeAgentsTOML(t, "", "ra-1", ".satelle/workflows/epic.toml"))
