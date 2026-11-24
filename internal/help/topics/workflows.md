@@ -121,6 +121,8 @@ read the substrate through it, not through a `.satelle/...` path relative to
 its working directory. In a single-repo project it is `<worktree>/.satelle`
 and the working directory is unchanged, so a relative read still works; on a
 remote node it names the `.satelle` of the checkout there.
+`satelle doctor --session <session>` notes each skill, task or remote `[setup]`
+line that reads the substrate by such a relative path.
 
 Reviewer independence is the repo's configuration, not the binary's. `satelle
 init --session <session>` writes the check skill `satelle-judge-differs-from-performer-check` to

@@ -649,21 +649,29 @@ func validate(c *Config, err error) []error {
 	return append(errs, c.Problems()...)
 }
 
-func RemoteDefinitionProblems(root string) []error {
+func RemoteFiles(root string) []string {
 	entries, err := os.ReadDir(filepath.Join(root, RemotesDir))
 	if err != nil {
 		return nil
 	}
-	var errs []error
+	var out []string
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		rel := path.Join(RemotesDir, e.Name(), RemoteFile)
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		out = append(out, rel)
+	}
+	return out
+}
+
+func RemoteDefinitionProblems(root string) []error {
+	var errs []error
+	for _, rel := range RemoteFiles(root) {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", rel, err))
 			continue
