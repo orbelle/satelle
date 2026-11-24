@@ -160,14 +160,9 @@ func (s *Store) Replace(item, head string, events []Event) error {
 	if err := VerifyChain(item, events); err != nil {
 		return fmt.Errorf("ledger: replace %s: %w", item, err)
 	}
-	var body bytes.Buffer
-	for _, e := range events {
-		line, err := Encode(e)
-		if err != nil {
-			return err
-		}
-		body.Write(line)
-		body.WriteByte('\n')
+	body, err := encodeLines(events)
+	if err != nil {
+		return err
 	}
 	return s.withLock(func() error {
 		tail, err := s.tailHash(item)
@@ -177,7 +172,7 @@ func (s *Store) Replace(item, head string, events []Event) error {
 		if tail != head {
 			return &StaleTail{Event: events[0].ID, Prev: head, Tail: tail}
 		}
-		if err := s.replaceFile(item, body.Bytes()); err != nil {
+		if err := s.replaceFile(item, body); err != nil {
 			return fmt.Errorf("ledger: replace %s: %w", item, err)
 		}
 		if s.OnWrite != nil {
@@ -193,7 +188,49 @@ func (s *Store) replaceFile(item string, body []byte) error {
 	if err := s.refuseWrite(); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path(item)), ".tmp-*")
+	return writeAtomic(s.path(item), body)
+}
+
+func (s *Store) SetAside(item string, from int, events []Event) (string, error) {
+	if err := s.refuseWrite(); err != nil {
+		return "", err
+	}
+	if !ValidItem(item) {
+		return "", fmt.Errorf("ledger: invalid item id %q", item)
+	}
+	body, err := encodeLines(events)
+	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.Abs(filepath.Join(s.dir, "forks"))
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("ledger: set aside %s: %w", item, err)
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s.%d.%s.jsonl", item, from, s.now().UTC().Format("20060102T150405Z")))
+	if err := writeAtomic(path, body); err != nil {
+		return "", fmt.Errorf("ledger: set aside %s: %w", item, err)
+	}
+	return path, nil
+}
+
+func encodeLines(events []Event) ([]byte, error) {
+	var body bytes.Buffer
+	for _, e := range events {
+		line, err := Encode(e)
+		if err != nil {
+			return nil, err
+		}
+		body.Write(line)
+		body.WriteByte('\n')
+	}
+	return body.Bytes(), nil
+}
+
+func writeAtomic(path string, body []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err
 	}
@@ -205,7 +242,7 @@ func (s *Store) replaceFile(item string, body []byte) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), s.path(item))
+		err = os.Rename(tmp.Name(), path)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())

@@ -4,11 +4,17 @@ package ledgerrepl
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
@@ -146,5 +152,195 @@ func TestSyncLeavesWorkedForkAlone(t *testing.T) {
 	unchanged("pull")
 	if len(f.remirrored) != 0 {
 		t.Fatalf("Remirror called for %v", f.remirrored)
+	}
+}
+
+func idsOf(events []ledger.Event) []string {
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+func forksDir(t *testing.T, s *ledger.Store) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(s.Dir(), "forks"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+func readSetAside(t *testing.T, path string) []ledger.Event {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []ledger.Event
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(body), "\n"), "\n") {
+		var e ledger.Event
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func TestAdoptTakesStoreChainForWorkedFork(t *testing.T) {
+	a, b, o := forked(t)
+	var out bytes.Buffer
+	r := repl(b, o, &out)
+	r.Mirrors = &fakeMirrors{s: b, mirrorOnly: false}
+	c, err := cache.Open(filepath.Join(t.TempDir(), "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	r.Cache = c
+	if err := c.Sync(b); err != nil {
+		t.Fatal(err)
+	}
+	localBefore := chain(t, b, "it")
+	if res, err := r.Pull(ctx); err != nil || len(res.Diverged) != 1 {
+		t.Fatalf("pull %+v %v, want it diverged\n%s", res, err, out.String())
+	}
+	out.Reset()
+	done, res, err := r.Adopt(ctx, []string{"it"})
+	if err != nil || res.Failed() || len(done) != 1 || !slices.Equal(res.Adopted, []string{"it"}) {
+		t.Fatalf("adopt %+v %+v %v\n%s", done, res, err, out.String())
+	}
+	if !bytes.Equal(chainFile(t, a, "it"), chainFile(t, b, "it")) {
+		t.Fatal("B's chain is not the store's")
+	}
+	if err := ledger.VerifyChain("it", chain(t, b, "it")); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := c.Events("it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := idsOf(cached), idsOf(chain(t, a, "it")); !slices.Equal(got, want) {
+		t.Fatalf("cache holds %v, want the store's %v", got, want)
+	}
+	kept := localBefore[done[0].Fork:]
+	for _, id := range idsOf(kept) {
+		if slices.Contains(idsOf(cached), id) {
+			t.Fatalf("cache still holds set-aside event %s", id)
+		}
+	}
+	rows, err := r.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].State != InSync {
+		t.Fatalf("status %+v, want it in sync", rows)
+	}
+	s := done[0]
+	if s.Fork != 0 || s.Taken != 3 {
+		t.Fatalf("set aside %+v", s)
+	}
+	if got := readSetAside(t, s.Path); !slices.Equal(hashesOf(got), hashesOf(kept)) || !slices.Equal(idsOf(got), idsOf(kept)) {
+		t.Fatalf("%s holds %v, want %v", s.Path, idsOf(got), idsOf(kept))
+	}
+	if want := "adopted: it: this runtime's events 0..0 set aside in " + s.Path + "; the store's 3 event(s) taken"; !strings.Contains(out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, out.String())
+	}
+	for i, e := range kept {
+		if want := "  " + strconv.Itoa(s.Fork+i) + "  " + e.Kind + "  "; !strings.Contains(out.String(), want) {
+			t.Fatalf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestAdoptRefusesUnforkedItems(t *testing.T) {
+	cases := []struct {
+		name, state string
+		setup       func(t *testing.T, o Objects) *ledger.Store
+	}{
+		{"in sync", InSync, func(t *testing.T, o Objects) *ledger.Store {
+			a := newStore(t)
+			add(t, a, "it", "a", 2)
+			push(t, a, o)
+			return a
+		}},
+		{"ahead", Ahead, func(t *testing.T, o Objects) *ledger.Store {
+			a := newStore(t)
+			add(t, a, "it", "a", 2)
+			push(t, a, o)
+			add(t, a, "it", "x", 1)
+			return a
+		}},
+		{"behind", Behind, func(t *testing.T, o Objects) *ledger.Store {
+			a, b := shared(t, o, 2)
+			add(t, a, "it", "a", 1)
+			push(t, a, o)
+			return b
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := fsObjects(t)
+			s := tc.setup(t, o)
+			before := chainFile(t, s, "it")
+			var out bytes.Buffer
+			done, res, err := repl(s, o, &out).Adopt(ctx, []string{"it"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "it is " + tc.state + ": only a chain that diverged from the store's is adopted"
+			if len(done) != 0 || !slices.Equal(res.Refused, []string{want}) {
+				t.Fatalf("adopt %+v %+v, want refused %q", done, res, want)
+			}
+			if !bytes.Equal(before, chainFile(t, s, "it")) {
+				t.Fatal("the local chain changed")
+			}
+			if f := forksDir(t, s); len(f) != 0 {
+				t.Fatalf("set-aside files written: %v", f)
+			}
+		})
+	}
+	t.Run("mixed", func(t *testing.T) {
+		_, b, o := forked(t)
+		add(t, b, "other", "o", 1)
+		push(t, b, o)
+		itBefore, otherBefore := chainFile(t, b, "it"), chainFile(t, b, "other")
+		var out bytes.Buffer
+		done, res, err := repl(b, o, &out).Adopt(ctx, []string{"it", "other"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(done) != 0 || len(res.Refused) != 1 || !strings.Contains(res.Refused[0], "other is in sync") {
+			t.Fatalf("adopt %+v %+v", done, res)
+		}
+		if !bytes.Equal(itBefore, chainFile(t, b, "it")) || !bytes.Equal(otherBefore, chainFile(t, b, "other")) {
+			t.Fatal("a chain changed")
+		}
+		if f := forksDir(t, b); len(f) != 0 {
+			t.Fatalf("set-aside files written: %v", f)
+		}
+	})
+}
+
+func TestDivergentNamesOnlyForkedItems(t *testing.T) {
+	_, b, o := forked(t)
+	add(t, b, "other", "o", 1)
+	push(t, b, o)
+	var out bytes.Buffer
+	got, err := repl(b, o, &out).Divergent(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"it"}) {
+		t.Fatalf("Divergent() = %v, want [it]", got)
 	}
 }
