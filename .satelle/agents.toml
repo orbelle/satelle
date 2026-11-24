@@ -16,6 +16,11 @@ command = "cursor-agent"
 model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]
 
+[agents."reviewer-grok-4-7"]
+command = "grok"
+model = "grok-4.7"
+tools = ["Read", "Grep", "Glob"]
+
 [agents."reviewer-gemini-4-neon-high"]
 command = "cursor-agent"
 model = "gemini-4-neon-high"
