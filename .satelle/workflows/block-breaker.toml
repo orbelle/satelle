@@ -24,7 +24,7 @@ skill = "satelle-block-resolution-check"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-hydrogen-high-cancel"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
