@@ -39,7 +39,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	run := gate.Run{
 		Item: it, From: from, To: to, Transition: tr, Workflow: w,
 		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
-		Dir: k.Dir, Base: base, Changed: changed, Untracked: untracked, Prior: prior,
+		Dir: k.Dir, Substrate: k.SubstrateDir(), Base: base, Changed: changed, Untracked: untracked, Prior: prior,
 		Review:       k.Settings.Review,
 		CheckTimeout: k.CheckTimeout,
 		Coverage:     func(paths []string) (string, string, error) { return k.coverage(it, events, sp, paths) },

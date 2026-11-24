@@ -82,7 +82,7 @@ func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger
 			_ = k.Sessions.Forget(session)
 		}
 	}()
-	req.Env = append(append([]string{}, req.Env...), config.SessionEnv+"="+session, config.ProjectDirEnv+"="+k.Dir)
+	req.Env = append(append([]string{}, req.Env...), config.SessionEnv+"="+session, config.ProjectDirEnv+"="+k.Dir, k.SubstrateEnv())
 	return k.Dispatcher.Dispatch(ctx, agent.Perform, req)
 }
 

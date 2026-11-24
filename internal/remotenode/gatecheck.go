@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -264,18 +265,40 @@ func collectLog(ctx context.Context, h provider.Handle, root, tmp string) string
 	return strings.TrimSpace(string(b))
 }
 
-func validateSkillRel(rel string) error {
+func validateSkillRel(rel string) error { return validateTreeRel("skill directory", rel) }
+
+func validateTreeRel(what, rel string) error {
 	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") {
-		return fmt.Errorf("skill directory %q must be relative to the worktree", rel)
+		return fmt.Errorf("%s %q must be relative to the worktree", what, rel)
 	}
 	if slices.Contains(strings.Split(rel, "/"), "..") {
-		return fmt.Errorf("skill directory %q escapes the worktree", rel)
+		return fmt.Errorf("%s %q escapes the worktree", what, rel)
 	}
 	clean := path.Clean(rel)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
-		return fmt.Errorf("skill directory %q escapes the worktree", rel)
+		return fmt.Errorf("%s %q escapes the worktree", what, rel)
 	}
 	return nil
+}
+
+func treeRel(what, tree, p string) (string, error) {
+	treeAbs, err := resolveAbsPath(tree)
+	if err != nil {
+		return "", err
+	}
+	abs, err := resolveAbsPath(p)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(treeAbs, abs)
+	if err != nil {
+		return "", fmt.Errorf("%s %q is outside worktree %q: %w", what, p, tree, err)
+	}
+	rel = filepath.ToSlash(rel)
+	if err := validateTreeRel(what, rel); err != nil {
+		return "", err
+	}
+	return rel, nil
 }
 
 func resolveAbsPath(p string) (string, error) {
@@ -293,32 +316,29 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 	if err := os.MkdirAll(in, 0o755); err != nil {
 		return false, err
 	}
-	skillRel := ""
+	skillRel, substrateRel := "", ""
 	if c.Env.SkillDir != "" {
 		c.Script = gate.ResolveSkillScript(c.Script)
-		treeAbs, err := resolveAbsPath(tree)
+		rel, err := treeRel("skill directory", tree, c.Env.SkillDir)
 		if err != nil {
 			return false, err
 		}
-		skillAbs, err := resolveAbsPath(c.Env.SkillDir)
-		if err != nil {
-			return false, err
-		}
-		rel, err := filepath.Rel(treeAbs, skillAbs)
-		if err != nil {
-			return false, fmt.Errorf("skill directory %q is outside worktree %q: %w", c.Env.SkillDir, tree, err)
-		}
-		skillRel = filepath.ToSlash(rel)
-		if err := validateSkillRel(skillRel); err != nil {
-			return false, err
-		}
+		skillRel = rel
 		c.Env.SkillDir = ""
+	}
+	if c.Env.Substrate != "" {
+		rel, err := treeRel("substrate directory", tree, c.Env.Substrate)
+		if err != nil {
+			return false, err
+		}
+		substrateRel = rel
+		c.Env.Substrate = ""
 	}
 	shallow, err := stageHead(tree, in, c.Head.Ref)
 	if err != nil {
 		return false, err
 	}
-	wrapper, err := gateWrapperScript(c.Env, c.Script, skillRel)
+	wrapper, err := gateWrapperScript(c.Env, c.Script, skillRel, substrateRel)
 	if err != nil {
 		return false, err
 	}
@@ -334,9 +354,14 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 	return shallow, nil
 }
 
-func gateWrapperScript(env gate.CheckEnv, script, skillRel string) (string, error) {
+func gateWrapperScript(env gate.CheckEnv, script, skillRel, substrateRel string) (string, error) {
 	if skillRel != "" {
 		if err := validateSkillRel(skillRel); err != nil {
+			return "", err
+		}
+	}
+	if substrateRel != "" {
+		if err := validateTreeRel("substrate directory", substrateRel); err != nil {
 			return "", err
 		}
 	}
@@ -352,6 +377,9 @@ func gateWrapperScript(env gate.CheckEnv, script, skillRel string) (string, erro
 	}
 	if skillRel != "" {
 		fmt.Fprintf(&b, "export SATELLE_SKILL_DIR=\"$root/work/\"%s\n", ShQuote(skillRel))
+	}
+	if substrateRel != "" {
+		fmt.Fprintf(&b, "export %s=\"$root/work/\"%s\n", config.SubstrateDirEnv, ShQuote(substrateRel))
 	}
 	b.WriteString("cd \"$root/work\" || exit 1\n")
 	redirect := ` < "$root/in/` + gatePayload + `" > "$root/out/` + gateLog + `" 2>&1`

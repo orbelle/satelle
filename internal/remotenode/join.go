@@ -216,7 +216,10 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 	}
 	defer func() { _ = disableSwap() }()
 	if !o.NoSetup {
-		if err := j.runSetup(ctx, tree, def, prov, env); err != nil {
+		if err := writeOverlay(root, overlay); err != nil {
+			return Outcome{}, err
+		}
+		if err := j.runSetup(ctx, tree, root, def, prov, env); err != nil {
 			return Outcome{}, err
 		}
 	}
@@ -273,8 +276,9 @@ func (j *joiner) tree(reposDir string, fetched []FetchedRepo) (tree, root string
 	return t, filepath.Join(t, ".satelle")
 }
 
-func (j *joiner) runSetup(ctx context.Context, dir string, def remotedef.Definition, prov provider.Provider, env []string) error {
+func (j *joiner) runSetup(ctx context.Context, dir, root string, def remotedef.Definition, prov provider.Provider, env []string) error {
 	w := io.MultiWriter(j.o.Log, &lockedWriter{mu: &j.mu, w: &j.setup})
+	env = append(append([]string{}, env...), kernel.SubstrateVar(root))
 	for _, phase := range []struct {
 		name string
 		cmds []string
@@ -415,7 +419,7 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 			defer rec.Close()
 		}
 		j.say("performing with %s", name)
-		res, err := k.Dispatcher.Dispatch(ctx, agent.Perform, agent.Request{Binding: b, System: req.SystemPrompt, Prompt: req.Text + rec.Section, Dir: tree})
+		res, err := k.Dispatcher.Dispatch(ctx, agent.Perform, agent.Request{Binding: b, System: req.SystemPrompt, Prompt: req.Text + rec.Section, Dir: tree, Env: []string{k.SubstrateEnv()}})
 		if err != nil {
 			return nil, err
 		}

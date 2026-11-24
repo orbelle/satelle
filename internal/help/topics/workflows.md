@@ -114,6 +114,14 @@ working directory, and shell check scripts resolve relative `scripts/<file>`
 and `assets/<file>` paths against `$SATELLE_SKILL_DIR` automatically, both
 locally and on a remote node.
 
+Every check (a gate's check, its trigger, an after skill, a doctor check),
+every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:
+the absolute directory of the `.satelle` governing the run. A script should
+read the substrate through it, not through a `.satelle/...` path relative to
+its working directory. In a single-repo project it is `<worktree>/.satelle`
+and the working directory is unchanged, so a relative read still works; on a
+remote node it names the `.satelle` of the checkout there.
+
 Reviewer independence is the repo's configuration, not the binary's. `satelle
 init --session <session>` writes the check skill `satelle-judge-differs-from-performer-check` to
 `.satelle/skills`, and a repo opts in by naming it as the `skill` of a gate

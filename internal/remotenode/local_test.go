@@ -1278,3 +1278,17 @@ func TestImportBackRefusesASecretInTheRecord(t *testing.T) {
 		}
 	})
 }
+
+func TestRunLocalSetupNamesTheSubstrate(t *testing.T) {
+	f := setupFixture(t, "echo checked", []string{`printf '%s\n' "$SATELLE_SUBSTRATE_DIR" > ../substrate-seen && test -f "$SATELLE_SUBSTRATE_DIR/skills/chk.md"`})
+	nodeDir := f.stage(t, "nod_5ub1")
+	var log strings.Builder
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log})
+	if err != nil || out.Verdict != kernel.VerdictAccept {
+		t.Fatalf("RunLocal = %+v, %v\n%s", out, err, log.String())
+	}
+	seen, err := os.ReadFile(filepath.Join(nodeDir, "substrate-seen"))
+	if want := filepath.Join(nodeDir, "work", ".satelle") + "\n"; err != nil || string(seen) != want {
+		t.Fatalf("setup saw SATELLE_SUBSTRATE_DIR %q (%v), want %q", seen, err, want)
+	}
+}

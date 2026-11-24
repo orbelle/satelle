@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
@@ -257,6 +258,38 @@ func TestConventionalTagsDocumented(t *testing.T) {
 		if !strings.Contains(ui, "`"+c+"`") {
 			t.Errorf("the ui.toml section does not name the colour %s", c)
 		}
+	}
+}
+
+func TestSubstrateDirDocumented(t *testing.T) {
+	flat := func(name string) string {
+		top, ok := Get(name)
+		if !ok {
+			t.Fatalf("no %s topic", name)
+		}
+		return strings.Join(strings.Fields(top.Body), " ")
+	}
+	name := "`" + config.SubstrateDirEnv + "`"
+	wf := flat("workflows")
+	for _, want := range []string{name, "every dispatched performer and every judge", "doctor check"} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("the workflows topic lacks %q", want)
+		}
+	}
+	rem := flat("remotes")
+	for _, want := range []string{"Setup commands a node runs get " + name, "docker-local node's container-start `[setup]`", "has " + name + " unset"} {
+		if !strings.Contains(rem, want) {
+			t.Errorf("the remotes topic lacks %q", want)
+		}
+	}
+	var set []string
+	for _, kv := range (gate.CheckEnv{Substrate: "x"}).Vars() {
+		if strings.HasSuffix(kv, "=x") {
+			set = append(set, kv)
+		}
+	}
+	if len(set) != 1 || set[0] != config.SubstrateDirEnv+"=x" {
+		t.Errorf("CheckEnv{Substrate} sets %q, want only %s", set, config.SubstrateDirEnv)
 	}
 }
 

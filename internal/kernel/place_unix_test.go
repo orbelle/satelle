@@ -452,6 +452,9 @@ func TestPerformLocalSeatsTheRun(t *testing.T) {
 				if dir, _ := envValue(req.Env, "SATELLE_PROJECT_DIR"); dir != k.Dir {
 					t.Fatalf("SATELLE_PROJECT_DIR = %q, want %q", dir, k.Dir)
 				}
+				if sub, _ := envValue(req.Env, "SATELLE_SUBSTRATE_DIR"); sub != k.SubstrateDir() || sub != filepath.Join(k.Dir, ".satelle") {
+					t.Fatalf("SATELLE_SUBSTRATE_DIR = %q, want %q", sub, filepath.Join(k.Dir, ".satelle"))
+				}
 				seats, err := k.Cache.Seats(session, it.ID)
 				if err != nil || len(seats) != 1 || seats[0].Location != LocalLocation(k.Dir) {
 					t.Fatalf("performer seats = %+v, %v", seats, err)

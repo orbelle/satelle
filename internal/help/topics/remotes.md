@@ -38,6 +38,13 @@ imports it, releases the seat (also on failure) and records the run, which
 `remote status` shows. The item's chain here carries the node's events, by
 `node:<node>`.
 
+Setup commands a node runs get `SATELLE_SUBSTRATE_DIR`, the directory of the
+node's governing `.satelle`, already holding the substrate (see `satelle help
+workflows --session <session>`). The exception is a docker-local node's
+container-start `[setup]` (a gate placed on a remote, or a node that joins with
+`--no-setup`): it runs before any substrate is on the machine and has
+`SATELLE_SUBSTRATE_DIR` unset.
+
 `remote fire <remote> <item> --detach` does not hold the session: it returns
 once the docker-local or command node has started its run, printing the node,
 and records the run running while the node goes on working. Nothing brings

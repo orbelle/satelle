@@ -55,6 +55,19 @@ type Kernel struct {
 	Progress      func(item string)
 }
 
+func (k *Kernel) SubstrateDir() string { return substrateDir(k.Root) }
+
+func (k *Kernel) SubstrateEnv() string { return SubstrateVar(k.Root) }
+
+func SubstrateVar(root string) string { return config.SubstrateDirEnv + "=" + substrateDir(root) }
+
+func substrateDir(root string) string {
+	if abs, err := filepath.Abs(root); err == nil {
+		return abs
+	}
+	return root
+}
+
 type SessionOwner interface {
 	Own(session string) error
 	Forget(session string) error

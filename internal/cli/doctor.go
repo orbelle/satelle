@@ -745,7 +745,7 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	if sk.IsDir() {
 		skillPath = ".satelle/skills/" + c.Skill + "/" + workflow.SkillFile
 	}
-	code, out, err := gate.RunCheckCode(ctx, sk.Script, in.r.Tree, gate.CheckEnv{SkillDir: sk.Dir}, doctorCheckTimeout)
+	code, out, err := gate.RunCheckCode(ctx, sk.Script, in.r.Tree, gate.CheckEnv{SkillDir: sk.Dir, Substrate: in.r.DataDir}, doctorCheckTimeout)
 	if ctx.Err() != nil {
 		return []doctorIssue{{Check: name, Problem: errUnchecked.Error()}}, nil
 	}

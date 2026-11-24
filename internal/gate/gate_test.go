@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -610,6 +612,36 @@ type logRecorder struct {
 func (l *logRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
 	l.logs = append(l.logs, req.Log)
 	return l.Dispatcher.Dispatch(ctx, role, req)
+}
+
+func TestJudgeDispatchCarriesTheSubstrate(t *testing.T) {
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"ok"}}}, map[string]workflow.Gate{"ok": {Skill: "judge", Agent: "y1"}})
+	rec := &envRecorder{Dispatcher: r.Dispatcher}
+	r.Dispatcher = rec
+	r.Execute(context.Background())
+	r.Substrate = "/sub/.satelle"
+	r.Execute(context.Background())
+	if len(rec.envs) != 2 {
+		t.Fatalf("dispatches %d, want 2", len(rec.envs))
+	}
+	for _, kv := range rec.envs[0] {
+		if strings.HasPrefix(kv, config.SubstrateDirEnv+"=") {
+			t.Errorf("a run with no substrate dispatched %q", kv)
+		}
+	}
+	if want := []string{config.SubstrateDirEnv + "=/sub/.satelle"}; !slices.Equal(rec.envs[1], want) {
+		t.Errorf("judge env = %q, want %q", rec.envs[1], want)
+	}
+}
+
+type envRecorder struct {
+	agent.Dispatcher
+	envs [][]string
+}
+
+func (e *envRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	e.envs = append(e.envs, req.Env)
+	return e.Dispatcher.Dispatch(ctx, role, req)
 }
 
 func TestReviewPanelByTier(t *testing.T) {

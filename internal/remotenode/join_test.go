@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -33,7 +34,7 @@ satelle_version = "0.0.900"
 NOTE = "satelle:NOTE"
 
 [setup]
-on_create = ["test \"$NOTE\" = '` + nodeSecret + `' && echo setup-ok", "echo leaked=$NOTE"]
+on_create = ["test \"$NOTE\" = '` + nodeSecret + `' && echo setup-ok", "echo leaked=$NOTE", "printf '%s\\n' \"$SATELLE_SUBSTRATE_DIR\" > ../substrate-seen && test -f \"$SATELLE_SUBSTRATE_DIR/satelle.toml\""]
 
 [drive]
 kind = "item"
@@ -189,10 +190,15 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 			t.Errorf("record folder %s was left behind", f)
 		}
 	}
+	substrate := filepath.Join(dir, "work", ".satelle")
 	env := strings.Join(d.reqs[0].Env, " ")
-	if len(d.reqs[0].Env) != 3 || !strings.Contains(env, "NOTE="+nodeSecret) ||
-		!strings.Contains(env, "SATELLE_SESSION=perform_") || !strings.Contains(env, "SATELLE_PROJECT_DIR="+dir) {
-		t.Fatalf("the performer's env = %q, want the run's secrets and its seat", env)
+	if len(d.reqs[0].Env) != 4 || !strings.Contains(env, "NOTE="+nodeSecret) ||
+		!strings.Contains(env, "SATELLE_SESSION=perform_") || !strings.Contains(env, "SATELLE_PROJECT_DIR="+dir) ||
+		!slices.Contains(d.reqs[0].Env, "SATELLE_SUBSTRATE_DIR="+substrate) {
+		t.Fatalf("the performer's env = %q, want the run's secrets, its seat and its substrate", env)
+	}
+	if seen, err := os.ReadFile(filepath.Join(dir, "substrate-seen")); err != nil || string(seen) != substrate+"\n" {
+		t.Fatalf("setup saw SATELLE_SUBSTRATE_DIR %q (%v), want %q", seen, err, substrate)
 	}
 
 	got := strings.Join(methods(l.srv, "node-tok"), " ")
@@ -367,6 +373,9 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	if len(d.reqs) != 1 || d.reqs[0].System != "Do the work.\n" || !strings.Contains(d.reqs[0].Prompt, "place me") {
 		t.Fatalf("the node performed %+v", d.reqs)
 	}
+	if sub, _ := envValue(d.reqs[0].Env, "SATELLE_SUBSTRATE_DIR"); sub != filepath.Join(p.dir, "work", ".satelle") {
+		t.Fatalf("the placed performer's SATELLE_SUBSTRATE_DIR = %q, want %q", sub, filepath.Join(p.dir, "work", ".satelle"))
+	}
 	seats, _ := l.k.Cache.Seats("", it.ID)
 	if len(seats) != 0 {
 		t.Fatalf("the node's seat was not released: %+v", seats)
@@ -454,4 +463,14 @@ func TestPlacementRefusesADivergedItem(t *testing.T) {
 			t.Fatal("StartNode was called for a diverged item")
 		}
 	}
+}
+
+func envValue(env []string, key string) (string, bool) {
+	v, ok := "", false
+	for _, kv := range env {
+		if rest, found := strings.CutPrefix(kv, key+"="); found {
+			v, ok = rest, true
+		}
+	}
+	return v, ok
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/logsread"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -122,6 +123,7 @@ type Run struct {
 	Dispatcher agent.Dispatcher
 
 	Dir          string
+	Substrate    string
 	Base         string
 	Changed      []string
 	Untracked    []string
@@ -225,7 +227,7 @@ func (r Run) Gate(ctx context.Context, name string) Result {
 func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
 func (r Run) env() CheckEnv {
-	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, Redact: r.Redact}
+	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, Substrate: r.Substrate, Redact: r.Redact}
 }
 
 func (r Run) clean(s string) string {
@@ -651,6 +653,9 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, re
 	prompt := r.judgePrompt(rest, b.Brief)
 	res.Command, res.Model, res.Effort, res.PromptBytes = b.Command, b.Model, b.Effort, len(prompt)
 	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
+	if r.Substrate != "" {
+		req.Env = []string{config.SubstrateDirEnv + "=" + r.Substrate}
+	}
 	if r.Logs != "" {
 		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
 	}

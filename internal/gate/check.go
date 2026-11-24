@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
@@ -25,6 +26,7 @@ type CheckEnv struct {
 	Gate, Result         string
 	Binding, Notes       string
 	SkillDir             string
+	Substrate            string
 	Members              []CheckMember
 	Redact               func(string) string
 }
@@ -57,6 +59,9 @@ func (e CheckEnv) Vars() []string {
 	}
 	if e.SkillDir != "" {
 		v = append(v, "SATELLE_SKILL_DIR="+e.SkillDir)
+	}
+	if e.Substrate != "" {
+		v = append(v, config.SubstrateDirEnv+"="+e.Substrate)
 	}
 	return v
 }
@@ -293,6 +298,11 @@ func RunCheckCode(ctx context.Context, script, dir string, env CheckEnv, timeout
 			}
 		}
 		script = ResolveSkillScript(script)
+	}
+	if env.Substrate != "" && !filepath.IsAbs(env.Substrate) {
+		if abs, err := filepath.Abs(env.Substrate); err == nil {
+			env.Substrate = abs
+		}
 	}
 	argv, shebang, err := ScriptInterpreter(script)
 	if err != nil {

@@ -14,6 +14,7 @@ const (
 	DefaultLogsMaxFiles  = 7
 	SessionEnv           = "SATELLE_SESSION"
 	ProjectDirEnv        = "SATELLE_PROJECT_DIR"
+	SubstrateDirEnv      = "SATELLE_SUBSTRATE_DIR"
 )
 
 func SessionFromEnv() string { return strings.TrimSpace(os.Getenv(SessionEnv)) }

@@ -16,6 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/filebundle"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
@@ -164,7 +165,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		fmt.Fprintf(o.Log, "node: setup %s: %d commands\n", phase.name, len(phase.cmds))
 		for i, c := range phase.cmds {
 			steps.setup(phase.name, i+1, len(phase.cmds))
-			if err := RunSetup(ctx, tree, phase.name, []string{c}, nil, localSetupTimeout, o.Log); err != nil {
+			if err := RunSetup(ctx, tree, phase.name, []string{c}, []string{kernel.SubstrateVar(root)}, localSetupTimeout, o.Log); err != nil {
 				var se *SetupError
 				if errors.As(err, &se) {
 					se.Index = i + 1

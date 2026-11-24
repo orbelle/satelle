@@ -704,6 +704,28 @@ func TestDoctorConfiguredCheckPassOutputAsNotes(t *testing.T) {
 		return out
 	}
 
+	t.Run("pass names the substrate", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		writeCheck(t, f, "printf '%s\\n' \"$SATELLE_SUBSTRATE_DIR\"\nexit 0")
+		rep, text, err := doctorJSON(t)
+		if err != nil {
+			t.Fatalf("doctor failed: %v\n%s", err, text)
+		}
+		want, err := filepath.EvalSymlinks(filepath.Join(f.dir, ".satelle"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := checkNotes(rep)
+		if len(got) == 1 {
+			if p, err := filepath.EvalSymlinks(strings.TrimPrefix(got[0], "check:fixture-check: ")); err == nil {
+				got[0] = "check:fixture-check: " + p
+			}
+		}
+		if wantNotes := []string{"check:fixture-check: " + want}; !slices.Equal(got, wantNotes) {
+			t.Errorf("check notes = %q, want %q", got, wantNotes)
+		}
+	})
+
 	t.Run("pass prints notes", func(t *testing.T) {
 		f := newDoctorFixture(t)
 		writeCheck(t, f, "printf '  first finding  \\r\\n\\n   \\t  \\n  second finding\\n'\nexit 0")

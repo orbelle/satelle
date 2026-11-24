@@ -18,6 +18,20 @@ func checkSkill(script string) workflow.Skill {
 	return workflow.Skill{Meta: map[string]string{"type": workflow.TypeCheck}, Script: script}
 }
 
+func TestCheckEnvNamesTheSubstrate(t *testing.T) {
+	t.Setenv("SATELLE_SUBSTRATE_DIR", "")
+	os.Unsetenv("SATELLE_SUBSTRATE_DIR")
+	dir := t.TempDir()
+	ok, notes, err := RunCheck(context.Background(), "printf '%s' \"$SATELLE_SUBSTRATE_DIR\"", t.TempDir(), CheckEnv{Substrate: dir}, time.Minute)
+	if err != nil || !ok || notes != dir {
+		t.Errorf("with a substrate: ok %v notes %q err %v, want %q", ok, notes, err, dir)
+	}
+	ok, notes, err = RunCheck(context.Background(), "printf '%s' \"${SATELLE_SUBSTRATE_DIR-unset}\"", t.TempDir(), CheckEnv{}, time.Minute)
+	if err != nil || !ok || notes != "unset" {
+		t.Errorf("without a substrate: ok %v notes %q err %v, want unset", ok, notes, err)
+	}
+}
+
 func TestCheckGatesAndTriggers(t *testing.T) {
 	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"quiet", "pass", "fail", "never"}}}, map[string]workflow.Gate{
 		"quiet": {Skill: "pass", Trigger: "irrelevant"},
