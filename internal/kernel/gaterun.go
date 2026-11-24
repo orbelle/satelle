@@ -155,6 +155,10 @@ func (rc *recorder) start(seq int, name string) error {
 func (rc *recorder) finish(seq int, res gate.Result) {
 	rc.mu.Lock()
 	res.Attempt, res.Seq = rc.at, seq
+	res.ModelID = rc.k.modelID(res.Model)
+	for i := range res.Members {
+		res.Members[i].ModelID = rc.k.modelID(res.Members[i].Model)
+	}
 	on := rc.record(gate.KindRun, seq, res)
 	rc.mu.Unlock()
 	if on {

@@ -85,7 +85,7 @@ func itemOutcome(it item.Item, events []ledger.Event, terminal bool) ItemOutcome
 				Result:  res,
 				Binding: pr.Binding,
 				Command: pr.Command,
-				Model:   normalizeModel(pr.Model),
+				Model:   modelKey(pr.ModelID, pr.Model),
 			})
 			continue
 		}
@@ -102,7 +102,7 @@ func itemOutcome(it item.Item, events []ledger.Event, terminal bool) ItemOutcome
 				Result:     v.result,
 				Binding:    v.binding,
 				Command:    v.command,
-				Model:      normalizeModel(v.model),
+				Model:      modelKey(v.modelID, v.model),
 			})
 		}
 	}

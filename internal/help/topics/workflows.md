@@ -435,9 +435,13 @@ long timeout runs as a background command, as `story set --status` does.
 To compare judges, `satelle gate report --session <session>` folds every judged
 gate.run on the ledger into one row per gate and model: runs, accepts, rejects,
 errors, confirmed catches, overturned rejects, the runs measured, tokens in and
-out, and the median duration. A panel member counts under its own model; a run
-recorded without a model counts under `unknown`, never a model read from
-`agents.toml`. A reject is a confirmed catch when the next accept of the same
+out, and the median duration. A run counts under its recorded `model_id`, the
+normalised identifier recorded beside the harness's own `model` spelling (see
+`[models]` in `satelle help configuration --session <session>`), so one model reported under
+several spellings totals as one row. A run recorded before `model_id` existed
+counts under its recorded `model`, unchanged. A panel member counts under its
+own model; a run recorded without a model counts under `unknown`, never a model
+read from `agents.toml`. A reject is a confirmed catch when the next accept of the same
 gate on the same item judged a different change (another coverage), and an
 overturned reject when it judged the same one; a panel member's reject in a run
 the gate accepted is overturned. The report counts recorded results, so a
@@ -455,8 +459,9 @@ lists its workflow, current status (marked `terminal` when its workflow
 declares the state terminal), each performed state with its command and model
 from `performer.run` records, and each judged gate's rounds with its judge's
 model and verdict (expanding panel members; check gates, skipped and carried
-runs are omitted). A run recorded without a model shows `unknown`, never the
-model `agents.toml` names today. `--json` prints the same outcome and rows as
+runs are omitted), each by its `model_id` when recorded, else its recorded
+`model`. A run recorded without a model shows `unknown`, never the model
+`agents.toml` names today. `--json` prints the same outcome and rows as
 one document; `--since` and `--until` do not apply with `--item`.
 
 ## Agents

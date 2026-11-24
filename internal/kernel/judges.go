@@ -1,9 +1,11 @@
 package kernel
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -77,7 +79,7 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 				continue
 			}
 			for _, v := range verdictsOfResult(r) {
-				model := normalizeModel(v.model)
+				model := modelKey(v.modelID, v.model)
 				key := [2]string{r.Gate, model}
 				t, ok := byKey[key]
 				if !ok {
@@ -165,4 +167,45 @@ func normalizeModel(model string) string {
 		return UnknownModel
 	}
 	return model
+}
+
+func ModelID(reported string, aliases map[string]string) string {
+	id := modelSlug(reported)
+	if id == "" {
+		return ""
+	}
+	for _, from := range slices.Sorted(maps.Keys(aliases)) {
+		if modelSlug(from) == id {
+			return modelSlug(aliases[from])
+		}
+	}
+	return id
+}
+
+func modelSlug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteRune(r)
+			continue
+		}
+		dash = true
+	}
+	return b.String()
+}
+
+func (k *Kernel) modelID(reported string) string {
+	return ModelID(reported, k.Settings.Models.Aliases)
+}
+
+func modelKey(id, reported string) string {
+	if id != "" {
+		return id
+	}
+	return normalizeModel(reported)
 }
