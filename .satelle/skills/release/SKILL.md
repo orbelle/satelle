@@ -424,7 +424,7 @@ is at the bump. The result carries the `release.yml` run and both tags.
 
 Binary changed only.
 
-Run `scripts/install.sh`.
+Run `scripts/backup-install.sh`.
 
 The restore line is printed, with real paths and no placeholder, before
 anything is replaced. The backup is never deleted by the run. The second
