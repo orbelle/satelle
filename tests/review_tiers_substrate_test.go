@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// lowTier is the one judge of the risk:low panel; highTier is the risk:high
-// panel, which an item with no risk tag is judged by too.
 var (
 	lowTier  = []string{"reviewer-gemini-4-hydrogen-high"}
 	highTier = []string{"reviewer-gemini-4-neon-high", "reviewer-grok-4.7"}
