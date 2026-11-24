@@ -190,3 +190,24 @@ func TestShellBlockLinesReturnsShellFenceLinesWithFileLineNumbers(t *testing.T) 
 		t.Fatalf("ShellBlockLines = %+v, want %+v", got, want)
 	}
 }
+
+func TestShellScriptLinesSkipsQuotedHeredocBodies(t *testing.T) {
+	text := "cat <<'EOF'\nquoted body\nEOF\na 5\ncat <<-\"X\" <<\\Y\n\tq1\n\tX\nq2\nY\ncat <<Z\nopen body\nZ\necho a<<<b\nc 15"
+	var got []int
+	for _, l := range ShellScriptLines(text) {
+		got = append(got, l.Line)
+	}
+	want := []int{1, 4, 5, 10, 11, 13, 14}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ShellScriptLines lines = %v, want %v", got, want)
+	}
+}
+
+func TestShellBlockLinesSkipsAQuotedHeredocBodyInsideAFence(t *testing.T) {
+	text := "```sh\ncat <<'EOF'\nbody\n```\n```sh\nb 6\n```\n"
+	got := ShellBlockLines(text)
+	want := []ShellLine{{Line: 2, Words: []string{"cat", "EOF"}}, {Line: 6, Words: []string{"b", "6"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ShellBlockLines = %+v, want %+v", got, want)
+	}
+}

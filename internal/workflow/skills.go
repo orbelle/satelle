@@ -491,15 +491,19 @@ func ShellBlockLines(text string) []ShellLine {
 	var fenceCh byte
 	fenceCount := 0
 	inShell := false
+	var sc heredocScanner
 	for i, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if fenceCount > 0 {
 			if fenceClose(trimmed, fenceCh, fenceCount) {
 				fenceCh, fenceCount, inShell = 0, 0, false
+				sc = heredocScanner{}
 				continue
 			}
 			if inShell {
-				out = append(out, ShellLine{Line: i + 1, Words: ShellWords(line)})
+				if words, ok := sc.next(line); ok {
+					out = append(out, ShellLine{Line: i + 1, Words: words})
+				}
 			}
 			continue
 		}
@@ -507,6 +511,120 @@ func ShellBlockLines(text string) []ShellLine {
 			fenceCh, fenceCount = ch, n
 			inShell = shellFence(lang)
 		}
+	}
+	return out
+}
+
+func ShellScriptLines(text string) []ShellLine {
+	var out []ShellLine
+	var sc heredocScanner
+	for i, line := range strings.Split(text, "\n") {
+		if words, ok := sc.next(line); ok {
+			out = append(out, ShellLine{Line: i + 1, Words: words})
+		}
+	}
+	return out
+}
+
+type heredoc struct {
+	delim  string
+	strip  bool
+	quoted bool
+}
+
+type heredocScanner struct {
+	pending []heredoc
+}
+
+func (s *heredocScanner) next(line string) ([]string, bool) {
+	if len(s.pending) > 0 {
+		h := s.pending[0]
+		end := line
+		if h.strip {
+			end = strings.TrimLeft(end, "\t")
+		}
+		if end == h.delim {
+			s.pending = s.pending[1:]
+			return nil, false
+		}
+		if h.quoted {
+			return nil, false
+		}
+		return ShellWords(line), true
+	}
+	s.pending = heredocsOpened(line)
+	return ShellWords(line), true
+}
+
+func heredocsOpened(line string) []heredoc {
+	var out []heredoc
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if c == '\\' && quote == '"' {
+				i++
+			}
+			continue
+		case c == '\'' || c == '"':
+			quote = c
+			continue
+		case c == '\\':
+			i++
+			continue
+		case c == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			return out
+		case c != '<' || i+1 >= len(line) || line[i+1] != '<':
+			continue
+		}
+		j := i + 2
+		if j < len(line) && line[j] == '<' {
+			i = j
+			continue
+		}
+		h := heredoc{}
+		if j < len(line) && line[j] == '-' {
+			h.strip = true
+			j++
+		}
+		for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+			j++
+		}
+		var delim strings.Builder
+		var q byte
+		for ; j < len(line); j++ {
+			d := line[j]
+			if q != 0 {
+				if d == q {
+					q = 0
+				} else {
+					delim.WriteByte(d)
+				}
+				continue
+			}
+			if d == '\'' || d == '"' {
+				q, h.quoted = d, true
+				continue
+			}
+			if d == '\\' && j+1 < len(line) {
+				h.quoted = true
+				j++
+				delim.WriteByte(line[j])
+				continue
+			}
+			if strings.IndexByte(" \t;|&<>()", d) >= 0 {
+				break
+			}
+			delim.WriteByte(d)
+		}
+		if delim.Len() > 0 {
+			h.delim = delim.String()
+			out = append(out, h)
+		}
+		i = j - 1
 	}
 	return out
 }

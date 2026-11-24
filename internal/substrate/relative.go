@@ -52,14 +52,12 @@ func RelativeReads(dataDir string, remotes []string) ([]Finding, error) {
 				return err
 			}
 			rel = filepath.ToSlash(rel)
+			lines := workflow.ShellScriptLines
 			if ext == ".md" {
-				for _, l := range workflow.ShellBlockLines(string(b)) {
-					add(rel, l.Line, l.Words)
-				}
-				return nil
+				lines = workflow.ShellBlockLines
 			}
-			for i, line := range strings.Split(string(b), "\n") {
-				add(rel, i+1, workflow.ShellWords(line))
+			for _, l := range lines(string(b)) {
+				add(rel, l.Line, l.Words)
 			}
 			return nil
 		})

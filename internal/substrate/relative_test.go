@@ -92,3 +92,16 @@ func TestRelativeReadsFindsNothingInTheInitTemplate(t *testing.T) {
 		t.Fatalf("the init template reads the substrate relative to the working directory:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+func TestRelativeReadsSkipsAQuotedHeredocBodyButReportsTheReadBesideIt(t *testing.T) {
+	data := writeTree(t, map[string]string{
+		"tasks/b.md": "```sh\nsatelle task create --body - <<'EOF'\nACTION: follow .satelle/tasks/b.md\nEOF\ncat .satelle/tasks/b.md\n```\n",
+	})
+	got, err := substrate.RelativeReads(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].File != ".satelle/tasks/b.md" || got[0].Line != 5 {
+		t.Fatalf("got %+v, want one finding at .satelle/tasks/b.md:5", got)
+	}
+}

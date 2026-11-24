@@ -358,7 +358,9 @@ runs what `.satelle/doctor.toml` names:
 The substrate-dir check notes each skill, task or remote `[setup]` line whose
 shell text reads a `.satelle/...` path relative to the working directory, with
 its file, its line and the `"$SATELLE_SUBSTRATE_DIR/..."` form to use, and
-changes nothing; the session-start hook skips it. A remote's `[connect]` argv
+changes nothing; the session-start hook skips it. A path that begins with a
+variable or a command substitution is anchored and not noted, and neither is a
+line inside a heredoc whose delimiter is quoted. A remote's `[connect]` argv
 is not read, and the docker-local exception is in
 `satelle help remotes --session <session>`.
 
