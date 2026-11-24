@@ -341,7 +341,7 @@ owner's share. Visibility writes nothing locally and needs no seat.
 
 `satelle doctor --session <session>` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
-within 2 s. Besides its kernel checks (config, unknown-keys, substrate, volatile, init, harness,
+within 2 s. Besides its kernel checks (config, unknown-keys, substrate, volatile, substrate-dir, init, harness,
 versions, sync, seats) it
 runs what `.satelle/doctor.toml` names:
 
@@ -354,6 +354,13 @@ runs what `.satelle/doctor.toml` names:
     kind = "story"              # and/or tag, category, status (an item selection; one of kind, tag, category is required)
     tag = "<tag>"
     fix = "satelle story get {id}"  # {id} is replaced with the item's id
+
+The substrate-dir check notes each skill, task or remote `[setup]` line whose
+shell text reads a `.satelle/...` path relative to the working directory, with
+its file, its line and the `"$SATELLE_SUBSTRATE_DIR/..."` form to use, and
+changes nothing; the session-start hook skips it. A remote's `[connect]` argv
+is not read, and the docker-local exception is in
+`satelle help remotes --session <session>`.
 
 A check skill runs in the working tree with no item: exit 0 raises no issue
 and prints each non-empty line of its output as a note naming the check

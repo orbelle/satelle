@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -178,5 +179,14 @@ func TestSkillDirPathProblemsForeign(t *testing.T) {
 	}
 	if len(probs) != 6 {
 		t.Errorf("got %d foreign problems, want 6:\n%s", len(probs), joined)
+	}
+}
+
+func TestShellBlockLinesReturnsShellFenceLinesWithFileLineNumbers(t *testing.T) {
+	text := "---\nname: x\n---\n```sh\na 1\n```\n```toml\nb = 2\n```\n```bash\nc 3\n```\n````check\nd \"4 5\" # e\n````\n"
+	got := ShellBlockLines(text)
+	want := []ShellLine{{Line: 5, Words: []string{"a", "1"}}, {Line: 11, Words: []string{"c", "3"}}, {Line: 14, Words: []string{"d", "4 5"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ShellBlockLines = %+v, want %+v", got, want)
 	}
 }

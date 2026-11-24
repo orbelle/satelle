@@ -242,7 +242,7 @@ func (s Skill) dirPathProblems() []error {
 		}
 		if ch, n, lang, ok := fenceOpen(trimmed); ok {
 			fenceCh, fenceCount = ch, n
-			inShell = lang == "sh" || lang == "bash" || lang == "check"
+			inShell = shellFence(lang)
 			continue
 		}
 		for _, span := range backtickSpans(line) {
@@ -478,3 +478,37 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 	}
 	return out, errors.Join(errs...)
 }
+
+type ShellLine struct {
+	Line  int
+	Words []string
+}
+
+func ShellWords(s string) []string { return shellTokens(s, true) }
+
+func ShellBlockLines(text string) []ShellLine {
+	var out []ShellLine
+	var fenceCh byte
+	fenceCount := 0
+	inShell := false
+	for i, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if fenceCount > 0 {
+			if fenceClose(trimmed, fenceCh, fenceCount) {
+				fenceCh, fenceCount, inShell = 0, 0, false
+				continue
+			}
+			if inShell {
+				out = append(out, ShellLine{Line: i + 1, Words: ShellWords(line)})
+			}
+			continue
+		}
+		if ch, n, lang, ok := fenceOpen(trimmed); ok {
+			fenceCh, fenceCount = ch, n
+			inShell = shellFence(lang)
+		}
+	}
+	return out
+}
+
+func shellFence(lang string) bool { return lang == "sh" || lang == "bash" || lang == "check" }
