@@ -1166,6 +1166,15 @@ A performer answer ending in an `{"artifact":{name,type,body}}` object also
 appends `attachment.added` named by the artifact (media type
 `text/markdown; type=<type>`); a malformed artifact fails the run and attaches
 nothing (sto_42f9cae5). Any other kind may be appended by `ledger append` and is carried, never read.
+Every event satelle appends through a store carries `payload.origin` =
+`{machine, role (session|performer|judge|sync|node), harness (when detected),
+worktree}`; the store sets it and replaces any caller-supplied `origin`, and
+`ledger append` refuses a payload that is not a JSON object or that names
+`origin`. The hash and the envelope are unchanged. Queue-file mirror events and
+carried, pulled or imported events carry no origin of their own. The origin is
+provenance for tracing faults, not an authorisation fact: the role is
+self-reported through `SATELLE_WORKER` (which can claim only performer or
+judge), and no gate or rule reads it (sto_7fbfa65c).
 
 **Items.** Fields: id, kind, title, body, criteria, status, tags, parent,
 category, workflow, assignees (a list; every user holding a live seat is

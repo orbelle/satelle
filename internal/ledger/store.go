@@ -19,9 +19,11 @@ import (
 )
 
 type Store struct {
-	dir      string
-	Now      func() time.Time
-	OnWrite  func(Event)
+	dir     string
+	Now     func() time.Time
+	OnWrite func(Event)
+	// Origin, when set, is written into every payload NewEvent builds.
+	Origin   *Origin
 	readOnly string
 }
 
@@ -92,7 +94,28 @@ func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 }
 
 func (s *Store) NewEvent(item, kind, actor string, payload any, prev string) (Event, error) {
-	return NewEventWith(newEventID(), s.now().UTC(), item, kind, actor, payload, prev)
+	raw, err := encodePayload(payload)
+	if err != nil {
+		return Event{}, err
+	}
+	if raw, err = WithOrigin(raw, s.Origin); err != nil {
+		return Event{}, err
+	}
+	return NewEventWith(newEventID(), s.now().UTC(), item, kind, actor, raw, prev)
+}
+
+func encodePayload(payload any) (json.RawMessage, error) {
+	if payload == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: payload: %w", err)
+	}
+	if string(b) == "null" {
+		return nil, nil
+	}
+	return b, nil
 }
 
 func NewEventWith(id string, at time.Time, item, kind, actor string, payload any, prev string) (Event, error) {
@@ -102,18 +125,11 @@ func NewEventWith(id string, at time.Time, item, kind, actor string, payload any
 	if strings.TrimSpace(kind) == "" {
 		return Event{}, errors.New("ledger: empty event kind")
 	}
-	var raw json.RawMessage
-	if payload != nil {
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return Event{}, fmt.Errorf("ledger: payload: %w", err)
-		}
-		if string(b) != "null" {
-			raw = b
-		}
+	raw, err := encodePayload(payload)
+	if err != nil {
+		return Event{}, err
 	}
 	e := Event{ID: id, Item: item, Kind: kind, At: at.UTC(), Actor: actor, Payload: raw, Prev: prev}
-	var err error
 	e.Hash, err = HashOf(e)
 	return e, err
 }

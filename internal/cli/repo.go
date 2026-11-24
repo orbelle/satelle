@@ -11,6 +11,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/seatlife"
@@ -77,6 +78,8 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	home := config.GlobalDir()
 	k.Machine, _ = config.MachineID(home)
 	k.Host, _ = os.Hostname()
+	harness, _ := sessionMeta(home, sessionFromEnv())
+	k.SetOrigin(k.Machine, ledger.EnvRole(config.WorkerFromEnv()), harness)
 	k.User = func() string { return seatUser(k.Host) }
 	k.Sessions = seatlife.Recorder{Home: home}
 	k.SessionMeta = func(session string) (string, string) { return sessionMeta(home, session) }

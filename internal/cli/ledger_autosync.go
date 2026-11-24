@@ -11,8 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/syncstate"
@@ -192,6 +194,7 @@ func syncRepo(ctx context.Context, r repo, fix seatFix) (syncstate.Pass, string)
 		return syncstate.Pass{Reason: err.Error()}, ""
 	}
 	defer k.Close()
+	k.SetOrigin(k.Machine, ledger.RoleSync, hook.Caller())
 	local := func() (syncstate.Pass, string) {
 		fix(k, "", allSynced)
 		return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"

@@ -15,9 +15,16 @@ const (
 	SessionEnv           = "SATELLE_SESSION"
 	ProjectDirEnv        = "SATELLE_PROJECT_DIR"
 	SubstrateDirEnv      = "SATELLE_SUBSTRATE_DIR"
+	// WorkerEnv names the worker role a dispatched child runs as. The value
+	// is the writing process's self-report, used only for an event origin's
+	// role; it is provenance, not an authorisation fact.
+	WorkerEnv = "SATELLE_WORKER"
 )
 
 func SessionFromEnv() string { return strings.TrimSpace(os.Getenv(SessionEnv)) }
+
+// WorkerFromEnv returns the worker role this process was dispatched as, if any.
+func WorkerFromEnv() string { return strings.TrimSpace(os.Getenv(WorkerEnv)) }
 
 func FindDataDir(start string) (string, bool) {
 	dir := strings.TrimSpace(start)
