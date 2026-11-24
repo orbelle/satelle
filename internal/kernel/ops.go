@@ -457,6 +457,7 @@ type PerformerRun struct {
 	Binding    string `json:"binding"`
 	Skill      string `json:"skill"`
 	Model      string `json:"model,omitempty"`
+	ModelID    string `json:"model_id,omitempty"`
 	Command    string `json:"command,omitempty"`
 	Harness    string `json:"harness,omitempty"`
 	TokensIn   int    `json:"tokens_in"`
@@ -499,8 +500,11 @@ func (k *Kernel) sessionPerformerRun(it item.Item, events []ledger.Event, w *wor
 		harness = UnknownModel
 	}
 	model = strings.TrimSpace(model)
+	var modelID string
 	if model == "" {
 		model = UnavailableModel(harness)
+	} else {
+		modelID = k.modelID(model)
 	}
 	return &PerformerRun{
 		State:   it.Status,
@@ -509,6 +513,7 @@ func (k *Kernel) sessionPerformerRun(it item.Item, events []ledger.Event, w *wor
 		Command: agent.PresetSession,
 		Harness: harness,
 		Model:   model,
+		ModelID: modelID,
 	}
 }
 
@@ -580,6 +585,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 			rec.Model = b.Model
 		}
 	}
+	rec.ModelID = k.modelID(rec.Model)
 	if runErr != nil {
 		rec.Error = runErr.Error()
 	}

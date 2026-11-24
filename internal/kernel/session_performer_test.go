@@ -134,6 +134,7 @@ func TestSessionPerformerRunRecordsModelAndOrder(t *testing.T) {
 		Command: agent.PresetSession,
 		Harness: "cursor",
 		Model:   "gemini-3.8-flash-high",
+		ModelID: "gemini-3-8-flash-high",
 	}
 	if runs[0] != want {
 		t.Fatalf("performer.run = %+v, want %+v", runs[0], want)
@@ -182,7 +183,7 @@ func TestSessionPerformerRunUnavailableModelPerHarness(t *testing.T) {
 			if len(runs) != 1 {
 				t.Fatalf("got %d performer.run events, want 1", len(runs))
 			}
-			if runs[0].Command != agent.PresetSession || runs[0].Harness != tc.wantHarness || runs[0].Model != tc.wantModel {
+			if runs[0].Command != agent.PresetSession || runs[0].Harness != tc.wantHarness || runs[0].Model != tc.wantModel || runs[0].ModelID != "" {
 				t.Errorf("got %+v, want command=session harness=%q model=%q", runs[0], tc.wantHarness, tc.wantModel)
 			}
 		})

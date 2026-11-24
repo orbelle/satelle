@@ -71,6 +71,9 @@ its `commands` key.
       [items]
       prefix = { story = "sty" }  # id prefix per kind (default: its first three letters)
 
+      [models]                    # optional: spellings the model_id transform cannot unify
+      aliases = { "<reported spelling>" = "<identifier>" }
+
       [service]                   # satelled
       [sync]
 
@@ -93,9 +96,20 @@ its `commands` key.
   named gate. A carried accept is carried only for the same tier. `satelle
   validate --session <session>` refuses a panel agent missing from `agents.toml`, a gate no
   workflow has, a check gate, and a blank or `:`-holding `tier_tag`; panel
-  agents get the same judge checks as a gate's own. `[review]`, `[workflows]`,
-  `[gate]` and unknown top-level keys or tables of `satelle.toml` are decoded
-  strictly, so a misspelt key or table there fails configuration loading.
+  agents get the same judge checks as a gate's own. `[review]`, `[models]`,
+  `[workflows]`, `[gate]` and unknown top-level keys or tables of
+  `satelle.toml` are decoded strictly, so a misspelt key or table there fails
+  configuration loading.
+
+  `[models]` maps model spellings to one identifier. Every gate.run (and each
+  panel member) and performer.run records the harness's own spelling as
+  `model` and a normalised `model_id` beside it: the spelling lowercased, each
+  run of characters other than letters and digits made one `-`, the ends
+  trimmed. Spellings that transform leaves apart (a word one harness inserts)
+  are joined by an alias: a key and a value are compared after the same
+  transform, the lookup is one step, and an alias whose key or value
+  normalises to empty fails configuration loading. A session-performed run
+  whose harness reported no model records no `model_id`.
 
 - `session.md` — the session guidance: how to pass `--session`, the edit
   gate and the drive rule. The context hook (at session start), the prompt

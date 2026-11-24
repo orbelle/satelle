@@ -61,6 +61,7 @@ type Result struct {
 	Seq         int          `json:"seq,omitempty"`
 	Command     string       `json:"command,omitempty"`
 	Model       string       `json:"model,omitempty"`
+	ModelID     string       `json:"model_id,omitempty"`
 	Effort      string       `json:"effort,omitempty"`
 	PromptBytes int          `json:"prompt_bytes,omitempty"`
 	Tier        string       `json:"tier,omitempty"`
@@ -99,6 +100,7 @@ type Member struct {
 	Answer      string `json:"answer,omitempty"`
 	Command     string `json:"command,omitempty"`
 	Model       string `json:"model,omitempty"`
+	ModelID     string `json:"model_id,omitempty"`
 	Effort      string `json:"effort,omitempty"`
 	PromptBytes int    `json:"prompt_bytes,omitempty"`
 	TokensIn    int    `json:"tokens_in,omitempty"`

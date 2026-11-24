@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,6 +31,11 @@ type Settings struct {
 	Sync      SyncSettings    `toml:"sync"`
 	Ledger    LedgerSettings  `toml:"ledger"`
 	Review    workflow.Review `toml:"review"`
+	Models    ModelSettings   `toml:"models"`
+}
+
+type ModelSettings struct {
+	Aliases map[string]string `toml:"aliases"`
 }
 
 type GateSettings struct {
@@ -257,6 +263,13 @@ func loadSettings(root string) (Settings, []workflow.UnknownKey, error) {
 	}
 	if len(strictKeys) > 0 {
 		errs = append(errs, fmt.Errorf("%s: unknown key %s", path, strings.Join(strictKeys, ", ")))
+	}
+	for _, from := range slices.Sorted(maps.Keys(st.Models.Aliases)) {
+		for _, s := range []string{from, st.Models.Aliases[from]} {
+			if modelSlug(s) == "" {
+				errs = append(errs, fmt.Errorf("satelle.toml: [models] aliases: %q normalises to an empty identifier", s))
+			}
+		}
 	}
 	if len(errs) > 0 {
 		return st, nil, errors.Join(errs...)
