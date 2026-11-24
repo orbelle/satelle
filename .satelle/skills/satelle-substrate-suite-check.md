@@ -6,18 +6,14 @@ description: Refuses a substrate item's move to done while a test that reads thi
 
 # Substrate suite
 
-A substrate item changes `.satelle/` only, and the tests in this repo read it.
-The integration suite under `tests/` drives the repo's own workflows, panels,
-skills and principles. Unit packages such as `internal/cli`,
-`internal/kernel`, `internal/remotedef` and `internal/remotenode` read
-`../../.satelle`. A change that leaves any of them failing must not reach
-main. `grep -rln '\.satelle' --include=*_test.go internal tests` lists the
-test files that name the substrate. The set grows with the code, so this check
-runs both whole suites rather than a list that would go stale.
+A substrate item changes `.satelle/` only, and tests in this repo read it:
+`grep -rln '\.satelle' --include=*_test.go internal tests` lists the test
+files that name it. That set grows with the code, so this check runs both whole
+suites rather than a list that would go stale.
 
-It sits last in the first, deterministic group of the substrate workflow's
-`in_progress -> done` move (`satelle workflow show substrate --session
-<session>`). A reject there stops the move before any judged gate runs.
+Where the gate sits on the substrate route is in `satelle workflow show
+substrate --session <session>`. How a reject in one group stops the groups
+after it is in `satelle help workflows --session <session>`.
 
 The notes name each failing test (`--- FAIL` lines) and each failing
 package. A build failure is reported with its compiler output.
