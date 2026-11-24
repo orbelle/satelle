@@ -264,8 +264,6 @@ func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 	return nil
 }
 
-// modelOr is the model a judge's harness reported, or kernel.UnknownModel
-// when none was recorded.
 func modelOr(model string) string {
 	if model == "" {
 		return kernel.UnknownModel
