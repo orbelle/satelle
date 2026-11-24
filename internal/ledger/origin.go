@@ -24,6 +24,10 @@ const (
 	RoleNode      = "node"
 )
 
+func Roles() []string {
+	return []string{RoleSession, RolePerformer, RoleJudge, RoleSync, RoleNode}
+}
+
 func EnvRole(v string) string {
 	switch strings.TrimSpace(v) {
 	case RolePerformer:
