@@ -110,10 +110,15 @@ services), `"local"` (the default otherwise; nothing replicates) or an adapter
 `{ command, args }` (proven by `satelle ledger store-test --session <session>`, which checks only a
 configured command). Every store keeps the same rule: a different hash at a
 sequence is refused, never merged. The one exception is a file-defined
-queue's chain that holds only satelle's own file-mirror events: no work was
-done on it, so it takes the store's chain for that id and the file is mirrored
-onto that (operator, 2026-11-13; sto_80da4589). A chain with any other event
-is never replaced. A missing blob is a recorded gap, and
+queue's chain whose local events past the fork point are only satelle's own
+file-mirror events: no work was done past the fork, so it takes the store's
+chain for that id and the file is mirrored onto that (operator, 2026-11-13;
+sto_80da4589; widened on 2026-11-25 from a chain holding only mirror events to
+its tail past the fork point, sto_7a47551c). A fork holding any other local
+event is refused, and the only way out of it is the operator's
+`satelle ledger adopt <item> --session <session>` on named items, which takes
+the store's chain and keeps the local events it sets aside (sto_fc858c43); its
+mechanics are in `satelle help ledger-store --session <session>`. A missing blob is a recorded gap, and
 `satelle ledger verify --session <session>` exits 3 while one remains. The hot path never contacts
 the store: hooks, gates, and story and ledger reads work with the store
 unreachable. Remote paths (`satelle remote fire`, a remote placement, a node,
