@@ -33,10 +33,11 @@ func TestOriginNamesNoVendor(t *testing.T) {
 			}
 		}
 	}
-	if want := []string{"session", "performer", "judge", "sync", "node"}; !slices.Equal(ledger.Roles(), want) {
-		t.Fatalf("Roles() = %v, want %v", ledger.Roles(), want)
+	roles := []string{ledger.RoleSession, ledger.RolePerformer, ledger.RoleJudge, ledger.RoleSync, ledger.RoleNode}
+	if want := []string{"session", "performer", "judge", "sync", "node"}; !slices.Equal(roles, want) {
+		t.Fatalf("roles = %v, want %v", roles, want)
 	}
-	for _, r := range ledger.Roles() {
+	for _, r := range roles {
 		for _, n := range names {
 			if strings.EqualFold(r, n) {
 				t.Errorf("role %q is an integration name", r)

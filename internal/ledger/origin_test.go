@@ -171,8 +171,8 @@ func TestEnvRoleClaimsOnlyDispatchRoles(t *testing.T) {
 			t.Errorf("EnvRole(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if !reflect.DeepEqual(Roles(), []string{"session", "performer", "judge", "sync", "node"}) {
-		t.Fatalf("Roles() = %v", Roles())
+	if got := []string{RoleSession, RolePerformer, RoleJudge, RoleSync, RoleNode}; !reflect.DeepEqual(got, []string{"session", "performer", "judge", "sync", "node"}) {
+		t.Fatalf("roles = %v", got)
 	}
 }
 
