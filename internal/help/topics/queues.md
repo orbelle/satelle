@@ -37,6 +37,10 @@ This repo's `.satelle/queues/release.toml`:
   `queue file <path>`), and nothing when they agree. An absent `[filter]` or
   `[trigger]` is written as an empty value, meaning cleared: inputs `{}`, a
   trigger with neither `task` nor `workflow`.
+- Only the repository's main checkout writes the mirror. A command in a linked
+  git worktree reads its own file but appends nothing to the chain (neither the
+  genesis nor an `item.updated`), so worktrees holding an older or newer file
+  cannot flip the chain's definition.
 - A `que_<name>` chain the file wrote before this runtime's first ledger pull
   gives way to the store's chain for that id: while it holds only the file's
   mirror events, pull and sync replace it with the store's chain and mirror the
