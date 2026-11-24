@@ -173,3 +173,108 @@ func TestLedgerPushAndPullKeepTheirExitWithABlobGap(t *testing.T) {
 		t.Errorf("verify after a pull with a gap: %v", err)
 	}
 }
+
+func ledgerIDs(t *testing.T, id string) []string {
+	t.Helper()
+	var events []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(must(t, "ledger", "list", id, "--json")), &events); err != nil {
+		t.Fatal(err)
+	}
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+func TestLedgerAdoptResolvesARefusedFork(t *testing.T) {
+	root := t.TempDir()
+	a := newMachine(t)
+	storeOn(t, a, root)
+	id1 := createID(t, "story", "create", "--title", "one from a")
+	id2 := createID(t, "story", "create", "--title", "two from a")
+	must(t, "ledger", "push")
+	b := newMachine(t)
+	storeOn(t, b, root)
+	must(t, "ledger", "pull")
+
+	a.use(t)
+	must(t, "story", "set", id1, "--title", "a")
+	must(t, "ledger", "push")
+	storeIDs := ledgerIDs(t, id1)
+	b.use(t)
+	must(t, "story", "set", id1, "--title", "b")
+	bIDs := ledgerIDs(t, id1)
+	forkID := bIDs[len(bIDs)-1]
+	if out, err := run(t, "", "ledger", "pull"); err == nil || ExitCodeOf(err) != 1 {
+		t.Fatalf("B's pull: %v\n%s", err, out)
+	}
+	file := runtimeLedger(t).Path(id1)
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "", "ledger", "adopt")
+	if err == nil || ExitCodeOf(err) != 1 || !strings.Contains(err.Error(), "diverged from the store: "+id1) || strings.Contains(err.Error(), id2) {
+		t.Fatalf("adopt with no item: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(file); !bytes.Equal(before, after) {
+		t.Fatal("adopt with no item changed the chain")
+	}
+	id2File := runtimeLedger(t).Path(id2)
+	id2Before, err := os.ReadFile(id2File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, "", "ledger", "adopt", id2)
+	if err == nil || ExitCodeOf(err) != 1 || !strings.Contains(err.Error(), id2+" is in sync") {
+		t.Fatalf("adopt of an in-sync item: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(id2File); !bytes.Equal(id2Before, after) {
+		t.Fatal("a refused adopt changed the chain")
+	}
+
+	out = must(t, "ledger", "adopt", id1)
+	prefix := "adopted: " + id1 + ": this runtime's events "
+	i := strings.Index(out, prefix)
+	if i < 0 {
+		t.Fatalf("adopt output lacks %q:\n%s", prefix, out)
+	}
+	line := out[i:]
+	line = line[:strings.Index(line, "\n")]
+	const in, taken = " set aside in ", "; the store's "
+	path := line[strings.Index(line, in)+len(in) : strings.Index(line, taken)]
+	kept, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("set-aside file %q: %v\n%s", path, err, out)
+	}
+	if !strings.Contains(string(kept), `"id":"`+forkID+`"`) || !strings.Contains(string(kept), `"kind":"item.updated"`) {
+		t.Fatalf("%s lacks B's forked event %s:\n%s", path, forkID, kept)
+	}
+	if !strings.Contains(out[i+len(line):], "  item.updated  ") {
+		t.Fatalf("adopt output lists no item.updated:\n%s", out)
+	}
+	got := ledgerIDs(t, id1)
+	if strings.Join(got, ",") != strings.Join(storeIDs, ",") {
+		t.Fatalf("B's cache lists %v, want the store's %v", got, storeIDs)
+	}
+	var it item.Item
+	if err := json.Unmarshal([]byte(must(t, "story", "get", id1, "--json")), &it); err != nil || it.Title != "a" {
+		t.Fatalf("%s = %+v, %v", id1, it, err)
+	}
+	if list := must(t, "story", "list", "--json"); strings.Contains(list, `"title":"b"`) {
+		t.Fatalf("story list still shows B's title:\n%s", list)
+	}
+	status := must(t, "ledger", "status")
+	synced := false
+	for row := range strings.SplitSeq(status, "\n") {
+		synced = synced || strings.HasPrefix(row, id1+" ") && strings.HasSuffix(row, "in sync")
+	}
+	if !synced {
+		t.Fatalf("status reads %s not in sync:\n%s", id1, status)
+	}
+	must(t, "ledger", "verify")
+}

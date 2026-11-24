@@ -33,9 +33,10 @@ ledger to and from the [ledger] store (satelle.dev, a store command, or local),
 by the same rules for every store. The automatic pass that installing or
 updating satelle starts (satelle-sync.timer, or the dev.satelle.sync launch agent on macOS, every 30 seconds) runs
 the same push, then pull, for each project on this machine whose store is not
-local. See 'satelle help ledger-store'.`,
+local. adopt resolves a fork pull refuses, for the items named. See
+'satelle help ledger-store'.`,
 	}
-	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAutosyncCmd())
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAdoptCmd(), ledgerAutosyncCmd())
 	return cmd
 }
 
@@ -228,6 +229,48 @@ store or network call.`,
 	}
 	asJSON = jsonFlag(cmd)
 	return cmd
+}
+
+func ledgerAdoptCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "adopt <item>...",
+		Short: "Take the store's chain for a diverged item, setting this runtime's events aside",
+		Long: `For each named item whose chain diverged from the [ledger] store's, write
+this runtime's events from the fork point on to a file under the runtime's
+forks/ directory, then replace the local chain with the store's, verified, and
+reset that item's cache. It prints each file it wrote and lists the events set
+aside by sequence and kind. It never merges.
+
+Only named items are adopted. An item that is in sync, ahead, behind, local
+only or store only is refused, and when any named item is refused nothing is
+written for any of them. With no item named it refuses, naming the items that
+diverged. With the local store it says so and makes no store or network call.
+See 'satelle help ledger-store'.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			return withStore(out, out, "adopt", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
+				if len(args) == 0 {
+					diverged, err := r.Divergent(cmd.Context())
+					if err != nil {
+						return err
+					}
+					if len(diverged) == 0 {
+						return &exitError{code: ExitError, msg: "ledger adopt: name the item(s) to adopt; no item has diverged from the store"}
+					}
+					return &exitError{code: ExitError, msg: "ledger adopt: name the item(s) to adopt; diverged from the store: " + strings.Join(diverged, ", ")}
+				}
+				done, res, err := r.Adopt(cmd.Context(), args)
+				if err != nil {
+					return err
+				}
+				if res.Failed() {
+					return replicationFailure("adopt", res)
+				}
+				fmt.Fprintf(out, "adopt: %d item(s) adopted; local events set aside in %d file(s)\n", len(res.Adopted), len(done))
+				return nil
+			})
+		},
+	}
 }
 
 func short(h string) string {
