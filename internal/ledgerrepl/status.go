@@ -22,8 +22,7 @@ type ItemStatus struct {
 	Local int    `json:"local"`
 	Store int    `json:"store"`
 	State string `json:"state"`
-	// Fork is the event the item diverged at, -1 when it did not diverge.
-	Fork int `json:"-"`
+	Fork  int    `json:"-"`
 }
 
 func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {

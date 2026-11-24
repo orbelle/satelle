@@ -116,10 +116,6 @@ func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 
 const queueMirrorCause = "queue file "
 
-// MirrorTail reports whether every event of events from index from on is a
-// mirror event of the queue file defining id: what the file alone derives, so a
-// fork whose local events past its fork point are these may take the store's
-// chain. A genesis at index 0 counts only for a file without its own id.
 func (k *Kernel) MirrorTail(id string, events []ledger.Event, from int) bool {
 	def := k.queueFiles[id]
 	if def == nil || from < 0 || from >= len(events) {

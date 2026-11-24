@@ -100,8 +100,6 @@ func TestPullAdoptsFileMirrorOnlyChain(t *testing.T) {
 	}
 }
 
-// mirrorTailFork gives a store holding 3 events of it and a local chain that
-// shares the first 2 and adds 1 of its own.
 func mirrorTailFork(t *testing.T) (a, b *ledger.Store, o Objects) {
 	t.Helper()
 	o = fsObjects(t)
@@ -136,8 +134,6 @@ func TestPullAdoptsMirrorTailFork(t *testing.T) {
 	}
 }
 
-// equivocatingStore answers Chains and HashAt from one store and Events from
-// another: a store whose served chain does not keep the prefix it reported.
 type equivocatingStore struct {
 	Store
 	events Store

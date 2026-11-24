@@ -641,10 +641,6 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 
 const draftFile = "title = \"Draft\"\n[filter]\nkind = \"story\"\n"
 
-// mirrorTailFork leaves B holding the store's que_release up to event k-1 and
-// then one file mirror event of its own at k, while A has pushed a queue.added
-// at k: a fork whose only local event past the fork point is a mirror event.
-// It returns the store's chain as A pushed it, with B in use.
 func mirrorTailFork(t *testing.T, srv *fakeserver.Server) (b machine, k int, store []ledger.Event) {
 	t.Helper()
 	a, _, aChain := legacyA(t, srv)
@@ -675,8 +671,6 @@ func mirrorTailFork(t *testing.T, srv *fakeserver.Server) (b machine, k int, sto
 	return b, k, store
 }
 
-// holdsStoreThenDraft checks B's que_release is the store's chain and then one
-// mirror item.updated carrying the file's Draft title.
 func holdsStoreThenDraft(t *testing.T, store []ledger.Event) []ledger.Event {
 	t.Helper()
 	got := releaseChain(t)
