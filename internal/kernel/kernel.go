@@ -116,8 +116,6 @@ func Open(o Options) (*Kernel, error) {
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {
 		k.Git = repo
-		// Fail closed: a work tree whose linked status cannot be read may be
-		// linked, and a wrong mirror append cannot be undone.
 		linked, lerr := repo.IsLinked()
 		k.linkedTree = linked || lerr != nil
 	}

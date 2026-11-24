@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// gitQueueTree makes a satelle repo under a path holding spaces, commits its
-// configuration and the release queue file, and returns the main checkout.
 func gitQueueTree(t *testing.T) (base, main string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -42,7 +40,6 @@ to = "done"
 	return base, main
 }
 
-// worktreeQueueRepo adds a linked worktree beside the main checkout.
 func worktreeQueueRepo(t *testing.T) (main, wt string) {
 	t.Helper()
 	base, main := gitQueueTree(t)
@@ -51,8 +48,6 @@ func worktreeQueueRepo(t *testing.T) (main, wt string) {
 	return main, wt
 }
 
-// openAt opens the kernel of the checkout at dir on the main checkout's
-// runtime, as the CLI shares one runtime across every worktree.
 func openAt(t *testing.T, main, dir string) *Kernel {
 	t.Helper()
 	k, err := Open(Options{Root: filepath.Join(dir, ".satelle"), Runtime: filepath.Join(main, ".satelle", "runtime"), Dir: dir})
