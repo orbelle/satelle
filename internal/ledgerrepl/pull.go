@@ -155,33 +155,12 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 }
 
 func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chain, local []ledger.Event) error {
-	fetched, err := r.Store.Events(ctx, item, 0, c.Len)
+	fetched, err := r.fetchVerified(ctx, item, c)
 	if err != nil {
 		return err
 	}
-	for i, e := range fetched {
-		if e.Item != item {
-			return &refusal{fmt.Sprintf("%s event %d from the store names item %q; nothing replaced", item, i, e.Item)}
-		}
-	}
-	if err := ledger.VerifyChain(item, fetched); err != nil {
-		var b *ledger.BrokenLink
-		if errors.As(err, &b) {
-			return &refusal{fmt.Sprintf("%s event %d from the store does not verify: %s; nothing replaced", item, b.Index, b.Reason)}
-		}
-		return &refusal{fmt.Sprintf("%s from the store does not verify: %v; nothing replaced", item, err)}
-	}
-	if err := r.Ledger.Replace(item, local[len(local)-1].Hash, fetched); err != nil {
-		var stale *ledger.StaleTail
-		if errors.As(err, &stale) {
-			return &refusal{fmt.Sprintf("%s changed in this runtime while adopting the store's chain; nothing replaced", item)}
-		}
+	if err := r.replaceWith(item, local, fetched); err != nil {
 		return err
-	}
-	if r.Cache != nil {
-		if err := r.Cache.ResetItem(r.Ledger, item); err != nil {
-			return err
-		}
 	}
 	r.printf("adopted: %s: this runtime's %d queue-file event(s) replaced by the store's %d\n", item, len(local), len(fetched))
 	res.Events += len(fetched)
@@ -194,6 +173,40 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 	}
 	if wrote {
 		r.printf("mirrored: %s: the file's definition as one item.updated\n", item)
+	}
+	return nil
+}
+
+func (r *Replicator) fetchVerified(ctx context.Context, item string, c Chain) ([]ledger.Event, error) {
+	fetched, err := r.Store.Events(ctx, item, 0, c.Len)
+	if err != nil {
+		return nil, err
+	}
+	for i, e := range fetched {
+		if e.Item != item {
+			return nil, &refusal{fmt.Sprintf("%s event %d from the store names item %q; nothing replaced", item, i, e.Item)}
+		}
+	}
+	if err := ledger.VerifyChain(item, fetched); err != nil {
+		var b *ledger.BrokenLink
+		if errors.As(err, &b) {
+			return nil, &refusal{fmt.Sprintf("%s event %d from the store does not verify: %s; nothing replaced", item, b.Index, b.Reason)}
+		}
+		return nil, &refusal{fmt.Sprintf("%s from the store does not verify: %v; nothing replaced", item, err)}
+	}
+	return fetched, nil
+}
+
+func (r *Replicator) replaceWith(item string, local, fetched []ledger.Event) error {
+	if err := r.Ledger.Replace(item, local[len(local)-1].Hash, fetched); err != nil {
+		var stale *ledger.StaleTail
+		if errors.As(err, &stale) {
+			return &refusal{fmt.Sprintf("%s changed in this runtime while adopting the store's chain; nothing replaced", item)}
+		}
+		return err
+	}
+	if r.Cache != nil {
+		return r.Cache.ResetItem(r.Ledger, item)
 	}
 	return nil
 }

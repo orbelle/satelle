@@ -47,17 +47,10 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 			continue
 		}
 		seen[id] = true
-		c, ok := lst.Chains[id]
+		c := lst.Chains[id]
 		st := ItemStatus{Item: id, Local: len(local), Store: c.Len}
-		switch {
-		case !ok || c.Len == 0:
-			st.State = LocalOnly
-		case c.Hole >= 0:
-			st.State = fmt.Sprintf("hole at %d", c.Hole)
-		default:
-			if st.State, err = r.compare(ctx, id, local, c); err != nil {
-				return nil, err
-			}
+		if st.State, _, err = r.state(ctx, id, local, c); err != nil {
+			return nil, err
 		}
 		out = append(out, st)
 	}
@@ -70,26 +63,36 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 	return out, nil
 }
 
-func (r *Replicator) compare(ctx context.Context, id string, local []ledger.Event, c Chain) (string, error) {
+const divergedAt = "diverged at "
+
+func (r *Replicator) state(ctx context.Context, id string, local []ledger.Event, c Chain) (string, int, error) {
 	n := c.Len
+	switch {
+	case len(local) == 0:
+		return StoreOnly, -1, nil
+	case n == 0:
+		return LocalOnly, -1, nil
+	case c.Hole >= 0:
+		return fmt.Sprintf("hole at %d", c.Hole), -1, nil
+	}
 	if !proven(local, c) {
 		s, err := ledger.SharedPrefix(local, n, func(seq int) (string, error) { return r.Store.HashAt(ctx, id, seq) })
 		var ref *refusal
 		if errors.As(err, &ref) {
-			return "refused: " + ref.line, nil
+			return "refused: " + ref.line, -1, nil
 		}
 		if err != nil {
-			return "", err
+			return "", -1, err
 		}
 		if s < min(n, len(local)) {
-			return fmt.Sprintf("diverged at %d", s), nil
+			return fmt.Sprintf("%s%d", divergedAt, s), s, nil
 		}
 	}
 	switch {
 	case n == len(local):
-		return InSync, nil
+		return InSync, -1, nil
 	case n < len(local):
-		return Ahead, nil
+		return Ahead, -1, nil
 	}
-	return Behind, nil
+	return Behind, -1, nil
 }

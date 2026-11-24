@@ -148,6 +148,17 @@ The rules are the same for every store:
 - Status prints one row per item, `ITEM LOCAL STORE STATE`, the event counts
   and `in sync`, `ahead`, `behind`, `diverged at <seq>`, `local only` or
   `store only`. It writes nothing and exits 0.
+- Adopt, `satelle ledger adopt <item>... --session <session>`, resolves a fork pull refuses, for
+  the named items only. For each named item whose chain diverged it writes this
+  runtime's events from the fork point on, verbatim, to
+  `<runtime>/forks/<item>.<seq>.<stamp>.jsonl` and lists them by sequence and
+  kind, then takes the store's chain, verified, in place of the local one and
+  resets that item's cache. It never merges. A named item that is in sync,
+  ahead, behind, local only or store only is refused, and then nothing is
+  written for any named item. With no item named it refuses, naming the items
+  that diverged. A queue item's file is mirrored onto the adopted chain by the
+  next satelle command when they differ, as one `item.updated` the next push
+  sends.
 
 satelle.dev appends through `Chain.Append`, compare-and-append on the head,
 and lists chains with `Chain.Heads`. Blobs travel as attachments of their item
@@ -169,7 +180,7 @@ store is ahead on, by the same rules as push and pull. An item in sync is not
 touched. One that diverged or was refused is left on both sides and named,
 never merged, except a fork whose local chain holds only a queue file's mirror
 events: it is pulled, the store's chain replacing it, and its mirror event is
-pushed in the same pass. A write made while the store is unreachable stays in the local
+pushed in the same pass. `satelle ledger adopt <item> --session <session>` resolves any other fork. A write made while the store is unreachable stays in the local
 ledger and is pushed by the next pass that reaches it. A change on one machine
 therefore reaches satelle.dev within one period plus a pass, and another
 signed-in, bound machine within 90 seconds. Each project's outcome is shown on

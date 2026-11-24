@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,7 +116,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 		doctorCheck{checkHarnessName, checkHarness},
 	)
 	if !in.sessionStart {
-		checks = append(checks, doctorCheck{checkContextName, checkContext})
+		checks = append(checks, doctorCheck{substrate.RelativeField, checkRelativeReads}, doctorCheck{checkContextName, checkContext})
 	}
 	checks = append(checks,
 		doctorCheck{"sync", checkSync},
@@ -304,6 +305,18 @@ func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string
 			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)", Resolve: resolveFixItem})
 	}
 	return out, nil
+}
+
+func checkRelativeReads(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	found, err := substrate.RelativeReads(in.r.DataDir, kernel.RemoteFiles(in.r.DataDir))
+	if err != nil {
+		return nil, []string{substrate.RelativeField + ": " + err.Error()}
+	}
+	var notes []string
+	for _, f := range found {
+		notes = append(notes, substrate.RelativeField+": "+f.File+":"+strconv.Itoa(f.Line)+": "+f.Why)
+	}
+	return nil, notes
 }
 
 func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {

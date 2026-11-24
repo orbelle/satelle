@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -183,5 +185,53 @@ func TestNewEventBuildsWithoutWriting(t *testing.T) {
 	}
 	if evs, _ := s.Read("sto_1"); len(evs) != 1 {
 		t.Fatalf("NewEvent wrote: %d events", len(evs))
+	}
+}
+
+func TestSetAsideWritesEventsVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if _, err := s.Append("it", "note", "me", map[string]int{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.Read("it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := s.SetAside("it", 0, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(path) || filepath.Dir(path) != filepath.Join(dir, "forks") || !strings.HasPrefix(filepath.Base(path), "it.0.") {
+		t.Fatalf("set aside at %s, want under %s", path, filepath.Join(dir, "forks"))
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(body), "\n"), "\n")
+	if len(lines) != len(events) {
+		t.Fatalf("%d line(s), want %d", len(lines), len(events))
+	}
+	for i, line := range lines {
+		var e Event
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatal(err)
+		}
+		if e.ID != events[i].ID || e.Hash != events[i].Hash || e.Kind != events[i].Kind || e.Prev != events[i].Prev {
+			t.Fatalf("line %d is %+v, want %+v", i, e, events[i])
+		}
+	}
+	items, err := s.Items()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0] != "it" {
+		t.Fatalf("Items() = %v, want [it]", items)
 	}
 }
