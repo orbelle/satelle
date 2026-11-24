@@ -176,8 +176,6 @@ func TestEnvRoleClaimsOnlyDispatchRoles(t *testing.T) {
 	}
 }
 
-// TestOriginIsNotReadOutsideItsWriters keeps the origin provenance: only the
-// code that writes it may name it, so no gate, rule or grant can read it.
 func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 	allowed := map[string]bool{
 		"ledger/origin.go":       true,

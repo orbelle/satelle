@@ -336,8 +336,6 @@ authorisation fact: the role is reported by the writing process itself.`,
 	return cmd
 }
 
-// payloadObject refuses a ledger append payload that is not a JSON object, or
-// that names the origin, which only the store sets.
 func payloadObject(raw json.RawMessage) error {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil || m == nil {

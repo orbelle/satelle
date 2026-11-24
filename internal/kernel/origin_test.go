@@ -34,7 +34,6 @@ func payloadOrigin(t *testing.T, e ledger.Event) (ledger.Origin, bool) {
 	return o, true
 }
 
-// originKernel opens a kernel on a fresh git repo, its clock fixed.
 func originKernel(t *testing.T) (*Kernel, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -56,10 +55,6 @@ func originKernel(t *testing.T) (*Kernel, string) {
 	return k, dir
 }
 
-// TestOriginDoesNotChangeKernelReads writes an item's life through a kernel
-// whose store records an origin, strips the origin from every payload into a
-// twin chain with the same ids and times, and reads both through the
-// kernel's decoders.
 func TestOriginDoesNotChangeKernelReads(t *testing.T) {
 	k, dir := originKernel(t)
 	k.SetOrigin("m1", ledger.RolePerformer, "h")
@@ -214,8 +209,6 @@ func TestOriginDoesNotChangeKernelReads(t *testing.T) {
 	}
 }
 
-// TestQueueMirrorCarriesNoOrigin: two machines mirroring one queue file onto
-// one tail write the identical event, whatever origin their stores record.
 func TestQueueMirrorCarriesNoOrigin(t *testing.T) {
 	rootA, openA := queueKernel(t)
 	rootB, openB := queueKernel(t)
@@ -237,8 +230,6 @@ func TestQueueMirrorCarriesNoOrigin(t *testing.T) {
 	for i, open := range []func(...string) *Kernel{openA, openB} {
 		k := open()
 		k.SetOrigin([]string{"m1", "m2"}[i], []string{ledger.RoleSession, ledger.RoleSync}[i], "")
-		// Open mirrored the change before the origin was set: take the chain
-		// back to its genesis and mirror again with the origin in place.
 		opened, err := k.Ledger.Read(idA)
 		if err != nil || len(opened) != 2 {
 			t.Fatalf("opened chain %d events %v", len(opened), err)

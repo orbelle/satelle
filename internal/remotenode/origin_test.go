@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// TestMain gives the package a satelle home of its own: a node kernel records
-// the machine id it reads from there in every event's origin.
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "satelle-remotenode-home-")
 	if err != nil {

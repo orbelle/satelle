@@ -28,9 +28,6 @@ func pinnedPayloads() []pinnedEvent {
 	}
 }
 
-// buildChain writes the pinned events through NewEventWith, the constructor
-// every event written before the origin used; wrap, when given, rewrites each
-// payload first.
 func buildChain(t *testing.T, wrap func(json.RawMessage) json.RawMessage) []ledger.Event {
 	t.Helper()
 	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -54,7 +51,6 @@ func buildChain(t *testing.T, wrap func(json.RawMessage) json.RawMessage) []ledg
 	return out
 }
 
-// Hashes computed on main before the origin was added.
 var pinnedHashes = []string{
 	"3e505eacbce6cfd2e5f8508f4ef31f2497b5164759fc5dcd7956805f3e4aefdc",
 	"8f87c747df030ecb18a517fbee6d0560d19c4cbda8f7ed5ad627a01b1052cae1",

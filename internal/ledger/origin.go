@@ -7,14 +7,6 @@ import (
 	"strings"
 )
 
-// Origin names the writer of an event: the machine id, the worker role, the
-// harness when one was detected, and the worktree. It is carried in the
-// event's payload under OriginKey, so it is hashed with the payload and the
-// envelope is unchanged.
-//
-// Origin is provenance for tracing faults, not an authorisation fact: the role
-// is self-reported by the writing process, so no gate, rule or grant may read
-// it.
 type Origin struct {
 	Machine  string `json:"machine"`
 	Role     string `json:"role"`
@@ -22,10 +14,8 @@ type Origin struct {
 	Worktree string `json:"worktree"`
 }
 
-// OriginKey is the payload key the store owns.
 const OriginKey = "origin"
 
-// The worker roles an origin names.
 const (
 	RoleSession   = "session"
 	RolePerformer = "performer"
@@ -34,14 +24,10 @@ const (
 	RoleNode      = "node"
 )
 
-// Roles returns every worker role, in a fixed order.
 func Roles() []string {
 	return []string{RoleSession, RolePerformer, RoleJudge, RoleSync, RoleNode}
 }
 
-// EnvRole maps a worker value read from the environment to a role. The
-// environment can claim only the dispatch roles; anything else, sync and node
-// included, is an interactive session.
 func EnvRole(v string) string {
 	switch strings.TrimSpace(v) {
 	case RolePerformer:
@@ -54,10 +40,6 @@ func EnvRole(v string) string {
 
 var errOriginNotObject = errors.New("ledger: a payload must be a JSON object to carry its origin")
 
-// WithOrigin returns payload with its origin set to o. Any origin the payload
-// already holds, under any letter case, is removed first, so a caller can
-// neither set nor strip it. With o nil a payload holding no origin is returned
-// unchanged.
 func WithOrigin(payload json.RawMessage, o *Origin) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) == 0 || string(trimmed) == "null" {

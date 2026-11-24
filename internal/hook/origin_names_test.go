@@ -11,9 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// TestOriginNamesNoVendor keeps the origin's roles and harness generic: the
-// harness is an integration's configured name, read at runtime, so the Go that
-// defines and sets the origin names no harness, vendor or model.
 func TestOriginNamesNoVendor(t *testing.T) {
 	var names []string
 	for _, h := range integration.Hooks() {

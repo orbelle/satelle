@@ -19,10 +19,9 @@ import (
 )
 
 type Store struct {
-	dir     string
-	Now     func() time.Time
-	OnWrite func(Event)
-	// Origin, when set, is written into every payload NewEvent builds.
+	dir      string
+	Now      func() time.Time
+	OnWrite  func(Event)
 	Origin   *Origin
 	readOnly string
 }

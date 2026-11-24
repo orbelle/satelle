@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// eventOrigin decodes an event's payload origin, failing on a host key: the
-// hostname stays on seat events only.
 func eventOrigin(t *testing.T, e ledger.Event) (map[string]json.RawMessage, ledger.Origin) {
 	t.Helper()
 	var p map[string]json.RawMessage
