@@ -302,7 +302,7 @@ Run `.satelle/skills/release/scripts/fire-node.sh`.
 
 Once, after the fire returned, whatever it printed and whatever its exit
 status (a rejected node part exits non-zero). It reads `satelle remote
-status release-sprite <task> --json --session <session>`, then `scripts/release-node-verify.sh`, which
+status release-sprite <task> --json --session <session>`, then the repository's scripts/release-node-verify.sh, which
 reads only `$rd/node-out/<node>/back`. On accept, verify checks the result is
 this run's, that it tested the candidate, that origin/main is `main-after`
 and differs from the candidate only in `.version` and the notes (nothing on a
