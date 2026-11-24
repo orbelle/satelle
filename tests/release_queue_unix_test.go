@@ -26,9 +26,6 @@ const releaseSkill = ".satelle/skills/release/SKILL.md"
 
 var skillRunLine = regexp.MustCompile("(?m)^Run `(scripts/[a-z0-9-]+\\.sh)`\\.\n")
 
-// skillDoc reads rel, and for a skill directory's SKILL.md puts each of its
-// "Run `scripts/<name>.sh`." lines back as the sh block the script was
-// extracted from, so a block is read and run as the script's exact text.
 func skillDoc(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
