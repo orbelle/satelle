@@ -169,11 +169,6 @@ func normalizeModel(model string) string {
 	return model
 }
 
-// ModelID is the one identifier a reported model spelling records under:
-// lowercased, each run of characters other than letters and digits made one
-// "-", the ends trimmed, then mapped through aliases (keys and values compared
-// after the same transform). It names no vendor or model: spellings the
-// transform cannot unify are configuration ([models] aliases).
 func ModelID(reported string, aliases map[string]string) string {
 	id := modelSlug(reported)
 	if id == "" {
@@ -208,8 +203,6 @@ func (k *Kernel) modelID(reported string) string {
 	return ModelID(reported, k.Settings.Models.Aliases)
 }
 
-// modelKey is the model a run totals under: its recorded identifier, else
-// (a run recorded before model_id existed) its reported model as before.
 func modelKey(id, reported string) string {
 	if id != "" {
 		return id
