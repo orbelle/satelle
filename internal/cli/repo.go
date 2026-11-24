@@ -79,7 +79,10 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	k.Machine, _ = config.MachineID(home)
 	k.Host, _ = os.Hostname()
 	harness, _ := sessionMeta(home, sessionFromEnv())
-	k.SetOrigin(k.Machine, ledger.EnvRole(config.WorkerFromEnv()), harness)
+	if err := k.SetOrigin(k.Machine, ledger.EnvRole(config.WorkerFromEnv()), harness); err != nil {
+		k.Close()
+		return nil, err
+	}
 	k.User = func() string { return seatUser(k.Host) }
 	k.Sessions = seatlife.Recorder{Home: home}
 	k.SessionMeta = func(session string) (string, string) { return sessionMeta(home, session) }

@@ -311,7 +311,10 @@ func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher 
 		return nil, err
 	}
 	machine, _ := config.MachineID(config.GlobalDir())
-	k.SetOrigin(machine, ledger.RoleNode, hook.Caller())
+	if err := k.SetOrigin(machine, ledger.RoleNode, hook.Caller()); err != nil {
+		k.Close()
+		return nil, err
+	}
 	for name, b := range k.Agents {
 		b.Placement = agent.PlaceLocal
 		k.Agents[name] = b

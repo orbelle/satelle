@@ -194,7 +194,9 @@ func syncRepo(ctx context.Context, r repo, fix seatFix) (syncstate.Pass, string)
 		return syncstate.Pass{Reason: err.Error()}, ""
 	}
 	defer k.Close()
-	k.SetOrigin(k.Machine, ledger.RoleSync, hook.Caller())
+	if err := k.SetOrigin(k.Machine, ledger.RoleSync, hook.Caller()); err != nil {
+		return syncstate.Pass{Reason: err.Error()}, ""
+	}
 	local := func() (syncstate.Pass, string) {
 		fix(k, "", allSynced)
 		return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"

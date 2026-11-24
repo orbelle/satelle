@@ -57,7 +57,9 @@ func originKernel(t *testing.T) (*Kernel, string) {
 
 func TestOriginDoesNotChangeKernelReads(t *testing.T) {
 	k, dir := originKernel(t)
-	k.SetOrigin("m1", ledger.RolePerformer, "h")
+	if err := k.SetOrigin("m1", ledger.RolePerformer, "h"); err != nil {
+		t.Fatal(err)
+	}
 
 	it := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("t"), Criteria: ptr([]string{"c"})})
 	if _, err := k.Update(it.ID, item.Fields{Body: ptr("b"), Tags: ptr([]string{"x"})}, "me"); err != nil {
@@ -229,7 +231,9 @@ func TestQueueMirrorCarriesNoOrigin(t *testing.T) {
 	var tails []ledger.Event
 	for i, open := range []func(...string) *Kernel{openA, openB} {
 		k := open()
-		k.SetOrigin([]string{"m1", "m2"}[i], []string{ledger.RoleSession, ledger.RoleSync}[i], "")
+		if err := k.SetOrigin([]string{"m1", "m2"}[i], []string{ledger.RoleSession, ledger.RoleSync}[i], ""); err != nil {
+			t.Fatal(err)
+		}
 		opened, err := k.Ledger.Read(idA)
 		if err != nil || len(opened) != 2 {
 			t.Fatalf("opened chain %d events %v", len(opened), err)
@@ -260,16 +264,17 @@ func TestQueueMirrorCarriesNoOrigin(t *testing.T) {
 	}
 }
 
-func TestSetOriginRecordsOnlyAKnownRole(t *testing.T) {
+func TestSetOriginRefusesAnUnknownRole(t *testing.T) {
 	k, _ := originKernel(t)
 	for _, r := range ledger.Roles() {
-		k.SetOrigin("m1", r, "")
-		if k.Ledger.Origin.Role != r {
-			t.Fatalf("SetOrigin(%q) recorded role %q", r, k.Ledger.Origin.Role)
+		if err := k.SetOrigin("m1", r, ""); err != nil || k.Ledger.Origin.Role != r {
+			t.Fatalf("SetOrigin(%q) = %v, recorded role %q", r, err, k.Ledger.Origin.Role)
 		}
 	}
-	k.SetOrigin("m1", "operator", "")
-	if k.Ledger.Origin.Role != ledger.RoleSession {
-		t.Fatalf("SetOrigin(unknown) recorded role %q, want %q", k.Ledger.Origin.Role, ledger.RoleSession)
+	if err := k.SetOrigin("m1", "operator", ""); err == nil {
+		t.Fatal("SetOrigin(unknown role) = nil, want an error")
+	}
+	if k.Ledger.Origin.Role != ledger.Roles()[len(ledger.Roles())-1] {
+		t.Fatalf("a refused SetOrigin changed the origin to %+v", k.Ledger.Origin)
 	}
 }
