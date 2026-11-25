@@ -313,6 +313,71 @@ func TestReleaseSpriteRejectsAFailedNodePart(t *testing.T) {
 	}
 }
 
+func (x *spriteBox) failedPublishSaying(n, line string) (run, node string, read result) {
+	x.t.Helper()
+	x.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = " + n + " }\n"})
+	x.ghSaysOnDispatch(line)
+	writeFile(x.t, filepath.Join(x.fake, "fail-release"), "", 0o644)
+	run, _, fire, read := x.release()
+	if fire.code == 0 || !strings.Contains(fire.out, "failed step publish: ") {
+		x.t.Fatalf("fire: exit %d, want the failed publish\n%s%s", fire.code, fire.out, fire.err)
+	}
+	return run, nodeOf(x.t, fire.out), read
+}
+
+func (x *spriteBox) runStatus(run string) string {
+	x.t.Helper()
+	var runs []execRow
+	x.mustJSON(&runs, "execution", "list", "--parent", x.task.ID)
+	for _, r := range runs {
+		if r.ID == run {
+			return r.Status
+		}
+	}
+	x.t.Fatalf("no run %s", run)
+	return ""
+}
+
+func TestReleaseSpriteEvidenceCarriesTheFailedStepsLines(t *testing.T) {
+	x := newSpriteBox(t)
+	oldMain := x.rev("origin/main")
+	run, _, read := x.failedPublishSaying("11", "the fake gh dispatched release.yml")
+	if read.code == 0 || !strings.Contains(read.err, "is cancelled and its items stay approved") {
+		t.Fatalf("read: exit %d\n%s%s", read.code, read.out, read.err)
+	}
+	ev := x.must("execution", "attachment", run, "release-evidence")
+	_, tail, ok := strings.Cut(ev, "step-log (the failed step's last lines on the node):\n")
+	if !ok || !strings.Contains(ev, "failed step publish: ") || !strings.Contains(tail, "the fake gh dispatched release.yml\n") {
+		t.Fatalf("release-evidence does not carry the failed step's last lines:\n%s", ev)
+	}
+	x.noToken("release-evidence", ev)
+	if st := x.runStatus(run); st != "cancelled" {
+		t.Fatalf("the run %s is %s, want cancelled", run, st)
+	}
+	x.mainStays(t, oldMain)
+}
+
+const stepLogShaped = "ghp_StepLogShaped0123456789abcdefghijKLMN"
+
+func TestReleaseSpriteRefusesAStepLogHoldingATokenShape(t *testing.T) {
+	x := newSpriteBox(t)
+	oldMain := x.rev("origin/main")
+	run, node, read := x.failedPublishSaying("12", "the fake gh says "+stepLogShaped)
+	if back, err := os.ReadFile(filepath.Join(x.rd, "node-out", node, "back", "step-log")); err != nil || !strings.Contains(string(back), stepLogShaped) {
+		t.Fatalf("the node's scan did not let the token-shaped step-log back: %v\n%s", err, back)
+	}
+	if read.code == 0 || !strings.Contains(read.err, "a token-shaped string is in the files above: nothing is attached") {
+		t.Fatalf("read: exit %d\n%s%s", read.code, read.out, read.err)
+	}
+	if r := x.run("execution", "attachment", run, "release-evidence"); r.code == 0 {
+		t.Fatalf("release-evidence was attached with a token-shaped string:\n%s", r.out)
+	}
+	if st := x.runStatus(run); st != "in_progress" {
+		t.Fatalf("the run %s is %s, want in_progress with nothing attached", run, st)
+	}
+	x.mainStays(t, oldMain)
+}
+
 func TestReleaseSpriteDefinition(t *testing.T) {
 	var def struct {
 		Provider string `toml:"provider"`
