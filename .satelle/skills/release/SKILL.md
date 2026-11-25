@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), check the candidate's substrate with a satelle built from it (scripts/drift-check.sh) and fix any miss in the candidate before the suite, so substrate drift cannot ship, then fire the node's part on a fly.io sprite (the command remote release-sprite, .satelle/skills/satelle-release-node/), which runs make test once on that candidate, decides whether it changes the shipped binaries (scripts/release-binary.sh, recorded as release-binary), and when it does bumps the version once on top, dispatches release.yml from release/<run> and confirms both releases before it fast-forwards main, and read its result back; then back up and install the published build here, check it (when it does not, the node fast-forwards main to the tested candidate with no bump, tag, release.yml or install, and the run checks the published build is installed); a failed node part pushes nothing to main, cancels the run and moves no item; only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), check the candidate's substrate with a satelle built from it (scripts/drift-check.sh) and fix any miss in the candidate before the suite, so substrate drift cannot ship, then fire the node's part on a fly.io sprite (the command remote release-sprite, .satelle/skills/satelle-release-node/), which runs make test once on that candidate, decides whether it changes the shipped binaries (scripts/release-binary.sh, recorded as release-binary), and when it does bumps the version once on top, dispatches release.yml from release/<run> and confirms both releases before it fast-forwards main, then publishes either release still a draft (step 6a), so no release is served before main holds its commit, and read its result back; then back up and install the published build here, check it (when it does not, the node fast-forwards main to the tested candidate with no bump, tag, release.yml or install, and the run checks the published build is installed); a failed node part pushes nothing to main, cancels the run and moves no item; only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
 ---
 
 # Release (CI/CD)
@@ -22,8 +22,10 @@ candidate, the combined tree. main only ever fast-forwards to a tree the
 release tested: the tested candidate, plus the bump commit, which changes only
 the files step 3 commits. The suite, the binary decision, the bump, publishing
 and the push to main are the node's part, run on a fly.io sprite
-(`### Fire the node's part`); main moves last, after `release.yml` published
-from the run's `release/<exe>` branch. After the suite passes the node decides whether the
+(`### Fire the node's part`); main moves after `release.yml` built the releases
+from the run's `release/<exe>` branch, and the last step publishes any of them
+`release.yml` left as a draft (step 6a), so no release is served to
+`satelle update --session <session>` before main holds its commit. After the suite passes the node decides whether the
 candidate changes the shipped binaries (the repository's scripts/release-binary.sh decide):
 when it does not, main fast-forwards to the tested candidate and the run does
 not bump, tag, dispatch `release.yml` or install (steps 3, 5, 6 and 7 are
@@ -322,6 +324,10 @@ refuses the attach.
   the candidate by merge as a suspect, with the commands that send it back
   after this run), deletes `release/<exe>`, cancels the run and moves no item.
   The items stay `approved`; the next fire takes them.
+- Stopped at `release` (step 6a): main already holds the run's commit and
+  the result names each `to-publish <tag>`. Cancel the run and fire again;
+  the next run carries the landed items as contained (step 2a) and publishes
+  the drafts.
 - Accepted but the records did not come back: the node already pushed main.
   It stops; cancel the run and fire again, and the next run carries the landed
   items as contained (step 2a).
@@ -399,8 +405,8 @@ commit is not under HEAD or HEAD differs from it outside `.version` and
 `docs/releases/v<ver>.md`; and with "drift-check has not passed on the tested
 candidate" when the drift-checked sha is not the tested one. The push is
 `git push origin HEAD:refs/heads/main`, never forced, after a fetch shows
-origin/main is still the run's base; it is the node's last remote write, so a
-step that fails before it leaves main where it was. It then deletes
+origin/main is still the run's base; a step that fails before it leaves main
+where it was, and after it the node only publishes the drafts (step 6a). It then deletes
 `release/<exe>`. `release-kept` and `release-drift` were attached before the
 fire (`### The node's input`), so a push refused after them leaves a run that
 must be resumed or cancelled, never landed items without a record; the
@@ -424,6 +430,21 @@ the push then makes main's head, so ci-published finds the run at main.
 Binary changed only, on the node (`release-node.sh publish`): `gh release
 view` of `v<ver>` and `serve-v<sver>` shows each with its assets, and `v<ver>`
 is at the bump. The result carries the `release.yml` run and both tags.
+
+## 6a. Publish the drafts
+
+On the node (`release-node.sh release`), after step 4 moved main, on every
+run, binary-unchanged included: for `v<ver>` and `serve-v<sver>` of HEAD's
+`.version`, a release that is still a draft is published (`gh release edit
+--draft=false`, `--latest` for `v<ver>` and `--latest=false` for
+`serve-v<sver>`, which keeps `releases/latest` on the CLI), retried before it
+gives up; a published release is left as it is. A draft is not served by
+`releases/latest`, so until this step a version `release.yml` built is not
+installable; its tag is already at the bump. The result records `published
+<tag>` for each it published. When one stays a draft the step fails with
+`to-publish <tag>` for each: main already holds the run's commit, and the next
+fire, whose candidate is that commit, keeps the version (step 3's rule, its
+own tag points at the candidate) and publishes the draft here.
 
 ## 7. Back up, then install here
 

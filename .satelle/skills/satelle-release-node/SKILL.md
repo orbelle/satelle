@@ -1,7 +1,7 @@
 ---
 name: satelle-release-node
 type: check
-description: The node's part of this repo's release on a fly.io sprite, and the check of the release-node workflow, which runs release-node.sh run in the node and exits with its code - the release-sprite remote's start and stop wrappers, the node's pinned tools, and release-node.sh, which tests the drift-checked candidate once as user release, decides the binary, bumps, publishes release.yml from release/<run> and fast-forwards main, then brings back only its scanned result.
+description: The node's part of this repo's release on a fly.io sprite, and the check of the release-node workflow, which runs release-node.sh run in the node and exits with its code - the release-sprite remote's start and stop wrappers, the node's pinned tools, and release-node.sh, which tests the drift-checked candidate once as user release, decides the binary, bumps, runs release.yml from release/<run>, fast-forwards main, publishes any release still a draft, then brings back only its scanned result.
 ---
 
 # The release's node part
@@ -31,14 +31,16 @@ and stop scripts call the sprite CLI themselves, so no script is shared.
   check of the `release-node` workflow's `backlog → done` move, after
   `change-judged`. Its steps, each
   of which fails as `failed step <name>: <reason>`: `input`, `clone`, `fetch`,
-  `test`, `decide`, `bump`, `guard`, `publish`, `push`, `secret-scan`. It
+  `test`, `decide`, `bump`, `guard`, `publish`, `push`, `release`, `secret-scan`. It
   takes `GH_TOKEN` at entry into an unexported variable and gives it only to
   root's `git clone|fetch|push` against `https://github.com/orbelle/satelle`
   (a helper scoped to `https://github.com`, after `credential.helper=`) and to
   `gh --repo orbelle/satelle`. `make test` runs once as user `release` from
   `env -i`, in a throwaway copy `/release/suite`; `/release/work` and
-  `/release/out` stay root's. Publishing runs from `release/<run>` before main
-  moves, so a failed step before `push` leaves main where it was. Its stdout
+  `/release/out` stay root's. `release.yml` runs from `release/<run>` before main
+  moves, so a failed step before `push` leaves main where it was; `release`,
+  after `push`, publishes any release still a draft, so none is served before
+  main holds its commit. Its stdout
   is only the compact `result`; `/release/out/log` never leaves the node.
 - `scripts/release-node.sh dry-input <dir> <sha> <base>` writes the input of a
   dry run (`.satelle/tasks/release-node.md`), which stops after `decide`.

@@ -18,7 +18,7 @@ GITC=(-c core.hooksPath=/dev/null -c core.fsmonitor=)
 CRED=(-c credential.helper= -c 'credential.https://github.com.helper=!f(){ echo username=x-access-token; echo "password=$GH_TOKEN"; }; f')
 
 usage() {
-  echo "usage: release-node.sh run | input | clone | fetch | test | decide | bump | guard | publish | push | notes <ver> | dry-input <dir> <sha> <base>" >&2
+  echo "usage: release-node.sh run | input | clone | fetch | test | decide | bump | guard | publish | push | release | notes <ver> | dry-input <dir> <sha> <base>" >&2
   exit 2
 }
 
@@ -356,6 +356,32 @@ step_push() {
   if gnet push -q origin --delete "$branch" >>"$LOG" 2>&1; then rec "branch-deleted $branch"; else say "could not delete $branch"; fi
 }
 
+step_release() {
+  local ver sver t d i ok latest pending=
+  ver=$(vfield satelle.version)
+  sver=$(vfield satelled.version)
+  gnet fetch -q --tags origin >>"$LOG" 2>&1 || fail release "git fetch --tags failed"
+  for t in "v$ver" "serve-v$sver"; do
+    g rev-parse -q --verify "refs/tags/$t" >/dev/null || continue
+    d=$(ghx release view "$t" --json isDraft --jq .isDraft 2>>"$LOG") || { pending="$pending $t"; continue; }
+    [ "$d" = true ] || continue
+    latest=--latest
+    [ "$t" = "serve-v$sver" ] && latest=--latest=false
+    ok=
+    for i in 1 2 3; do
+      if ghx release edit "$t" --draft=false "$latest" >>"$LOG" 2>&1; then
+        ok=1
+        break
+      fi
+      sleep "$POLL"
+    done
+    if [ -n "$ok" ]; then rec "published $t"; else pending="$pending $t"; fi
+  done
+  [ -z "$pending" ] && return 0
+  for t in $pending; do rec "to-publish $t"; done
+  fail release "main holds $(g rev-parse HEAD) and$pending is still a draft; a resumed run publishes it"
+}
+
 run_all() {
   step_input
   step_clone
@@ -367,6 +393,7 @@ run_all() {
     step_guard
     step_publish
     step_push
+    step_release
   fi
   scan_back
   cat "$BACK/result"
@@ -406,6 +433,7 @@ case ${1:-} in
   guard) step_guard ;;
   publish) step_publish ;;
   push) step_push ;;
+  release) step_release ;;
   notes) [ $# -eq 2 ] || usage; write_notes "$2" ;;
   dry-input) shift; dry_input "$@" ;;
   *) usage ;;
