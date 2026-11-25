@@ -69,8 +69,8 @@ from step 2 on the run keeps its state in one run-local directory,
 `$rd/candidate` (`$wt` below), the candidate's binary `bin/satelle` and the
 files `kept`, `released`, `sendback`, `ff`, `drift.txt`, `drift-fixed`,
 `drift-checked` and `release-drift`, the node's input `node-in/` and what the
-node brought back, `node-out/<node>/back/` (`result`, `release-binary`, and on
-a red suite `failing`). Each block finds the in-progress run and `rd` again
+node brought back, `node-out/<node>/back/` (`result`, `release-binary`, on
+a red suite `failing`, and on any other failed step `step-log`). Each block finds the in-progress run and `rd` again
 the same way. The durable record stays on the items (`release-sendback`) and
 the run (`release-kept` and `release-drift`, `### The node's input`;
 `release-binary` and `release-node`, `### Read the node's result`; and
@@ -322,7 +322,8 @@ refuses the attach.
   read) and `release-node` (the result, the status line and the sprite check),
   then removes the candidate worktree and `$rd`. Step 7 follows.
 - Rejected or stopped: it attaches `release-evidence` (the failed step, the
-  status line, the failing tests the node named, and every item that entered
+  status line, the failing tests the node named, the failed step's last log
+  lines the node brought back as `step-log`, and every item that entered
   the candidate by merge as a suspect, with the commands that send it back
   after this run), deletes `release/<exe>`, cancels the run and moves no item.
   The items stay `approved`; the next fire takes them.

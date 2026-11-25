@@ -14,6 +14,7 @@ LOG=$OUT/log
 SLUG=orbelle/satelle
 SAME=${SATELLE_RELEASE_TEST_SAME_UID:-}
 POLL=${SATELLE_RELEASE_POLL:-5}
+WAIT=${SATELLE_RELEASE_WAIT:-360}
 GITC=(-c core.hooksPath=/dev/null -c core.fsmonitor=)
 CRED=(-c credential.helper= -c 'credential.https://github.com.helper=!f(){ echo username=x-access-token; echo "password=$GH_TOKEN"; }; f')
 
@@ -23,6 +24,8 @@ usage() {
 }
 
 say() { printf '%s\n' "$*" >>"$LOG"; }
+STEP_AT=0
+mark() { STEP_AT=$(stat -c %s "$LOG" 2>/dev/null || echo 0); }
 rec() { printf '%s\n' "$*" >>"$OUT/result"; }
 get() { [ -f "$OUT/result" ] && awk -v k="$1" '$1 == k { sub("^[^ ]+ ", ""); v = $0 } END { if (v != "") print v }' "$OUT/result"; }
 in_get() { awk -v k="$1:" '$1 == k { sub("^[^:]+: *", ""); print; exit }' "$IN/run"; }
@@ -33,6 +36,10 @@ fail() {
   local line="failed step $step: $*"
   if [ -d "$OUT" ]; then
     rec "$line"
+    case $step in
+      test | secret-scan) ;;
+      *) [ -f "$LOG" ] && tail -c +"$((STEP_AT + 1))" "$LOG" | tail -n 40 >"$OUT/step-log" ;;
+    esac
     if [ "$step" != secret-scan ] && scan_back; then
       cat "$BACK/result"
       exit 1
@@ -64,7 +71,7 @@ head_is() { [ "$(g rev-parse HEAD 2>/dev/null)" = "$1" ]; }
 scan_back() {
   local t f
   t=$(mktemp -d "$OUT/back.XXXXXX") || return 1
-  for f in result release-binary failing; do
+  for f in result release-binary failing step-log; do
     [ -f "$OUT/$f" ] && cp "$OUT/$f" "$t/$f"
   done
   if [ -n "$tok" ]; then
@@ -308,7 +315,7 @@ main_now() {
 
 step_publish() {
   grep -qx 'binary: changed' "$OUT/release-binary" 2>/dev/null || return 0
-  local base branch bump ver sver main run id i rid hsha conc url t sha n
+  local base branch bump ver sver main run id i rid hsha conc url t sha n wcode
   base=$(in_get base)
   branch=$(in_get branch)
   bump=$(g rev-parse HEAD)
@@ -328,10 +335,19 @@ step_publish() {
   done
   [ -n "$id" ] || fail publish "no release.yml run on $branch at $bump"
   ghx run watch "$id" --exit-status >>"$LOG" 2>&1
-  rid=$(ghx run view "$id" --json url,headSha,conclusion 2>>"$LOG") || fail publish "gh run view $id failed"
-  url=$(printf '%s' "$rid" | jq -r '.url // empty')
-  hsha=$(printf '%s' "$rid" | jq -r '.headSha // empty')
-  conc=$(printf '%s' "$rid" | jq -r '.conclusion // empty')
+  wcode=$?
+  conc=
+  for i in $(seq 1 "$WAIT"); do
+    rid=$(ghx run view "$id" --json url,headSha,status,conclusion 2>>"$LOG") || fail publish "gh run view $id failed"
+    url=$(printf '%s' "$rid" | jq -r '.url // empty')
+    hsha=$(printf '%s' "$rid" | jq -r '.headSha // empty')
+    conc=$(printf '%s' "$rid" | jq -r '.conclusion // empty')
+    [ "$(printf '%s' "$rid" | jq -r '.status // empty')" = completed ] && [ -n "$conc" ] && break
+    conc=
+    say "release.yml run $id has not concluded after the watch (exit $wcode); waiting"
+    sleep "$POLL"
+  done
+  [ -n "$conc" ] || fail publish "the watch of release.yml run ${url:-$id} returned (exit $wcode) before the run concluded, and it had not concluded after $WAIT checks"
   rec "release-yml $url $hsha $conc"
   [ "$conc" = success ] && [ "$hsha" = "$bump" ] || fail publish "release.yml run $url concluded ${conc:-unknown} at ${hsha:-unknown}"
   gnet fetch -q --tags origin >>"$LOG" 2>&1 || fail publish "git fetch --tags failed"
@@ -383,16 +399,26 @@ step_release() {
 }
 
 run_all() {
+  mark
   step_input
+  mark
   step_clone
+  mark
   step_fetch
+  mark
   step_test
+  mark
   step_decide
   if [ "$(in_get mode)" = release ]; then
+    mark
     step_bump
+    mark
     step_guard
+    mark
     step_publish
+    mark
     step_push
+    mark
     step_release
   fi
   scan_back
@@ -424,16 +450,16 @@ dry_input() {
 
 case ${1:-} in
   run) run_all ;;
-  input) step_input ;;
-  clone) step_clone ;;
-  fetch) step_fetch ;;
-  test) step_test ;;
-  decide) step_decide ;;
-  bump) step_bump ;;
-  guard) step_guard ;;
-  publish) step_publish ;;
-  push) step_push ;;
-  release) step_release ;;
+  input) mark; step_input ;;
+  clone) mark; step_clone ;;
+  fetch) mark; step_fetch ;;
+  test) mark; step_test ;;
+  decide) mark; step_decide ;;
+  bump) mark; step_bump ;;
+  guard) mark; step_guard ;;
+  publish) mark; step_publish ;;
+  push) mark; step_push ;;
+  release) mark; step_release ;;
   notes) [ $# -eq 2 ] || usage; write_notes "$2" ;;
   dry-input) shift; dry_input "$@" ;;
   *) usage ;;

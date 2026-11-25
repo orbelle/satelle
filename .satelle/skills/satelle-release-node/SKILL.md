@@ -41,7 +41,12 @@ and stop scripts call the sprite CLI themselves, so no script is shared.
   moves, so a failed step before `push` leaves main where it was; `release`,
   after `push`, publishes any release still a draft, so none is served before
   main holds its commit. Its stdout
-  is only the compact `result`; `/release/out/log` never leaves the node.
+  is only the compact `result`; `/release/out/log` never leaves the node,
+  except that a step other than `test` that fails brings back the last 40
+  lines it wrote there as `step-log`, scanned for the token like every record.
+  After `gh run watch`, `publish` reads the run until it has concluded, and
+  fails naming a watch that returned early rather than reading an empty
+  conclusion.
 - `scripts/release-node.sh dry-input <dir> <sha> <base>` writes the input of a
   dry run (`.satelle/tasks/release-node.md`), which stops after `decide`.
 

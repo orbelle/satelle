@@ -44,6 +44,7 @@ fi
   [ -f "$back/result" ] && cat "$back/result"
   printf '%s\n' "$v"
   [ -f "$back/failing" ] && { echo "failing:"; cat "$back/failing"; }
+  [ -f "$back/step-log" ] && { echo "step-log (the failed step's last lines on the node):"; cat "$back/step-log"; }
   ff=$(cat "$rd/ff")
   while read -r id head; do
     git merge-base --is-ancestor "$head" "$ff" && continue
