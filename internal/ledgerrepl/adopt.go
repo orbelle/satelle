@@ -122,6 +122,14 @@ func (r *Replicator) adoptFork(ctx context.Context, f forkedItem) (SetAside, err
 	if err != nil {
 		return SetAside{}, err
 	}
+	if !sharesPrefix(f.local, fetched, f.fork) {
+		storeHash := ""
+		if len(fetched) >= f.fork {
+			storeHash = fetched[f.fork-1].Hash
+		}
+		return SetAside{}, &refusal{fmt.Sprintf("%s event %d from the store is not the one the fork at %d was measured against (the store holds %s, this runtime %s); nothing replaced",
+			f.item, f.fork-1, f.fork, short(storeHash), short(f.local[f.fork-1].Hash))}
+	}
 	kept := f.local[f.fork:]
 	path, err := r.Ledger.SetAside(f.item, f.fork, kept)
 	if err != nil {

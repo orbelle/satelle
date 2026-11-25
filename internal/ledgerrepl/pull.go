@@ -159,7 +159,7 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 	if err != nil {
 		return err
 	}
-	if fork > 0 && (len(fetched) < fork || fetched[fork-1].Hash != local[fork-1].Hash) {
+	if !sharesPrefix(local, fetched, fork) {
 		d := Divergence{Item: item, Seq: fork - 1, LocalHash: local[fork-1].Hash}
 		if len(fetched) >= fork {
 			d.StoreHash = fetched[fork-1].Hash
@@ -183,6 +183,13 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 		r.printf("mirrored: %s: the file's definition as one item.updated\n", item)
 	}
 	return nil
+}
+
+// sharesPrefix reports whether fetched, a chain that has passed VerifyChain,
+// holds the same first fork events as local: their hashes link, so equal
+// hashes at fork-1 mean the whole prefix is equal.
+func sharesPrefix(local, fetched []ledger.Event, fork int) bool {
+	return fork == 0 || (len(fetched) >= fork && fetched[fork-1].Hash == local[fork-1].Hash)
 }
 
 func (r *Replicator) fetchVerified(ctx context.Context, item string, c Chain) ([]ledger.Event, error) {
