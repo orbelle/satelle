@@ -329,5 +329,5 @@ are reviewed*).
   binaries are built as a draft, main moves to that commit, the draft is
   published, and only then is the build installed. A step that would publish
   or install before main holds the commit is out of order. The steps are the
-  release skill's ([[release]], `.satelle/skills/release/SKILL.md`;
+  release skill's (`.satelle/skills/release/SKILL.md`;
   sto_7d759084, sto_29bb2101).
