@@ -37,7 +37,7 @@ and stop scripts call the sprite CLI themselves, so no script is shared.
   (a helper scoped to `https://github.com`, after `credential.helper=`) and to
   `gh --repo orbelle/satelle`. `make test` runs once as user `release` from
   `env -i`, in a throwaway copy `/release/suite`, and `decide` runs
-  `scripts/release-binary.sh` with the suite's `PATH`, so the go `tools.sh`
+  the repository's scripts/release-binary.sh with the suite's `PATH`, so the go `tools.sh`
   installs derives the build set; when it cannot, the decision fails safe to
   changed and the result's `binary-reason` line names why. `/release/work` and
   `/release/out` stay root's. `release.yml` runs from `release/<run>` before main
