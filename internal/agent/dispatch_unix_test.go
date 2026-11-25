@@ -221,3 +221,26 @@ func TestDispatchLogPrunesAndNeverFails(t *testing.T) {
 		t.Fatalf("unwritable log failed the dispatch: %v %+v", err, res)
 	}
 }
+
+func TestDispatchCarriesWorkerRole(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "worker")
+	bin, _, _ := fake(t, "claude", "cat >/dev/null\nprintf '%s' \"$"+config.WorkerEnv+"\" > "+seen+"\necho '{\"result\":\"done\"}'\n")
+	dispatch := func(role Role, tools ...string) string {
+		t.Helper()
+		b := Binding{Name: "w", Command: bin, Model: "m9", Tools: tools}
+		if _, err := (Runner{}).Dispatch(context.Background(), role, Request{Binding: b, Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		return read(t, seen)
+	}
+	if got := dispatch(Perform, "Read", "Bash"); got != "performer" {
+		t.Fatalf("performer saw %q", got)
+	}
+	if got := dispatch(Judge, "Read"); got != "judge" {
+		t.Fatalf("judge saw %q", got)
+	}
+	t.Setenv(config.WorkerEnv, "judge")
+	if got := dispatch(Perform, "Read", "Bash"); got != "performer" {
+		t.Fatalf("performer under an inherited judge value saw %q", got)
+	}
+}

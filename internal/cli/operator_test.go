@@ -166,7 +166,33 @@ func TestLedgerAppendRefusesFoldedKinds(t *testing.T) {
 	if _, err := run(t, "", "story", "set", id, "--status", "st-three"); err == nil {
 		t.Fatal("left the operator state after forged appends")
 	}
+	before := len(chainKinds(t, id))
+	for _, p := range []string{`[1]`, `"x"`, `null`, `1`} {
+		if _, err := run(t, "", "ledger", "append", id, "--kind", "note", "--payload", p); err == nil || !strings.Contains(err.Error(), "--payload must be a JSON object") {
+			t.Fatalf("payload %s: %v", p, err)
+		}
+	}
+	for _, p := range []string{`{"origin":{"role":"sync"}}`, `{"origin":null}`, `{"Origin":{}}`} {
+		if _, err := run(t, "", "ledger", "append", id, "--kind", "note", "--payload", p); err == nil || !strings.Contains(err.Error(), `--payload must not carry "origin"`) {
+			t.Fatalf("payload %s: %v", p, err)
+		}
+	}
+	if n := len(chainKinds(t, id)); n != before {
+		t.Fatalf("refused appends grew the chain from %d to %d", before, n)
+	}
 	must(t, "ledger", "append", id, "--kind", "github.review", "--payload", "{}")
+	events := chainKinds(t, id)
+	if _, o := eventOrigin(t, events[len(events)-1]); o.Role != ledger.RoleSession {
+		t.Fatalf("appended origin %+v", o)
+	}
+}
+
+func TestLedgerAppendHelpSaysOriginIsProvenance(t *testing.T) {
+	isolate(t)
+	out := must(t, "ledger", "append", "--help")
+	if !strings.Contains(strings.Join(strings.Fields(out), " "), "not an authorisation fact") {
+		t.Fatalf("help does not say the origin is provenance:\n%s", out)
+	}
 }
 
 func TestOperatorRecordRefusesAnAgent(t *testing.T) {

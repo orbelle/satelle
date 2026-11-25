@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/integration"
 	"github.com/bobmcallan/satelle/internal/integration/common"
+	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 type (
@@ -81,16 +83,20 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	if p := b.Placement; p != "" && p != PlaceLocal {
 		return Result{}, fmt.Errorf("agent %q is placed %q, which is not dispatched locally", b.Name, p)
 	}
+	var worker string
 	switch role {
 	case Judge:
 		if err := CheckJudge(b); err != nil {
 			return Result{}, err
 		}
+		worker = ledger.RoleJudge
 	case Perform:
 		req.Deny = append(append([]string{}, req.Deny...), PerformerDenies...)
+		worker = ledger.RolePerformer
 	default:
 		return Result{}, fmt.Errorf("unknown role %q", role)
 	}
+	req.Env = append(append([]string{}, req.Env...), config.WorkerEnv+"="+worker)
 	req.Trace = common.OpenLog(req.Log)
 	defer closeLog(req.Trace, req.Log)
 	start := time.Now()

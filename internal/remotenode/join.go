@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotechan"
@@ -305,6 +308,11 @@ func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher 
 	}
 	k, err := kernel.Open(kernel.Options{Root: root, Runtime: runtime, Dir: tree})
 	if err != nil {
+		return nil, err
+	}
+	machine, _ := config.MachineID(config.GlobalDir())
+	if err := k.SetOrigin(machine, ledger.RoleNode, hook.Caller()); err != nil {
+		k.Close()
 		return nil, err
 	}
 	for name, b := range k.Agents {

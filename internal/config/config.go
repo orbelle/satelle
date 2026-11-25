@@ -15,9 +15,12 @@ const (
 	SessionEnv           = "SATELLE_SESSION"
 	ProjectDirEnv        = "SATELLE_PROJECT_DIR"
 	SubstrateDirEnv      = "SATELLE_SUBSTRATE_DIR"
+	WorkerEnv            = "SATELLE_WORKER"
 )
 
 func SessionFromEnv() string { return strings.TrimSpace(os.Getenv(SessionEnv)) }
+
+func WorkerFromEnv() string { return strings.TrimSpace(os.Getenv(WorkerEnv)) }
 
 func FindDataDir(start string) (string, bool) {
 	dir := strings.TrimSpace(start)

@@ -287,7 +287,12 @@ func ledgerAppendCmd() *cobra.Command {
 		Short: "Append an event to an item's chain (carried, never read by satelle)",
 		Long: `Append an event of a kind satelle carries but never reads. The kinds satelle
 reads (its item, seat and attachment events, such as item.transitioned and
-attachment.added) are refused: only satelle's own verbs write them.`,
+attachment.added) are refused: only satelle's own verbs write them.
+
+Every event carries the writer's origin in its payload (machine id, worker
+role, harness when detected, worktree); satelle sets it, and a payload naming
+origin is refused. The origin is provenance for tracing faults, not an
+authorisation fact: the role is reported by the writing process itself.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
@@ -310,6 +315,9 @@ attachment.added) are refused: only satelle's own verbs write them.`,
 				if err := json.Unmarshal([]byte(payload), &raw); err != nil {
 					return fmt.Errorf("--payload is not JSON: %w", err)
 				}
+				if err := payloadObject(raw); err != nil {
+					return err
+				}
 				p = raw
 			}
 			e, err := k.Ledger.Append(args[0], kind, actor(), p)
@@ -326,6 +334,19 @@ attachment.added) are refused: only satelle's own verbs write them.`,
 	cmd.Flags().StringVar(&kind, "kind", "", "event kind")
 	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload")
 	return cmd
+}
+
+func payloadObject(raw json.RawMessage) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return fmt.Errorf("--payload must be a JSON object")
+	}
+	for k := range m {
+		if strings.EqualFold(k, ledger.OriginKey) {
+			return fmt.Errorf("--payload must not carry %q: satelle records the writer's origin itself", ledger.OriginKey)
+		}
+	}
+	return nil
 }
 
 func ledgerListCmd() *cobra.Command {
