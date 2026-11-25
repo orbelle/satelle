@@ -265,3 +265,58 @@ tools = ["Read", "Grep", "Glob"]
 		t.Errorf("plain brief = %q, want empty", got)
 	}
 }
+
+func TestFallbackProblems(t *testing.T) {
+	judge := func(name, fallback string) Binding {
+		return Binding{Name: name, Command: "claude", Tools: []string{"Read"}, Fallback: fallback}
+	}
+	c := Catalog{
+		"ok":      judge("ok", "plain"),
+		"plain":   judge("plain", ""),
+		"ghosted": judge("ghosted", "ghost"),
+		"selfish": judge("selfish", "selfish"),
+		"chained": judge("chained", "ok"),
+	}
+	for name, want := range map[string]string{
+		"ok":      "",
+		"plain":   "",
+		"ghosted": `fallback "ghost" is not in the agents catalog`,
+		"selfish": "fallback names the agent itself",
+		"chained": `fallback "ok" names its own fallback "plain"; a fallback is one level`,
+	} {
+		errs := c.FallbackProblems(name)
+		if want == "" {
+			if len(errs) != 0 {
+				t.Errorf("%s: %v", name, errs)
+			}
+			continue
+		}
+		if len(errs) != 1 || errs[0].Error() != want {
+			t.Errorf("%s: %v, want %q", name, errs, want)
+		}
+	}
+	var all []string
+	for _, err := range c.Validate() {
+		all = append(all, err.Error())
+	}
+	joined := strings.Join(all, "\n")
+	for _, w := range []string{`agents.ghosted: fallback "ghost"`, "agents.selfish: fallback", `agents.chained: fallback "ok"`} {
+		if !strings.Contains(joined, w) {
+			t.Errorf("Validate lacks %q:\n%s", w, joined)
+		}
+	}
+
+	dir := t.TempDir()
+	p := filepath.Join(dir, "agents.toml")
+	os.WriteFile(p, []byte("[agents.a]\ncommand = \"claude\"\nfallback = \"b\"\n[agents.b]\ncommand = \"claude\"\n[agents.c]\ncommand = \"claude\"\n"), 0o644)
+	tracked, err := LoadCatalog(p)
+	if err != nil || tracked["a"].Fallback != "b" {
+		t.Fatalf("decode: %v %+v", err, tracked["a"])
+	}
+	local := filepath.Join(dir, "agents.local.toml")
+	os.WriteFile(local, []byte("[agents.a]\nfallback = \"c\"\n"), 0o644)
+	merged, ovs, err := tracked.Override(local)
+	if err != nil || merged["a"].Fallback != "c" || len(ovs) != 1 || !slices.Equal(ovs[0].Fields, []string{"fallback"}) {
+		t.Fatalf("override: %v %+v %+v", err, merged["a"], ovs)
+	}
+}

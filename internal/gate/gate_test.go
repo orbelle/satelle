@@ -116,11 +116,13 @@ func TestJudgedGateInvalidEscapeRecordsAccept(t *testing.T) {
 }
 
 type fakeDispatcher struct {
-	mu      sync.Mutex
-	answers map[string]string
-	usage   map[string]agent.Result
-	calls   []string
-	prompts map[string]string
+	mu       sync.Mutex
+	answers  map[string]string
+	usage    map[string]agent.Result
+	calls    []string
+	prompts  map[string]string
+	errs     map[string]error
+	redacted map[string]bool
 }
 
 func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
@@ -134,6 +136,12 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.
 		f.prompts = map[string]string{}
 	}
 	f.prompts[req.Binding.Name] = req.Prompt
+	if f.redacted != nil {
+		f.redacted[req.Binding.Name] = req.Redact != nil
+	}
+	if err, ok := f.errs[req.Binding.Name]; ok {
+		return agent.Result{TokensIn: 3}, err
+	}
 	text, ok := f.answers[req.Binding.Name]
 	if !ok {
 		return agent.Result{}, errors.New("no such fake")
@@ -1065,5 +1073,126 @@ func TestJudgeDispatchAppliesDiffBoundAndSummaries(t *testing.T) {
 	}
 	if !strings.Contains(trailer, "- c_huge.go\n") || strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- b_cut.go\n") {
 		t.Fatalf("default: unexpected cut list:\n%s", trailer)
+	}
+}
+
+func fallbackRun(gate workflow.Gate, fallbacks map[string]string) (Run, *fakeDispatcher) {
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}, map[string]workflow.Gate{"g": gate})
+	r.Agents["dead"] = agent.Binding{Name: "dead", Command: "claude", Model: "model-dead"}
+	r.Agents["garbled"] = agent.Binding{Name: "garbled", Command: "claude", Model: "model-garbled"}
+	d.answers["garbled"] = "no verdict here"
+	for from, to := range fallbacks {
+		b := r.Agents[from]
+		b.Fallback = to
+		r.Agents[from] = b
+	}
+	return r, d
+}
+
+func TestJudgeFallsBackWhenDispatchFails(t *testing.T) {
+	for _, c := range []struct {
+		fallback, want string
+	}{{"y1", Accept}, {"n1", Reject}} {
+		r, d := fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": c.fallback})
+		rs, pass := r.Execute(context.Background())
+		if len(rs) != 1 || rs[0].Result != c.want || pass != (c.want == Accept) {
+			t.Fatalf("fallback %s: %v %+v", c.fallback, pass, rs)
+		}
+		if !slices.Equal(d.calls, []string{"dead", c.fallback}) {
+			t.Fatalf("fallback %s: calls %v", c.fallback, d.calls)
+		}
+		if d.prompts[c.fallback] != d.prompts["dead"] || d.prompts["dead"] == "" {
+			t.Fatalf("fallback %s: the prompt differs", c.fallback)
+		}
+	}
+	r, d := fallbackRun(workflow.Gate{Skill: "judge", Panel: []string{"dead", "n1"}, Combine: workflow.CombineAll}, map[string]string{"dead": "y2"})
+	rs, pass := r.Execute(context.Background())
+	if pass || rs[0].Result != Reject || !strings.Contains(rs[0].Notes, "y2: accept") || !strings.Contains(rs[0].Notes, "1 of 2 accept") {
+		t.Fatalf("panel: %v %+v", pass, rs[0])
+	}
+	if !slices.Contains(d.calls, "y2") || len(d.calls) != 3 {
+		t.Fatalf("panel calls %v", d.calls)
+	}
+	r, _ = fallbackRun(workflow.Gate{Skill: "judge", Panel: []string{"dead", "y1"}, Combine: workflow.CombineAll}, map[string]string{"dead": "y2"})
+	if rs, pass := r.Execute(context.Background()); !pass || rs[0].Result != Accept {
+		t.Fatalf("panel all accept: %v %+v", pass, rs[0])
+	}
+}
+
+func TestJudgeFallbackOnlyOnDispatchFailure(t *testing.T) {
+	for _, c := range []struct {
+		judge, want string
+	}{{"n1", Reject}, {"y1", Accept}, {"garbled", Reject}} {
+		r, d := fallbackRun(workflow.Gate{Skill: "judge", Agent: c.judge}, map[string]string{c.judge: "y2"})
+		rs, _ := r.Execute(context.Background())
+		if rs[0].Result != c.want || !slices.Equal(d.calls, []string{c.judge}) || rs[0].FallbackFrom != nil {
+			t.Fatalf("%s: %+v calls %v", c.judge, rs[0], d.calls)
+		}
+	}
+	r, d := fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": "y1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rs, _ := r.Execute(ctx)
+	if rs[0].Result != Error || !slices.Equal(d.calls, []string{"dead"}) || rs[0].FallbackFrom != nil {
+		t.Fatalf("cancelled: %+v calls %v", rs[0], d.calls)
+	}
+	r, d = fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": "ghost"})
+	rs, _ = r.Execute(context.Background())
+	if rs[0].Result != Error || !slices.Equal(d.calls, []string{"dead"}) || !strings.Contains(rs[0].Notes, `fallback "ghost" is not in the agents catalog`) {
+		t.Fatalf("missing fallback: %+v calls %v", rs[0], d.calls)
+	}
+	r, d = fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": "dead2"})
+	r.Agents["dead2"] = agent.Binding{Name: "dead2", Command: "claude", Model: "model-dead2", Fallback: "y1"}
+	rs, _ = r.Execute(context.Background())
+	if rs[0].Result != Error || !slices.Equal(d.calls, []string{"dead", "dead2"}) || rs[0].FallbackFrom == nil || !strings.Contains(rs[0].Notes, "could not be asked either") {
+		t.Fatalf("both failed: %+v calls %v", rs[0], d.calls)
+	}
+}
+
+func TestFallbackRecordedOnGateRun(t *testing.T) {
+	r, d := fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": "y1"})
+	d.errs = map[string]error{"dead": errors.New("signed out")}
+	rs, _ := r.Execute(context.Background())
+	raw, err := json.Marshal(rs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Binding      string `json:"binding"`
+		Model        string `json:"model"`
+		Notes        string `json:"notes"`
+		TokensIn     int    `json:"tokens_in"`
+		FallbackFrom struct {
+			Binding, Model, Command, Error string
+		} `json:"fallback_from"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Binding != "y1" || got.Model != "model-y1" || got.FallbackFrom.Binding != "dead" || got.FallbackFrom.Model != "model-dead" ||
+		got.FallbackFrom.Command != "claude" || got.FallbackFrom.Error != "dispatch failed: signed out" || got.TokensIn != 13 {
+		t.Fatalf("gate.run %s", raw)
+	}
+	if !strings.Contains(got.Notes, "dead could not be asked") || !strings.Contains(got.Notes, "fallback y1 judged") {
+		t.Fatalf("notes %q", got.Notes)
+	}
+	r, _ = fallbackRun(workflow.Gate{Skill: "judge", Panel: []string{"dead", "n1"}, Combine: workflow.CombineAll}, map[string]string{"dead": "y2"})
+	rs, _ = r.Execute(context.Background())
+	if len(rs[0].Members) != 2 || rs[0].FallbackFrom != nil {
+		t.Fatalf("panel %+v", rs[0])
+	}
+	for _, m := range rs[0].Members {
+		switch m.Binding {
+		case "y2":
+			if m.FallbackFrom == nil || m.FallbackFrom.Binding != "dead" || m.Model != "model-y2" || m.Result != Accept {
+				t.Fatalf("fallen-back member %+v", m)
+			}
+		case "n1":
+			if m.FallbackFrom != nil {
+				t.Fatalf("answered member %+v", m)
+			}
+		default:
+			t.Fatalf("member %+v", m)
+		}
 	}
 }

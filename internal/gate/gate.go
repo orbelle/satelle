@@ -41,38 +41,48 @@ type CarriedFrom struct {
 }
 
 type Result struct {
-	Transition  string       `json:"transition"`
-	Gate        string       `json:"gate"`
-	Binding     string       `json:"binding,omitempty"`
-	Result      string       `json:"result"`
-	Notes       string       `json:"notes,omitempty"`
-	TokensIn    int          `json:"tokens_in"`
-	TokensOut   int          `json:"tokens_out"`
-	DurationMS  int64        `json:"duration_ms"`
-	Coverage    string       `json:"coverage,omitempty"`
-	Attempt     string       `json:"attempt,omitempty"`
-	Changed     []string     `json:"changed,omitempty"`
-	Warning     string       `json:"warning,omitempty"`
-	Class       string       `json:"class,omitempty"`
-	Members     []Member     `json:"members,omitempty"`
-	Location    string       `json:"location,omitempty"`
-	Change      *Change      `json:"change,omitempty"`
-	CarriedFrom *CarriedFrom `json:"carried_from,omitempty"`
-	Answer      string       `json:"answer,omitempty"`
-	Seq         int          `json:"seq,omitempty"`
-	Command     string       `json:"command,omitempty"`
-	Model       string       `json:"model,omitempty"`
-	ModelID     string       `json:"model_id,omitempty"`
-	Effort      string       `json:"effort,omitempty"`
-	PromptBytes int          `json:"prompt_bytes,omitempty"`
-	Tier        string       `json:"tier,omitempty"`
-	At          time.Time    `json:"-"`
+	Transition   string        `json:"transition"`
+	Gate         string        `json:"gate"`
+	Binding      string        `json:"binding,omitempty"`
+	Result       string        `json:"result"`
+	Notes        string        `json:"notes,omitempty"`
+	TokensIn     int           `json:"tokens_in"`
+	TokensOut    int           `json:"tokens_out"`
+	DurationMS   int64         `json:"duration_ms"`
+	Coverage     string        `json:"coverage,omitempty"`
+	Attempt      string        `json:"attempt,omitempty"`
+	Changed      []string      `json:"changed,omitempty"`
+	Warning      string        `json:"warning,omitempty"`
+	Class        string        `json:"class,omitempty"`
+	Members      []Member      `json:"members,omitempty"`
+	Location     string        `json:"location,omitempty"`
+	Change       *Change       `json:"change,omitempty"`
+	CarriedFrom  *CarriedFrom  `json:"carried_from,omitempty"`
+	Answer       string        `json:"answer,omitempty"`
+	Seq          int           `json:"seq,omitempty"`
+	Command      string        `json:"command,omitempty"`
+	Model        string        `json:"model,omitempty"`
+	ModelID      string        `json:"model_id,omitempty"`
+	Effort       string        `json:"effort,omitempty"`
+	PromptBytes  int           `json:"prompt_bytes,omitempty"`
+	Tier         string        `json:"tier,omitempty"`
+	FallbackFrom *FallbackFrom `json:"fallback_from,omitempty"`
+	At           time.Time     `json:"-"`
 
 	judges []judgeAnswer
 
 	verdict bool
 
+	dispatchFailed bool
+
 	dispatched time.Duration
+}
+
+type FallbackFrom struct {
+	Binding string `json:"binding"`
+	Command string `json:"command,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Error   string `json:"error"`
 }
 
 type Change struct {
@@ -95,18 +105,19 @@ func ToOf(key string) string {
 }
 
 type Member struct {
-	Binding     string `json:"binding"`
-	Result      string `json:"result"`
-	Class       string `json:"class,omitempty"`
-	Answer      string `json:"answer,omitempty"`
-	Command     string `json:"command,omitempty"`
-	Model       string `json:"model,omitempty"`
-	ModelID     string `json:"model_id,omitempty"`
-	Effort      string `json:"effort,omitempty"`
-	PromptBytes int    `json:"prompt_bytes,omitempty"`
-	TokensIn    int    `json:"tokens_in,omitempty"`
-	TokensOut   int    `json:"tokens_out,omitempty"`
-	DurationMS  int64  `json:"duration_ms,omitempty"`
+	Binding      string        `json:"binding"`
+	Result       string        `json:"result"`
+	Class        string        `json:"class,omitempty"`
+	Answer       string        `json:"answer,omitempty"`
+	Command      string        `json:"command,omitempty"`
+	Model        string        `json:"model,omitempty"`
+	ModelID      string        `json:"model_id,omitempty"`
+	Effort       string        `json:"effort,omitempty"`
+	PromptBytes  int           `json:"prompt_bytes,omitempty"`
+	TokensIn     int           `json:"tokens_in,omitempty"`
+	TokensOut    int           `json:"tokens_out,omitempty"`
+	DurationMS   int64         `json:"duration_ms,omitempty"`
+	FallbackFrom *FallbackFrom `json:"fallback_from,omitempty"`
 }
 
 type judgeAnswer struct {
@@ -278,8 +289,14 @@ func (r Run) one(ctx context.Context, name string) Result {
 	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	res.Notes, res.Answer, res.Warning = r.clean(res.Notes), r.clean(res.Answer), r.clean(res.Warning)
+	if res.FallbackFrom != nil {
+		res.FallbackFrom.Error = r.clean(res.FallbackFrom.Error)
+	}
 	for i := range res.Members {
 		res.Members[i].Answer = r.clean(res.Members[i].Answer)
+		if res.Members[i].FallbackFrom != nil {
+			res.Members[i].FallbackFrom.Error = r.clean(res.Members[i].FallbackFrom.Error)
+		}
 	}
 	return res
 }
@@ -619,7 +636,7 @@ func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill 
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
 		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class, Command: m.Command, Model: m.Model,
-			Effort: m.Effort, PromptBytes: m.PromptBytes, TokensIn: m.TokensIn, TokensOut: m.TokensOut, DurationMS: m.dispatched.Milliseconds()})
+			Effort: m.Effort, PromptBytes: m.PromptBytes, TokensIn: m.TokensIn, TokensOut: m.TokensOut, DurationMS: m.dispatched.Milliseconds(), FallbackFrom: m.FallbackFrom})
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
 	}
 	pass := false
@@ -644,20 +661,44 @@ func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill 
 }
 
 func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, rest string) Result {
-	res := Result{Binding: name, Result: Reject}
 	b, ok := r.Agents[name]
 	if !ok {
-		res.Notes = fmt.Sprintf("agent %q is not in the catalog", name)
+		return Result{Binding: name, Result: Reject, Notes: fmt.Sprintf("agent %q is not in the catalog", name)}
+	}
+	b.Name = name
+	prompt := r.judgePrompt(rest, b.Brief)
+	res := r.ask(ctx, b, skill, prompt)
+	if !res.dispatchFailed || ctx.Err() != nil || b.Fallback == "" {
 		return res
 	}
-	prompt := r.judgePrompt(rest, b.Brief)
+	fb, ok := r.Agents[b.Fallback]
+	if !ok {
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("fallback %q is not in the agents catalog", b.Fallback))
+		return res
+	}
+	fb.Name = b.Fallback
+	out := r.ask(ctx, fb, skill, prompt)
+	out.FallbackFrom = &FallbackFrom{Binding: res.Binding, Command: res.Command, Model: res.Model, Error: res.Notes}
+	out.TokensIn += res.TokensIn
+	out.TokensOut += res.TokensOut
+	out.dispatched += res.dispatched
+	how := "judged"
+	if out.dispatchFailed {
+		how = "could not be asked either"
+	}
+	out.Notes = joinNotes(fmt.Sprintf("%s could not be asked (%s); fallback %s %s", res.Binding, res.Notes, fb.Name, how), out.Notes)
+	return out
+}
+
+func (r Run) ask(ctx context.Context, b agent.Binding, skill workflow.Skill, prompt string) Result {
+	res := Result{Binding: b.Name, Result: Reject}
 	res.Command, res.Model, res.Effort, res.PromptBytes = b.Command, b.Model, b.Effort, len(prompt)
-	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
+	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir, Redact: r.Redact}
 	if r.Substrate != "" {
 		req.Env = []string{config.SubstrateDirEnv + "=" + r.Substrate}
 	}
 	if r.Logs != "" {
-		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
+		req.Log = logsread.DispatchPath(r.Logs, b.Name, r.Item.ID, time.Now().UnixNano())
 	}
 	out, err := r.Dispatcher.Dispatch(ctx, agent.Judge, req)
 	res.TokensIn, res.TokensOut, res.dispatched = out.TokensIn, out.TokensOut, out.Duration
@@ -668,13 +709,13 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, re
 		res.Model = out.Model
 	}
 	if err != nil {
-		res.Result, res.Notes = Error, "dispatch failed: "+err.Error()
+		res.Result, res.Notes, res.dispatchFailed = Error, r.clean("dispatch failed: "+err.Error()), true
 		return res
 	}
 	text := r.clean(out.Text)
 	v, parsed := parseVerdict(text)
 	res.Result, res.Notes, res.Class, res.verdict = v.Verdict, v.Notes, v.Class, parsed
-	res.judges = []judgeAnswer{{binding: name, result: v.Verdict, notes: v.Notes, answer: text}}
+	res.judges = []judgeAnswer{{binding: b.Name, result: v.Verdict, notes: v.Notes, answer: text}}
 	return res
 }
 

@@ -23,6 +23,30 @@ should read. When a gate dispatches that judge, its prompt carries the brief
 under a `Brief:` section right after the opening move line; a binding with no
 brief (or a blank one) receives the prompt unchanged.
 
+A judge binding may name a `fallback`, another agent in the catalog:
+
+    [agents.reviewer-a]
+    command  = "cursor-agent"
+    model    = "gpt-x"
+    tools    = ["Read", "Grep", "Glob"]
+    fallback = "reviewer-b"
+
+When a gate dispatches that judge and the dispatch fails (the judge could not
+be asked: the harness would not start, exited with an error, or settled with
+no answer), satelle dispatches the fallback with the same skill and the same
+prompt, the first judge's brief included (the fallback's own `brief` is not
+used when it stands in), and the fallback's verdict is that judge's result.
+A judge that answered, even with no verdict, is never re-asked, and an
+interrupted run does not fall back. The fallback is one level: its own
+`fallback` is never followed. In a panel each member falls back on its own,
+and `combine` runs over the members as they answered. The field takes effect
+only when the binding judges a gate; a performer ignores it. `satelle
+validate --session <session>` refuses a fallback that is not in the catalog,
+that names the agent itself, that names a fallback of its own, that cannot
+judge (the same rule as a judge's grant), or that is a judge of the same
+gate's judge set (its default judges, or one `[review.panels.<gate>]` tier's
+panel, each apart, since a tier's panel replaces the default).
+
 ## Harness hooks
 
 `satelle agents install claude|pi|grok|cursor|agy --session <session>` writes the harness's hook file
@@ -203,7 +227,7 @@ stream is in its dispatch log.
 
 A machine may override the repo's bindings in `.satelle/agents.local.toml`,
 which has the agents.toml shape (`[agents.<name>]` tables) and is ignored by
-git. Each field written there (command, model, effort, tools, deny, placement, brief)
+git. Each field written there (command, model, effort, tools, deny, placement, brief, fallback)
 replaces the tracked value of the agent of the same name; every field not
 written keeps the tracked value. With no file, the bindings are exactly as
 agents.toml prescribes. A remote node never receives this file.

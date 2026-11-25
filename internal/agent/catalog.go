@@ -65,8 +65,26 @@ func (c Catalog) Validate() []error {
 		for _, err := range Problems(c[name]) {
 			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
 		}
+		for _, err := range c.FallbackProblems(name) {
+			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
+		}
 	}
 	return errs
+}
+
+func (c Catalog) FallbackProblems(name string) []error {
+	f := c[name].Fallback
+	switch {
+	case f == "":
+		return nil
+	case f == name:
+		return []error{fmt.Errorf("fallback names the agent itself")}
+	case !c.Has(f):
+		return []error{fmt.Errorf("fallback %q is not in the agents catalog", f)}
+	case c[f].Fallback != "":
+		return []error{fmt.Errorf("fallback %q names its own fallback %q; a fallback is one level", f, c[f].Fallback)}
+	}
+	return nil
 }
 
 func Problems(b Binding) []error {
@@ -106,6 +124,7 @@ var overridable = []struct {
 	{"deny", func(d *Binding, s Binding) { d.Deny = slices.Clone(s.Deny) }},
 	{"placement", func(d *Binding, s Binding) { d.Placement = s.Placement }},
 	{"brief", func(d *Binding, s Binding) { d.Brief = s.Brief }},
+	{"fallback", func(d *Binding, s Binding) { d.Fallback = s.Fallback }},
 }
 
 func (c Catalog) Override(path string) (Catalog, []Override, error) {
