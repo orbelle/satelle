@@ -80,6 +80,9 @@ skill = "satelle-judge-differs-from-performer-check"
 [gates.tree-unchanged]
 skill = "satelle-tree-unchanged-check"
 
+[gates.replan-base]
+skill = "satelle-replan-base-check"
+
 [gates.plan-touches]
 skill = "satelle-plan-touches-check"
 
@@ -207,6 +210,7 @@ to = "in_progress"
 [[transition]]
 from = ["in_progress"]
 to = "plan"
+groups = [{ mode = "sequential", gates = ["replan-base"] }]
 
 [[transition]]
 from = ["backlog", "plan", "in_progress", "integration", "in_review"]

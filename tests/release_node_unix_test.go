@@ -61,7 +61,53 @@ func TestReleaseNodeRedSuiteNamesTheStep(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(c.nodeRoot(), "back", "log")); !os.IsNotExist(err) {
 		t.Fatalf("the node's log is in back/: %v", err)
 	}
+	for _, f := range []string{"out/step-log", "back/step-log"} {
+		if _, err := os.Stat(filepath.Join(c.nodeRoot(), f)); !os.IsNotExist(err) {
+			t.Fatalf("a failed test step left %s: %v", f, err)
+		}
+	}
 	c.mainStays(t, oldMain)
+}
+
+func (c *candidateSandbox) ghSaysOnDispatch(line string) {
+	c.t.Helper()
+	if err := os.Rename(filepath.Join(c.fake, "gh"), filepath.Join(c.fake, "gh.real")); err != nil {
+		c.t.Fatal(err)
+	}
+	writeFile(c.t, filepath.Join(c.fake, "gh"), "#!/bin/sh\n[ \"$1 $2\" = \"workflow run\" ] && echo '"+line+"' >&2\nexec \"$FAKE_DIR/gh.real\" \"$@\"\n", 0o755)
+}
+
+func TestReleaseNodeFailedStepBringsBackItsOwnLogLines(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 10 }\n"})
+	oldMain := b.rev("origin/main")
+	b.tested()
+	b.decide()
+	b.ghSaysOnDispatch("the fake gh dispatched release.yml")
+	writeFile(t, filepath.Join(b.fake, "fail-release"), "", 0o644)
+	r := b.nodeSteps("bump", "guard", "publish")
+	b.failedAt(t, r, "publish", "release.yml run https://ci.example/7 concluded failure")
+	log := b.nodeFile("out/log")
+	if !strings.Contains(log, " written from ") {
+		t.Fatalf("the bump step logged nothing for step-log to leave out:\n%s", log)
+	}
+	got := b.nodeFile("back/step-log")
+	if got != b.nodeFile("out/step-log") || !strings.Contains(got, "the fake gh dispatched release.yml\n") || strings.Contains(got, " written from ") {
+		t.Fatalf("back/step-log holds not the publish step's own lines:\n%s\nlog:\n%s", got, log)
+	}
+	suite := b.nodeFile("out/suite.out")
+	if strings.TrimSpace(suite) == "" {
+		t.Fatal("the suite wrote nothing for step-log to leave out")
+	}
+	for _, l := range strings.Split(suite, "\n") {
+		if l = strings.TrimSpace(l); l != "" && strings.Contains(got, l) {
+			t.Fatalf("back/step-log holds the suite's output %q:\n%s", l, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(b.nodeRoot(), "back", "log")); !os.IsNotExist(err) {
+		t.Fatalf("the node's log is in back/: %v", err)
+	}
+	b.mainStays(t, oldMain)
 }
 
 func TestReleaseNodeRefusesACandidateNotOnItsBranch(t *testing.T) {
@@ -485,5 +531,62 @@ func TestReleaseNodeFailsSafeWithGoOnNeitherPath(t *testing.T) {
 	}
 	if !strings.Contains(result, "binary changed\n") || !strings.Contains(result, "\nbinary-reason the build set could not be derived: go env") {
 		t.Fatalf("the node's result lacks the reason line:\n%s", result)
+	}
+}
+
+func TestReleaseNodePublishWaitsOutAWatchThatReturnsEarly(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 8 }\n"})
+	b.tested()
+	b.decide()
+	writeFile(t, filepath.Join(b.fake, "pending-views"), "2\n", 0o644)
+	b.mustNode("bump", "guard", "publish")
+	bump := strings.TrimSpace(b.git("-C", b.work(), "rev-parse", "HEAD"))
+	if got := strings.TrimSpace(b.fakeLog("pending-views")); got != "0" {
+		t.Fatalf("pending-views %q, want the publish step to have read past every in-progress view", got)
+	}
+	if n := strings.Count(b.nodeFile("out/log"), "has not concluded after the watch (exit 0); waiting"); n != 2 {
+		t.Fatalf("%d waits logged, want 2:\n%s", n, b.nodeFile("out/log"))
+	}
+	if result := b.nodeFile("out/result"); !strings.Contains(result, "release-yml https://ci.example/7 "+bump+" success\n") || strings.Contains(result, "failed step ") {
+		t.Fatalf("the publish step did not record the concluded run:\n%s", result)
+	}
+	b.mustNode("push", "release")
+	result := b.nodeFile("out/result")
+	for _, want := range []string{"published v1.0.1\n", "published serve-v1.0.1\n", "main-after " + bump + "\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the run's result lacks %q:\n%s", want, result)
+		}
+	}
+	if strings.Contains(result, "to-publish ") || strings.Contains(result, "failed step ") {
+		t.Fatalf("a clean run's result:\n%s", result)
+	}
+	if b.draft("v1.0.1") || b.draft("serve-v1.0.1") || b.latest() != "v1.0.1" {
+		t.Fatalf("a draft is left, or v1.0.1 is not latest (%q)", b.latest())
+	}
+}
+
+func TestReleaseNodePublishFailsAWatchThatReturnsBeforeTheRunConcludes(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 9 }\n"})
+	oldMain := b.rev("origin/main")
+	b.tested()
+	b.decide()
+	writeFile(t, filepath.Join(b.fake, "pending-views"), "100\n", 0o644)
+	b.env["SATELLE_RELEASE_WAIT"] = "3"
+	defer delete(b.env, "SATELLE_RELEASE_WAIT")
+	r := b.nodeSteps("bump", "guard", "publish")
+	b.failedAt(t, r, "publish", "the watch of release.yml run https://ci.example/7 returned (exit 0) before the run concluded, and it had not concluded after 3 checks")
+	if got := strings.TrimSpace(b.fakeLog("pending-views")); got != "97" {
+		t.Fatalf("pending-views %q, want exactly 3 views within the bound", got)
+	}
+	for _, f := range []string{"out/result", "back/result"} {
+		if got := b.nodeFile(f); strings.Contains(got, "release-yml ") {
+			t.Fatalf("%s records a conclusion for a run that never concluded:\n%s", f, got)
+		}
+	}
+	b.mainStays(t, oldMain)
+	if strings.Contains(b.fakeLog("gh.log"), "release edit ") {
+		t.Fatalf("a failed publish published a release:\n%s", b.fakeLog("gh.log"))
 	}
 }
