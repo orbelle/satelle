@@ -44,6 +44,14 @@ const (
 	localOutcome    = "outcome.json"
 )
 
+// NodeLayout is the node layout this binary writes into a node's in/ and
+// implements when it runs as the node; run.json names it.
+const NodeLayout = 1
+
+// legacyNodeLayout is the layout taken for a run.json that names none, as
+// bundles built before run.json named a layout do.
+const legacyNodeLayout = 1
+
 const (
 	RunRunning   = "running"
 	RunConcluded = "concluded"
@@ -139,6 +147,7 @@ type LocalRun struct {
 	Run      RunDescriptor `json:"run"`
 	Steps    int           `json:"steps,omitempty"`
 	Checkout string        `json:"checkout,omitempty"`
+	Layout   int           `json:"layout,omitempty"`
 }
 
 type LocalOutcome struct {
@@ -1241,7 +1250,7 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 	if o.Definition.RunsTask() {
 		mode = ModeTask
 	}
-	lr := LocalRun{NodeID: node, Run: RunDescriptor{Mode: mode, ItemID: o.Item}, Steps: o.Steps}
+	lr := LocalRun{NodeID: node, Run: RunDescriptor{Mode: mode, ItemID: o.Item}, Steps: o.Steps, Layout: NodeLayout}
 	files := map[string][]byte{localDefinition: o.Bundle}
 	var shallow bool
 	if o.Definition.Drive.Checkout {
