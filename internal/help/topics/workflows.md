@@ -134,10 +134,8 @@ init --session <session>` writes the check skill `satelle-judge-differs-from-per
 with no `agent` or `panel` on the transitions it chooses. It fails each gate
 where no judge is of another model family (claude, gpt, gemini, grok, its
 `FAMILIES` table) than the dispatched performer of the from-state: a single
-judge must differ, and a panel passes when one member differs. A judge whose
-binding names a `fallback` counts as differing only when its fallback is of
-another family than the performer too. A session performer has no model in
-config and is not compared.
+judge must differ, and a panel passes when one member differs. A session
+performer has no model in config and is not compared.
 
 A gate's `trigger` is a check skill whose exit decides relevance: exit 0 means
 relevant and the gate runs; exit 1 means not relevant, and the gate is recorded

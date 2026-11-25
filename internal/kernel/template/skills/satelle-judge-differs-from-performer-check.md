@@ -1,7 +1,7 @@
 ---
 name: satelle-judge-differs-from-performer-check
 type: check
-description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, a judge with a fallback differs only when its fallback differs too, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml.
+description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml.
 ---
 
 # Judge differs from performer (reviewer independence)
@@ -20,10 +20,7 @@ presented change to workflows or agents. It reads nothing of the item.
 whose performer is a dispatched agent, and for each gate of that transition
 with judges (an `agent`, or a `panel`), at least one judge is of another
 family than the performer. A single judge must differ. A panel passes when
-one member differs. A judge whose binding names a `fallback` differs only
-when that fallback is of another family than the performer too, so the slot
-keeps its independence whichever binding answers; a finding lists such a
-judge as `judge (family, fallback name (family))`. A check gate has no judge and is skipped. A `*` from
+one member differs. A check gate has no judge and is skipped. A `*` from
 stands for every state that is neither terminal nor park, except a state
 another transition to the same target names explicitly (that transition
 wins).
@@ -50,8 +47,8 @@ judges keeps them alt to it. The check prints one note per such state.
 `workflows`), `satelle workflow show <w> --json --session <session>` for each workflow, and
 `agents.toml`, then `agents.local.toml` when present, read field by field
 over it, so the check sees what would dispatch on this machine. The agents
-reader takes only `[agents.NAME]` tables and in them only `command`,
-`model` and `fallback` with a plain double-quoted value; any other form of those keys, and
+reader takes only `[agents.NAME]` tables and in them only `command` and
+`model` with a plain double-quoted value; any other form of those keys, and
 any literal-quoted ('...') key or header naming agents, stops the check
 (exit 2) naming the file and line. `satelle validate
 --session <session>` stays the judge of the file's validity.
@@ -102,7 +99,7 @@ if [ ! -f "$root/agents.toml" ]; then
 fi
 
 rows=$(awk -v q="'" '
-  function bad(why) { printf "%s:%d: %s; this check reads only [agents.NAME] tables with command, model and fallback as plain double-quoted strings\n", FILENAME, FNR, why; failed = 1; exit 2 }
+  function bad(why) { printf "%s:%d: %s; this check reads only [agents.NAME] tables with command and model as plain double-quoted strings\n", FILENAME, FNR, why; failed = 1; exit 2 }
   FNR == 1 { table = "" }
   {
     line = $0
@@ -132,9 +129,9 @@ rows=$(awk -v q="'" '
     if (table == "" && line ~ /^"?agents"?[ \t]*[.=]/) bad("cannot read a dotted or inline agents key")
     if (table == "" && substr(line, 1, 1) == q && line ~ /agents/) bad("cannot read a literal-quoted agents key")
     if (table == "") next
-    if (line ~ /^"?(command|model|fallback)"?[ \t]*\./) bad("cannot read a dotted key")
+    if (line ~ /^"?(command|model)"?[ \t]*\./) bad("cannot read a dotted key")
     if (substr(line, 1, 1) == q) bad("cannot read a literal-quoted key")
-    if (line !~ /^"?(command|model|fallback)"?[ \t]*=/) next
+    if (line !~ /^"?(command|model)"?[ \t]*=/) next
     key = line
     sub(/[ \t]*=.*$/, "", key)
     gsub(/"/, "", key)
@@ -161,7 +158,7 @@ agents=$(printf '%s\n' "$rows" | jq -Rn --arg fam "$FAMILIES" '
         (.command // "") as $c
         | (.model // "") as $m
         | ($c | split(" ") | map(select(length > 0)) | (.[0] // "") | split("/") | last | ascii_downcase | sub("\\.exe$"; "")) as $bin
-        | {command: $c, model: $m, fallback: (.fallback // ""), session: ($bin == "session"),
+        | {command: $c, model: $m, session: ($bin == "session"),
            family: ((if $m != "" then family($m) else family($bin) end) | if . != "" then . else "unknown" end)}
       ))
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }
@@ -273,13 +270,11 @@ for w in $workflows; do
           elif $pb.family == "unknown" then
             {kind: "find", text: "workflow \($w): \($from) -> \($t.To): \($gl): performer \($p.Agent) (\(describe($pb))) names no known family; add it to FAMILIES"}
           else
-            ([ $js[] | . as $j | ($agents[$j].fallback // "") as $fb
-               | {j: $j, f: ($agents[$j].family // "unknown"), fb: $fb, ff: (if $fb == "" then "" else ($agents[$fb].family // "unknown") end)} ]) as $jfs
-            | def differs($x): $x != "unknown" and $x != $pb.family;
-              if any($jfs[]; differs(.f) and (.fb == "" or differs(.ff))) then {kind: "pass"}
+            ([ $js[] | . as $j | ($agents[$j].family // "unknown") as $jf | {j: $j, f: $jf} ]) as $jfs
+            | if any($jfs[]; .f != "unknown" and .f != $pb.family) then {kind: "pass"}
               else {kind: "find", text: ("workflow \($w): \($from) -> \($t.To): \($gl): no judge is of another model family than performer \($p.Agent) (\($pb.family), \(describe($pb))): "
-                     + ([ $jfs[] | "\(.j) (\(.f)\(if .fb != "" then ", fallback \(.fb) (\(.ff))" else "" end))" ] | join(", "))
-                     + (if any($jfs[]; .f == "unknown" or .ff == "unknown") then "; add an unknown name to FAMILIES" else "" end))}
+                     + ([ $jfs[] | "\(.j) (\(.f))" ] | join(", "))
+                     + (if any($jfs[]; .f == "unknown") then "; add an unknown name to FAMILIES" else "" end))}
               end
           end
       ] as $rows
