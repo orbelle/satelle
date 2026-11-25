@@ -152,7 +152,7 @@ func TestResolveRepoWithholdsBeforeGit(t *testing.T) {
 	check := func(t *testing.T, name string, r repo) {
 		t.Helper()
 		if r.Node == "" {
-			if err := config.WriteRepoPathMarkerEnv(r.Runtime, filepath.Dir(r.DataDir), r.gitEnv); err != nil {
+			if err := config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir), r.gitEnv); err != nil {
 				t.Fatal(err)
 			}
 		}

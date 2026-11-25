@@ -156,7 +156,7 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 		return nil, err
 	}
 	if r.Node == "" {
-		_ = config.WriteRepoPathMarkerEnv(r.Runtime, filepath.Dir(r.DataDir), r.gitEnv)
+		_ = config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir), r.gitEnv)
 		_ = config.MarkMachineRuntime(r.Runtime)
 	}
 	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree, ReadOnly: readOnly})

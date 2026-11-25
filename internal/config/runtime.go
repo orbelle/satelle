@@ -213,11 +213,7 @@ func IsRuntimeKeyDir(name string) bool {
 
 const RepoPathMarkerName = "repo.path"
 
-func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
-	return WriteRepoPathMarkerEnv(runtimeDir, repoRoot, nil)
-}
-
-func WriteRepoPathMarkerEnv(runtimeDir, repoRoot string, env []string) error {
+func WriteRepoPathMarker(runtimeDir, repoRoot string, env []string) error {
 	runtimeDir = strings.TrimSpace(runtimeDir)
 	repoRoot = strings.TrimSpace(repoRoot)
 	if runtimeDir == "" || repoRoot == "" {
