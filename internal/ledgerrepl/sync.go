@@ -2,7 +2,6 @@ package ledgerrepl
 
 import (
 	"context"
-	"strings"
 )
 
 type SyncResult struct {
@@ -61,12 +60,12 @@ func (r *Replicator) Sync(ctx context.Context) (SyncResult, error) {
 }
 
 func (r *Replicator) adoptable(st ItemStatus) (bool, error) {
-	if r.Mirrors == nil || st.Store == 0 || !strings.HasPrefix(st.State, "diverged at ") {
+	if r.Mirrors == nil || st.Store == 0 || st.Fork < 0 {
 		return false, nil
 	}
 	local, err := r.Ledger.Read(st.Item)
 	if err != nil {
 		return false, err
 	}
-	return r.Mirrors.MirrorOnly(st.Item, local), nil
+	return r.Mirrors.MirrorTail(st.Item, local, st.Fork), nil
 }

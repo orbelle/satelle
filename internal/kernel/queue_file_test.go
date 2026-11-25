@@ -597,7 +597,7 @@ func TestQueueGenesisDiffersWithFile(t *testing.T) {
 	}
 }
 
-func TestMirrorOnlyRefusesAnyOtherEvent(t *testing.T) {
+func TestMirrorTailRefusesAnyOtherEvent(t *testing.T) {
 	root, open := queueKernel(t)
 	var mirrors [][]ledger.Event
 	for _, title := range []string{"Draft", "Release", "Final"} {
@@ -632,27 +632,55 @@ func TestMirrorOnlyRefusesAnyOtherEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mirror := func(chain []ledger.Event, title string) []ledger.Event {
+		t.Helper()
+		last := chain[len(chain)-1]
+		e, err := ledger.NewEventWith("mir_"+title, last.At, last.Item, item.KindUpdated, "satelle",
+			map[string]any{"title": title, "cause": "queue file .satelle/queues/release.toml"}, last.Hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(slices.Clone(chain), e)
+	}
+	worked := after(mirrors[1], item.KindQueueAdded, "me", item.QueueEntry{Item: "sto_1"})
+	tail := mirror(worked, "Draft")
+	adoptedGenesis, err := ledger.NewEventWith("ext_adopted", genesis.At, "que_adopted", item.KindCreated, "me", item.Fields{Title: ptr("Adopted")}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptedTail := mirror(after([]ledger.Event{adoptedGenesis}, item.KindQueueAdded, "me", item.QueueEntry{Item: "sto_1"}), "Adopted")
 	cases := []struct {
 		name  string
 		id    string
 		chain []ledger.Event
+		from  int
 		want  bool
 	}{
-		{"genesis alone", "que_release", mirrors[0], true},
-		{"genesis and one mirror update", "que_release", mirrors[1], true},
-		{"genesis and two mirror updates", "que_release", mirrors[2], true},
-		{"plus a queue.added", "que_release", after(mirrors[1], item.KindQueueAdded, "me", item.QueueEntry{Item: "sto_1"}), false},
-		{"plus a user's title update", "que_release", after(mirrors[1], item.KindUpdated, "me", item.Fields{Title: ptr("mine")}), false},
-		{"plus a satelle event with no cause", "que_release", after(mirrors[1], item.KindUpdated, "satelle", item.Fields{Title: ptr("x")}), false},
-		{"plus a queue.fired", "que_release", after(mirrors[0], item.KindQueueFired, "satelle", item.QueueFire{Run: "exe_1", Cause: "queue file x"}), false},
-		{"a genesis by another actor", "que_release", []ledger.Event{byOther}, false},
-		{"an id a file adopts", "que_adopted", mirrors[0], false},
-		{"an id no file defines", "que_nofile", mirrors[0], false},
-		{"an empty chain", "que_release", nil, false},
+		{"genesis alone", "que_release", mirrors[0], 0, true},
+		{"genesis and one mirror update", "que_release", mirrors[1], 0, true},
+		{"genesis and two mirror updates", "que_release", mirrors[2], 0, true},
+		{"plus a queue.added", "que_release", worked, 0, false},
+		{"plus a user's title update", "que_release", after(mirrors[1], item.KindUpdated, "me", item.Fields{Title: ptr("mine")}), 0, false},
+		{"plus a satelle event with no cause", "que_release", after(mirrors[1], item.KindUpdated, "satelle", item.Fields{Title: ptr("x")}), 0, false},
+		{"plus a queue.fired", "que_release", after(mirrors[0], item.KindQueueFired, "satelle", item.QueueFire{Run: "exe_1", Cause: "queue file x"}), 0, false},
+		{"a genesis by another actor", "que_release", []ledger.Event{byOther}, 0, false},
+		{"an id a file adopts", "que_adopted", mirrors[0], 0, false},
+		{"an id no file defines", "que_nofile", mirrors[0], 0, false},
+		{"an empty chain", "que_release", nil, 0, false},
+		{"a mirror tail past a queue.added", "que_release", tail, len(worked), true},
+		{"two mirror updates past a queue.added", "que_release", mirror(tail, "Final"), len(worked), true},
+		{"a mirror tail on an id a file adopts", "que_adopted", adoptedTail, len(adoptedTail) - 1, true},
+		{"no tail past the fork point", "que_release", tail, len(tail), false},
+		{"a mirror tail on an id no file defines", "que_nofile", tail, len(worked), false},
+		{"a mirror tail then a queue.added", "que_release", after(tail, item.KindQueueAdded, "me", item.QueueEntry{Item: "sto_2"}), len(worked), false},
+		{"a mirror tail then a user's update", "que_release", after(tail, item.KindUpdated, "me", item.Fields{Title: ptr("mine")}), len(worked), false},
+		{"a mirror tail then a satelle event with no cause", "que_release", after(tail, item.KindUpdated, "satelle", item.Fields{Title: ptr("x")}), len(worked), false},
+		{"a mirror tail then a queue.fired", "que_release", after(tail, item.KindQueueFired, "satelle", item.QueueFire{Run: "exe_1", Cause: "queue file x"}), len(worked), false},
+		{"a tail starting at a queue.added", "que_release", tail, len(worked) - 1, false},
 	}
 	for _, c := range cases {
-		if got := k.MirrorOnly(c.id, c.chain); got != c.want {
-			t.Errorf("%s: MirrorOnly = %v, want %v", c.name, got, c.want)
+		if got := k.MirrorTail(c.id, c.chain, c.from); got != c.want {
+			t.Errorf("%s: MirrorTail(from %d) = %v, want %v", c.name, c.from, got, c.want)
 		}
 	}
 	if wrote, err := k.Remirror("que_release"); err != nil || wrote {

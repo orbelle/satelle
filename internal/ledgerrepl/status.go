@@ -22,6 +22,7 @@ type ItemStatus struct {
 	Local int    `json:"local"`
 	Store int    `json:"store"`
 	State string `json:"state"`
+	Fork  int    `json:"-"`
 }
 
 func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
@@ -49,14 +50,14 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 		seen[id] = true
 		c := lst.Chains[id]
 		st := ItemStatus{Item: id, Local: len(local), Store: c.Len}
-		if st.State, _, err = r.state(ctx, id, local, c); err != nil {
+		if st.State, st.Fork, err = r.state(ctx, id, local, c); err != nil {
 			return nil, err
 		}
 		out = append(out, st)
 	}
 	for id, c := range lst.Chains {
 		if !seen[id] {
-			out = append(out, ItemStatus{Item: id, Store: c.Len, State: StoreOnly})
+			out = append(out, ItemStatus{Item: id, Store: c.Len, State: StoreOnly, Fork: -1})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Item < out[j].Item })

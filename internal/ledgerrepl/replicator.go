@@ -32,7 +32,7 @@ type Chooser interface {
 }
 
 type FileMirrors interface {
-	MirrorOnly(id string, local []ledger.Event) bool
+	MirrorTail(id string, local []ledger.Event, from int) bool
 	Remirror(id string) (wrote bool, err error)
 }
 

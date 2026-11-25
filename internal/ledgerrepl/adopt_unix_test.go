@@ -4,6 +4,7 @@ package ledgerrepl
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -23,9 +24,13 @@ type fakeMirrors struct {
 	mirrorOnly bool
 	extra      int
 	remirrored []string
+	froms      []int
 }
 
-func (f *fakeMirrors) MirrorOnly(string, []ledger.Event) bool { return f.mirrorOnly }
+func (f *fakeMirrors) MirrorTail(_ string, _ []ledger.Event, from int) bool {
+	f.froms = append(f.froms, from)
+	return f.mirrorOnly
+}
 
 func (f *fakeMirrors) Remirror(id string) (bool, error) {
 	f.remirrored = append(f.remirrored, id)
@@ -87,34 +92,163 @@ func TestPullAdoptsFileMirrorOnlyChain(t *testing.T) {
 	if !slices.Equal(f.remirrored, []string{"it"}) {
 		t.Fatalf("Remirror called for %v, want once for it", f.remirrored)
 	}
+	if !slices.Equal(f.froms, []int{0}) {
+		t.Fatalf("MirrorTail asked from %v, want [0]", f.froms)
+	}
 	if want := "adopted: it: this runtime's 1 queue-file event(s) replaced by the store's 3"; !strings.Contains(out.String(), want) {
 		t.Fatalf("output lacks %q:\n%s", want, out.String())
 	}
 }
 
+func mirrorTailFork(t *testing.T) (a, b *ledger.Store, o Objects) {
+	t.Helper()
+	o = fsObjects(t)
+	a, b = shared(t, o, 2)
+	add(t, a, "it", "a", 1)
+	push(t, a, o)
+	add(t, b, "it", "b", 1)
+	return a, b, o
+}
+
+func TestPullAdoptsMirrorTailFork(t *testing.T) {
+	a, b, o := mirrorTailFork(t)
+	var out bytes.Buffer
+	r := repl(b, o, &out)
+	f := &fakeMirrors{s: b, mirrorOnly: true}
+	r.Mirrors = f
+	res, err := r.Pull(ctx)
+	if err != nil {
+		t.Fatalf("pull: %v\n%s", err, out.String())
+	}
+	if res.Failed() || !slices.Equal(res.Adopted, []string{"it"}) {
+		t.Fatalf("pull %+v\n%s", res, out.String())
+	}
+	if !bytes.Equal(chainFile(t, a, "it"), chainFile(t, b, "it")) {
+		t.Fatal("B's chain is not the store's")
+	}
+	if !slices.Equal(f.froms, []int{2}) {
+		t.Fatalf("MirrorTail asked from %v, want [2]", f.froms)
+	}
+	if want := "adopted: it: this runtime's 1 queue-file event(s) replaced by the store's 3"; !strings.Contains(out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, out.String())
+	}
+}
+
+type equivocatingStore struct {
+	Store
+	events Store
+}
+
+func (s equivocatingStore) Events(ctx context.Context, item string, from, to int) ([]ledger.Event, error) {
+	return s.events.Events(ctx, item, from, to)
+}
+
+func TestPullRefusesMirrorTailWhenStoreChangesPrefix(t *testing.T) {
+	for _, served := range []int{3, 1} {
+		t.Run(strconv.Itoa(served), func(t *testing.T) {
+			_, b, o := mirrorTailFork(t)
+			o2 := fsObjects(t)
+			c := newStore(t)
+			add(t, c, "it", "c", served)
+			push(t, c, o2)
+			setup := func() (*Replicator, *fakeMirrors, *bytes.Buffer) {
+				var out bytes.Buffer
+				r := repl(b, o, &out)
+				r.Store = equivocatingStore{Store: &ObjectStore{Objects: o, Name: "test"}, events: &ObjectStore{Objects: o2, Name: "other"}}
+				f := &fakeMirrors{s: b, mirrorOnly: true, extra: 1}
+				r.Mirrors = f
+				return r, f, &out
+			}
+			localBefore, storeBefore := chainFile(t, b, "it"), objectsOf(t, o)
+			unchanged := func(what string, f *fakeMirrors) {
+				t.Helper()
+				if !bytes.Equal(localBefore, chainFile(t, b, "it")) {
+					t.Fatalf("%s changed the local chain", what)
+				}
+				if !maps.EqualFunc(storeBefore, objectsOf(t, o), bytes.Equal) {
+					t.Fatalf("%s changed the store", what)
+				}
+				if len(f.remirrored) != 0 {
+					t.Fatalf("%s called Remirror for %v", what, f.remirrored)
+				}
+			}
+			r, f, out := setup()
+			res, err := r.Pull(ctx)
+			if err != nil && served == 3 {
+				t.Fatalf("pull: %v\n%s", err, out.String())
+			}
+			if len(res.Adopted) != 0 || strings.Contains(out.String(), "adopted:") || !res.Failed() {
+				t.Fatalf("pull %+v\n%s", res, out.String())
+			}
+			if served == 3 {
+				if len(res.Diverged) != 1 || res.Diverged[0].Item != "it" || res.Diverged[0].Seq != 1 {
+					t.Fatalf("pull %+v, want it diverged at 1\n%s", res, out.String())
+				}
+				if !strings.Contains(out.String(), "diverged: it at event 1") || !strings.Contains(out.String(), "nothing appended") {
+					t.Fatalf("output lacks the refusal:\n%s", out.String())
+				}
+			}
+			if !slices.Equal(f.froms, []int{2}) {
+				t.Fatalf("MirrorTail asked from %v, want [2]", f.froms)
+			}
+			unchanged("pull", f)
+			r, f, out = setup()
+			sres, err := r.Sync(ctx)
+			if err != nil && served == 3 {
+				t.Fatalf("sync: %v\n%s", err, out.String())
+			}
+			if !sres.Failed() || len(sres.Pull.Adopted) != 0 || sres.Push.Events != 0 {
+				t.Fatalf("sync %+v\n%s", sres, out.String())
+			}
+			unchanged("sync", f)
+		})
+	}
+}
+
 func TestSyncPushesRemirroredAdoption(t *testing.T) {
-	for _, extra := range []int{1, 0} {
-		a, b, o := forked(t)
-		var out bytes.Buffer
-		r := repl(b, o, &out)
-		r.Mirrors = &fakeMirrors{s: b, mirrorOnly: true, extra: extra}
-		res, err := r.Sync(ctx)
-		if err != nil {
-			t.Fatalf("sync: %v\n%s", err, out.String())
+	cases := []struct {
+		name string
+		fork func(t *testing.T) (a, b *ledger.Store, o Objects)
+		at   int
+	}{
+		{"whole chain", forked, 0},
+		{"tail past a shared prefix", mirrorTailFork, 2},
+	}
+	for _, tc := range cases {
+		for _, extra := range []int{1, 0} {
+			t.Run(tc.name+"/"+strconv.Itoa(extra), func(t *testing.T) {
+				syncsRemirroredAdoption(t, tc.fork, tc.at, extra)
+			})
 		}
-		if res.Failed() || !slices.Equal(res.Pull.Adopted, []string{"it"}) || res.Push.Events != extra {
-			t.Fatalf("extra %d: sync %+v\n%s", extra, res, out.String())
-		}
-		local := chain(t, b, "it")
-		if len(local) != 3+extra || storeHash(t, o, "it", len(local)-1) != local[len(local)-1].Hash {
-			t.Fatalf("extra %d: B holds %d events, not the store's head", extra, len(local))
-		}
-		if prefix := chain(t, a, "it"); !slices.Equal(hashesOf(local[:3]), hashesOf(prefix)) {
-			t.Fatalf("extra %d: B's chain does not start with A's", extra)
-		}
-		if again, err := r.Sync(ctx); err != nil || again.Failed() || again.Push.Events != 0 || again.Pull.Events != 0 {
-			t.Fatalf("extra %d: second pass %+v %v", extra, again, err)
-		}
+	}
+}
+
+func syncsRemirroredAdoption(t *testing.T, fork func(t *testing.T) (a, b *ledger.Store, o Objects), at, extra int) {
+	t.Helper()
+	a, b, o := fork(t)
+	var out bytes.Buffer
+	r := repl(b, o, &out)
+	f := &fakeMirrors{s: b, mirrorOnly: true, extra: extra}
+	r.Mirrors = f
+	res, err := r.Sync(ctx)
+	if err != nil {
+		t.Fatalf("sync: %v\n%s", err, out.String())
+	}
+	if res.Failed() || !slices.Equal(res.Pull.Adopted, []string{"it"}) || res.Push.Events != extra {
+		t.Fatalf("extra %d: sync %+v\n%s", extra, res, out.String())
+	}
+	if !slices.Equal(f.froms, []int{at, at}) {
+		t.Fatalf("MirrorTail asked from %v, want the fork point %d from adoptable and pull", f.froms, at)
+	}
+	local := chain(t, b, "it")
+	if len(local) != 3+extra || storeHash(t, o, "it", len(local)-1) != local[len(local)-1].Hash {
+		t.Fatalf("extra %d: B holds %d events, not the store's head", extra, len(local))
+	}
+	if prefix := chain(t, a, "it"); !slices.Equal(hashesOf(local[:3]), hashesOf(prefix)) {
+		t.Fatalf("extra %d: B's chain does not start with A's", extra)
+	}
+	if again, err := r.Sync(ctx); err != nil || again.Failed() || again.Push.Events != 0 || again.Pull.Events != 0 {
+		t.Fatalf("extra %d: second pass %+v %v", extra, again, err)
 	}
 }
 

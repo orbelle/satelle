@@ -116,14 +116,18 @@ func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 
 const queueMirrorCause = "queue file "
 
-func (k *Kernel) MirrorOnly(id string, events []ledger.Event) bool {
+func (k *Kernel) MirrorTail(id string, events []ledger.Event, from int) bool {
 	def := k.queueFiles[id]
-	if def == nil || def.ID != "" || len(events) == 0 {
+	if def == nil || from < 0 || from >= len(events) {
 		return false
 	}
-	for i, e := range events {
+	for i := from; i < len(events); i++ {
+		e := events[i]
 		want := item.KindUpdated
 		if i == 0 {
+			if def.ID != "" {
+				return false
+			}
 			want = item.KindCreated
 		}
 		if e.Kind != want || e.Actor != "satelle" {
