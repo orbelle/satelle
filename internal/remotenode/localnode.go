@@ -96,7 +96,7 @@ func RunLocal(ctx context.Context, o LocalOptions) (out LocalOutcome, err error)
 
 func checkLayout(got, implements int) error {
 	if got == 0 {
-		got = legacyNodeLayout
+		return fmt.Errorf("%s names no node layout; this node implements node layout %d; refused before setup", localRunFile, implements)
 	}
 	if got != implements {
 		return fmt.Errorf("%s is laid out for node layout %d; this node implements node layout %d; refused before setup", localRunFile, got, implements)

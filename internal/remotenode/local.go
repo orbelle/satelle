@@ -46,8 +46,6 @@ const (
 
 const NodeLayout = 1
 
-const legacyNodeLayout = 1
-
 const (
 	RunRunning   = "running"
 	RunConcluded = "concluded"
