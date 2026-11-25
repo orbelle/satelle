@@ -25,6 +25,8 @@ type candidateSandbox struct {
 	rd        string
 	origin    string
 	asRoot    bool
+	nodePath  string
+	suitePath string
 }
 
 const nodeToken = "ghp_0123456789abcdefghijKLMNOPQRSTuvwxyz01"
@@ -211,8 +213,14 @@ func (c *candidateSandbox) node(step string, args ...string) result {
 			path = v
 		}
 	}
+	if c.suitePath != "" {
+		path = c.suitePath
+	}
 	env := map[string]string{"SATELLE_RELEASE_ROOT": root, "SATELLE_RELEASE_TEST_SAME_UID": "1", "GH_TOKEN": nodeToken,
 		"SATELLE_RELEASE_SUITE_PATH": path, "SATELLE_RELEASE_SUITE_HOME": c.suiteHome, "SATELLE_RELEASE_POLL": "0"}
+	if c.nodePath != "" {
+		env["PATH"] = c.nodePath
+	}
 	if c.asRoot {
 		delete(env, "SATELLE_RELEASE_TEST_SAME_UID")
 	}

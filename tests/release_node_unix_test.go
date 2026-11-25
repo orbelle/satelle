@@ -403,3 +403,87 @@ func TestReleaseNodeStopsAtReleaseAndAResumePublishesTheDrafts(t *testing.T) {
 	}
 	b.mainStays(t, bump)
 }
+
+func (c *candidateSandbox) pathWithoutGo() string {
+	c.t.Helper()
+	bin := realDir(c.t, c.t.TempDir())
+	for _, kv := range c.environ() {
+		v, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			continue
+		}
+		for _, d := range filepath.SplitList(v) {
+			ents, err := os.ReadDir(d)
+			if err != nil {
+				continue
+			}
+			for _, e := range ents {
+				if e.Name() == "go" {
+					continue
+				}
+				src := filepath.Join(d, e.Name())
+				if st, err := os.Stat(src); err != nil || st.IsDir() || st.Mode().Perm()&0o111 == 0 {
+					continue
+				}
+				if _, err := os.Lstat(filepath.Join(bin, e.Name())); err == nil {
+					continue
+				}
+				if err := os.Symlink(src, filepath.Join(bin, e.Name())); err != nil {
+					c.t.Fatal(err)
+				}
+			}
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(bin, "go")); !os.IsNotExist(err) {
+		c.t.Fatalf("go is on the node's PATH %s", bin)
+	}
+	return bin
+}
+
+func (b *binarySandbox) decideWithoutGoOnTheNode(suiteHasGo bool) (string, string) {
+	b.t.Helper()
+	b.nodePath = b.pathWithoutGo()
+	if !suiteHasGo {
+		b.suitePath = b.nodePath
+	}
+	b.tested()
+	return b.decide(), b.nodeFile("out/result")
+}
+
+func TestReleaseNodeDecidesUnchangedWithGoOnlyOnTheSuitePath(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("d", "### Added\n- D adds a doc\n", [2]string{"docs/d.md", "d\n"}, [2]string{".satelle/agents.toml", "[agents.executor]\ncommand = \"session\"\n"})
+	rec, result := b.decideWithoutGoOnTheNode(true)
+	first, paths := recordLines(rec)
+	if want := []string{"other .satelle/agents.toml", "other docs/d.md"}; first != "binary: unchanged" || !slices.Equal(paths, want) || !strings.Contains(rec, "\ngo: go") {
+		t.Fatalf("decide with go only on the suite path: %s with %q, want binary: unchanged with %q and the build set derived\n%s", first, paths, want, rec)
+	}
+	if !strings.Contains(result, "binary unchanged\n") || strings.Contains(result, "binary-reason ") {
+		t.Fatalf("the node's result:\n%s", result)
+	}
+}
+
+func TestReleaseNodeDecidesChangedWithGoOnlyOnTheSuitePath(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 8 }\n"})
+	rec, result := b.decideWithoutGoOnTheNode(true)
+	if first, paths := recordLines(rec); first != "binary: changed" || !slices.Equal(paths, []string{"build built internal/a/b.go"}) {
+		t.Fatalf("decide with go only on the suite path: %s with %q, want binary: changed with internal/a/b.go in the build set\n%s", first, paths, rec)
+	}
+	if !strings.Contains(result, "binary changed\n") || strings.Contains(result, "binary-reason ") {
+		t.Fatalf("the node's result:\n%s", result)
+	}
+}
+
+func TestReleaseNodeFailsSafeWithGoOnNeitherPath(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("d", "### Added\n- D adds a doc\n", [2]string{"docs/d.md", "d\n"})
+	rec, result := b.decideWithoutGoOnTheNode(false)
+	first, paths := recordLines(rec)
+	if first != "binary: changed" || !slices.Contains(paths, "build underived docs/d.md") || !strings.Contains(rec, "\nreason: the build set could not be derived: go env") {
+		t.Fatalf("decide with go on neither path: %s with %q, want binary: changed failing safe\n%s", first, paths, rec)
+	}
+	if !strings.Contains(result, "binary changed\n") || !strings.Contains(result, "\nbinary-reason the build set could not be derived: go env") {
+		t.Fatalf("the node's result lacks the reason line:\n%s", result)
+	}
+}
