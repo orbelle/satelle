@@ -1,14 +1,14 @@
 ---
 name: satelle-release-kept-check
 type: check
-description: CI/CD gate on a run's in_progress → done. A run that landed items (its release-kept attachment, release/SKILL.md step 4's kept list) is refused while any of them is not in a terminal state of its own workflow, naming each with its state; a run with no release-kept attachment landed nothing and is accepted. Deterministic, no agent.
+description: CI/CD gate on a run's in_progress → done. A run that landed items (its release-kept attachment, release/SKILL.md step 6's kept list) is refused while any of them is not in a terminal state of its own workflow, naming each with its state; a run with no release-kept attachment landed nothing and is accepted. Deterministic, no agent.
 ---
 
 # Release kept (a run closes only after the items it landed)
 
 The release run records the items it keeps in the candidate, `<id> <head>`
 per line in landing order, and attaches that list to itself as `release-kept`
-before it pushes main (release/SKILL.md step 4). Once main holds an item's head, the
+before it pushes main (release/SKILL.md step 6). Once main holds an item's head, the
 run that pushed it is the only record of the landing, so the run's done waits
 for every one of them: each item's done is presented in step 9 while the run
 is still in progress. A refused item done is fixed and presented again; a run

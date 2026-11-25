@@ -25,10 +25,12 @@ and the push to main are the node's part, run on a fly.io sprite
 (`### Fire the node's part`); main moves after `release.yml` built the releases
 from the run's `release/<exe>` branch, and the last step publishes any of them
 `release.yml` left as a draft (step 6a), so no release is served to
-`satelle update --session <session>` before main holds its commit. After the suite passes the node decides whether the
+`satelle update --session <session>` before main holds its commit: the
+operator's ruling *Published only from main* (2026-11-25,
+[[satelle-operator-rulings]]) is the order every step below keeps. After the suite passes the node decides whether the
 candidate changes the shipped binaries (the repository's scripts/release-binary.sh decide):
 when it does not, main fast-forwards to the tested candidate and the run does
-not bump, tag, dispatch `release.yml` or install (steps 3, 5, 6 and 7 are
+not bump, tag, dispatch `release.yml` or install (steps 3, 4, 5 and 7 are
 skipped), and the items still reach done on the recorded decision. A sent-back item goes back through the loop (merge
 origin/main into the branch with `git fetch origin && git merge origin/main`,
 never a rebase, so its pushed head is never rewritten and the push needs no
@@ -279,7 +281,7 @@ stops a binary-changed run at the node's bump; a binary-unchanged run writes no
 notes, and changelog-entry refuses that item's done until it has one. `repo` is origin's URL with `git@github.com:` written as
 `https://github.com/`; `author` and `email` are git's author identity. Every file of the input, `$rd/kept` and
 `$rd/release-drift` is scanned for a GitHub token's shape first. Then it
-attaches `release-kept` and `release-drift` to the run (step 4) and pushes the
+attaches `release-kept` and `release-drift` to the run (step 6) and pushes the
 candidate to `release/<exe>`, removing a stale one from an earlier attempt of
 this run first (`git push --delete`, never a force).
 
@@ -389,12 +391,26 @@ nothing.
 
 Commit only `.version` and `docs/releases/v<ver>.md` (`git add` the new
 file), so the tested tree is otherwise unchanged: `chore(release): v<ver>, satelled <sver> (<exe>: <ids>)`. Skip the
-commit when nothing changed (a resumed run). Step 4's guard excludes exactly
+commit when nothing changed (a resumed run). Step 6's guard excludes exactly
 these two files; a file added to the bump is added to both lists.
 
-## 4. Push main once
+## 4. Dispatch
 
-On the node (`release-node.sh guard`, then `push` after step 5 and 6). The
+Binary changed only, on the node (`release-node.sh publish`), before main
+moves: it pushes the bump to `release/<exe>`, runs `gh workflow run
+release.yml --ref release/<exe>` and watches that run to its conclusion. The
+release's tags come from the dispatched ref's `.version`, at the bump, which
+the push then makes main's head, so ci-published finds the run at main.
+
+## 5. Confirm both releases
+
+Binary changed only, on the node (`release-node.sh publish`): `gh release
+view` of `v<ver>` and `serve-v<sver>` shows each with its assets, and `v<ver>`
+is at the bump. The result carries the `release.yml` run and both tags.
+
+## 6. Push main once
+
+On the node (`release-node.sh guard`, then `push` after steps 4 and 5). The
 guard stops with "the candidate changed after the suite ran" when the suite
 has not passed on this candidate; with "the run has not decided on the tested
 candidate" when the decision is missing or names another candidate; on
@@ -417,23 +433,9 @@ read, is attached by `### Read the node's result`.
 
 GitHub marks each pull request merged, because main now contains its head.
 
-## 5. Dispatch
-
-Binary changed only, on the node (`release-node.sh publish`), before main
-moves: it pushes the bump to `release/<exe>`, runs `gh workflow run
-release.yml --ref release/<exe>` and watches that run to its conclusion. The
-release's tags come from the dispatched ref's `.version`, at the bump, which
-the push then makes main's head, so ci-published finds the run at main.
-
-## 6. Confirm both releases
-
-Binary changed only, on the node (`release-node.sh publish`): `gh release
-view` of `v<ver>` and `serve-v<sver>` shows each with its assets, and `v<ver>`
-is at the bump. The result carries the `release.yml` run and both tags.
-
 ## 6a. Publish the drafts
 
-On the node (`release-node.sh release`), after step 4 moved main, on every
+On the node (`release-node.sh release`), after step 6 moved main, on every
 run, binary-unchanged included: for `v<ver>` and `serve-v<sver>` of HEAD's
 `.version`, a release that is still a draft is published (`gh release edit
 --draft=false`, `--latest` for `v<ver>` and `--latest=false` for
@@ -516,7 +518,7 @@ seat.
 
 Clearing worktrees is part of the workflow (operator, 2026-11-06): from the
 main checkout (not a linked worktree, which the cleanup may remove), run the
-cleanup task and follow its run to done. Step 4 moved origin/main, not the
+cleanup task and follow its run to done. Step 6 moved origin/main, not the
 main checkout, so the block first fast-forwards the checkout to origin/main
 (`git merge --ff-only`, never a merge commit); otherwise the run's
 `--base origin/main` is not in HEAD's history and its move to in_progress and

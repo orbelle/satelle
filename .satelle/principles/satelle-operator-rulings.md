@@ -318,3 +318,16 @@ are reviewed*).
   in the repo. THat is the local approach, later they can come from a supported
   secrets service like infisical, or satelle.dev." (operator, 2026-11-24;
   sto_b01dda27, [[satelle-agent-operates-remotes]]).
+
+## 2026-11-25
+
+- **Published only from main.** "a release is published, and installed,
+  only after its commit is merged to main and the merged result has passed
+  its tests" (operator, 2026-11-25), after release run exe_000d375e published
+  a version from a commit main did not hold. The order is: the approved heads
+  are merged into one candidate, the suite runs on that candidate, the
+  binaries are built as a draft, main moves to that commit, the draft is
+  published, and only then is the build installed. A step that would publish
+  or install before main holds the commit is out of order. The steps are the
+  release skill's (`.satelle/skills/release/SKILL.md`;
+  sto_7d759084, sto_29bb2101).
