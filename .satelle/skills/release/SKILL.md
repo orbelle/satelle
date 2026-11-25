@@ -25,7 +25,7 @@ and the push to main are the node's part, run on a fly.io sprite
 (`### Fire the node's part`); main moves after `release.yml` built the releases
 from the run's `release/<exe>` branch, and the last step publishes any of them
 `release.yml` left as a draft (step 6a), so no release is served to
-`satelle update` before main holds its commit. After the suite passes the node decides whether the
+`satelle update --session <session>` before main holds its commit. After the suite passes the node decides whether the
 candidate changes the shipped binaries (the repository's scripts/release-binary.sh decide):
 when it does not, main fast-forwards to the tested candidate and the run does
 not bump, tag, dispatch `release.yml` or install (steps 3, 5, 6 and 7 are
