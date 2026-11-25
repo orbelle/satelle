@@ -3,20 +3,20 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
 func commandRefs(root, cmd *cobra.Command, dir string) []substrate.Reference {
-	g, err := resolveGovernance(dir, os.Environ(), true)
-	if err != nil || (g.node != nil && g.node.matches(g.substrate, g.tree) != nil) {
+	dataDir, ok := config.FindDataDir(dir)
+	if !ok {
 		return nil
 	}
-	refs, err := substrate.References(g.substrate)
+	refs, err := substrate.References(dataDir)
 	if err != nil {
 		return nil
 	}

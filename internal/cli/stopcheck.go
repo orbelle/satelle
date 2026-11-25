@@ -18,7 +18,7 @@ func stopCheck(in hook.Input) (reason string, block bool) {
 	if session == "" {
 		return "", false
 	}
-	r, err := findOwnRepo(hookDir(in))
+	r, err := findRepo(hookDir(in))
 	if err != nil || len(kernel.LegacyMarkers(r.DataDir)) > 0 {
 		return "", false
 	}

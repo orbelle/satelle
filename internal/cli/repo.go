@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
@@ -22,114 +21,20 @@ type repo struct {
 	DataDir string
 	Tree    string
 	Runtime string
-	Node    string
-	gitEnv  []string
 }
 
 var errNotInitialised = errors.New("no .satelle directory here or above; run `satelle init`")
 
-func findRepo(dir string) (repo, error) { return resolveRepo(dir, os.Environ(), true) }
-
-func findOwnRepo(dir string) (repo, error) { return resolveRepo(dir, os.Environ(), false) }
-
-type nodeRun struct {
-	stamp   config.RuntimeStamp
-	runtime string
-}
-
-func resolveRepo(start string, environ []string, nodeAware bool) (repo, error) {
-	g, err := resolveGovernance(start, environ, nodeAware)
-	if err != nil {
-		return repo{}, err
-	}
-	return governRepo(g.substrate, g.tree, g.node, g.gitEnv)
-}
-
-type governance struct {
-	substrate, tree string
-	node            *nodeRun
-	gitEnv          []string
-}
-
-func resolveGovernance(start string, environ []string, nodeAware bool) (governance, error) {
-	gitEnv := config.GitLookupEnv(environ, splitNames(envValue(environ, config.NodeWithholdEnv)))
-	if hint := envValue(environ, config.NodeRunEnv); nodeAware && hint != "" {
-		stamp, runtime, err := config.NodeRuntime(hint)
-		if err != nil {
-			return governance{}, err
-		}
-		if under(canonical(startDir(start)), stamp.Tree) {
-			return governance{stamp.Substrate, stamp.Tree, &nodeRun{stamp: stamp, runtime: runtime}, gitEnv}, nil
-		}
-	}
-	dataDir, ok := config.FindDataDir(start)
+func findRepo(dir string) (repo, error) {
+	dataDir, ok := config.FindDataDir(dir)
 	if !ok {
-		return governance{}, errNotInitialised
+		return repo{}, errNotInitialised
 	}
-	tree := filepath.Dir(dataDir)
-	if top, err := (gitfacts.Repo{Dir: canonical(tree), Env: gitEnv}).TopLevel(); err == nil && top != "" {
-		tree = top
+	tree := canonical(filepath.Dir(dataDir))
+	if top, err := (gitfacts.Repo{Dir: tree}).TopLevel(); err == nil && top != "" {
+		tree = canonical(top)
 	}
-	return governance{dataDir, tree, nil, gitEnv}, nil
-}
-
-func governRepo(substrate, tree string, node *nodeRun, gitEnv []string) (repo, error) {
-	if node == nil {
-		return repo{DataDir: substrate, Tree: canonical(tree), Runtime: config.RuntimeDirEnv(filepath.Dir(substrate), gitEnv), gitEnv: gitEnv}, nil
-	}
-	if err := node.matches(substrate, tree); err != nil {
-		return repo{}, err
-	}
-	return repo{DataDir: substrate, Tree: canonical(tree), Runtime: node.runtime, Node: node.stamp.Node, gitEnv: gitEnv}, nil
-}
-
-func (n *nodeRun) matches(substrate, tree string) error {
-	if canonical(substrate) == filepath.Join(canonical(tree), config.DefaultDataDir) {
-		return nil
-	}
-	d, err := kernel.SubstrateDigest(substrate)
-	if err != nil {
-		return fmt.Errorf("the node's substrate %s: %w", substrate, err)
-	}
-	if d != n.stamp.Digest {
-		return fmt.Errorf("the node's substrate %s does not match the digest its node run stamped", substrate)
-	}
-	return nil
-}
-
-func startDir(start string) string {
-	if strings.TrimSpace(start) != "" {
-		return start
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
-}
-
-func under(p, root string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func envValue(environ []string, name string) string {
-	v := ""
-	for _, kv := range environ {
-		if k, val, ok := strings.Cut(kv, "="); ok && k == name {
-			v = val
-		}
-	}
-	return strings.TrimSpace(v)
-}
-
-func splitNames(s string) []string {
-	var out []string
-	for _, n := range strings.Split(s, ",") {
-		if n = strings.TrimSpace(n); n != "" {
-			out = append(out, n)
-		}
-	}
-	return out
+	return repo{DataDir: dataDir, Tree: tree, Runtime: config.RuntimeDir(filepath.Dir(dataDir))}, nil
 }
 
 func openKernel() (*kernel.Kernel, repo, error) {
@@ -155,10 +60,7 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	if err := os.MkdirAll(r.Runtime, 0o755); err != nil {
 		return nil, err
 	}
-	if r.Node == "" {
-		_ = config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir), r.gitEnv)
-		_ = config.MarkMachineRuntime(r.Runtime)
-	}
+	_ = config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir))
 	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree, ReadOnly: readOnly})
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
@@ -185,10 +87,8 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	k.Sessions = seatlife.Recorder{Home: home}
 	k.SessionMeta = func(session string) (string, string) { return sessionMeta(home, session) }
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{Egress: firingBinary()}, Sprites: sprites, Out: os.Stderr}
-	if r.Node == "" {
-		watchWrites(k, r)
-		k.Progress = func(id string) { pushItem(r, id) }
-	}
+	watchWrites(k, r)
+	k.Progress = func(id string) { pushItem(r, id) }
 	return k, nil
 }
 

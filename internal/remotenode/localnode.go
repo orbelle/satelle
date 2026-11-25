@@ -192,11 +192,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	defer k.Close()
-	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	defer nr.Restore()
 
 	if err := importIn(k.Ledger, in, run.Run.ItemID); err != nil {
 		return LocalOutcome{}, err
@@ -240,9 +235,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	out.Notes = redact(out.Notes, *values)
 	steps.concluded(res.Verdict, res.Item.Status)
 	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
-	if err := nr.Verify(); err != nil {
-		return LocalOutcome{}, err
-	}
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
 }
 
