@@ -45,7 +45,7 @@ func TestRunLocalRefusesAnotherLayout(t *testing.T) {
 		!strings.Contains(err.Error(), fmt.Sprintf("node layout %d", NodeLayout)) {
 		t.Fatalf("RunLocal on another layout = %v", err)
 	}
-	for _, d := range []string{"work", "runtime", "out"} {
+	for _, d := range []string{"substrate", "work", "runtime", "out"} {
 		if _, err := os.Stat(filepath.Join(nodeDir, d)); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("a refused run made %s: %v", d, err)
 		}

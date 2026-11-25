@@ -35,16 +35,20 @@ import (
 
 const LocalNodeDir = "/node"
 
+// nodeSubstrateDir is the directory under a node, apart from its work tree,
+// that its substrate is unpacked into, read-only.
+const nodeSubstrateDir = "substrate"
+
 const RemotesDir = kernel.RemotesDir
 
 const (
 	localDefinition = "definition.bundle"
-	localSubstrate  = "substrate.bundle"
+	localSubstrate  = "substrate-ro.bundle"
 	localRunFile    = "run.json"
 	localOutcome    = "outcome.json"
 )
 
-const NodeLayout = 1
+const NodeLayout = 2
 
 const (
 	RunRunning   = "running"
@@ -137,11 +141,11 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 }
 
 type LocalRun struct {
-	NodeID   string        `json:"node_id"`
-	Run      RunDescriptor `json:"run"`
-	Steps    int           `json:"steps,omitempty"`
-	Checkout string        `json:"checkout,omitempty"`
-	Layout   int           `json:"layout,omitempty"`
+	NodeID     string        `json:"node_id"`
+	Run        RunDescriptor `json:"run"`
+	Steps      int           `json:"steps,omitempty"`
+	WorkCommit string        `json:"work_commit,omitempty"`
+	Layout     int           `json:"layout,omitempty"`
 }
 
 type LocalOutcome struct {
@@ -1255,14 +1259,13 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 		if shallow, err = stageHead(o.Tree, in, "HEAD"); err != nil {
 			return "", false, err
 		}
-		lr.Checkout = commit
-	} else {
-		sub, err := SubstrateBundle(o.Tree, o.DataDir)
-		if err != nil {
-			return "", false, err
-		}
-		files[localSubstrate] = sub
+		lr.WorkCommit = commit
 	}
+	sub, err := SubstrateBundle(o.Tree, o.DataDir)
+	if err != nil {
+		return "", false, err
+	}
+	files[localSubstrate] = sub
 	runJSON, err := json.Marshal(lr)
 	if err != nil {
 		return "", false, err
@@ -1280,7 +1283,7 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 			return "", false, err
 		}
 	}
-	return lr.Checkout, shallow, nil
+	return lr.WorkCommit, shallow, nil
 }
 
 func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (imported, error) {
