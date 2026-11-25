@@ -205,6 +205,70 @@ func TestPullRefusesMirrorTailWhenStoreChangesPrefix(t *testing.T) {
 	}
 }
 
+func TestAdoptRefusesWhenStoreChangesPrefix(t *testing.T) {
+	for _, served := range []int{3, 1} {
+		t.Run(strconv.Itoa(served), func(t *testing.T) {
+			_, b, o := mirrorTailFork(t)
+			o2 := fsObjects(t)
+			c := newStore(t)
+			add(t, c, "it", "c", served)
+			push(t, c, o2)
+			var out bytes.Buffer
+			r := repl(b, o, &out)
+			r.Store = equivocatingStore{Store: &ObjectStore{Objects: o, Name: "test"}, events: &ObjectStore{Objects: o2, Name: "other"}}
+			r.Mirrors = &fakeMirrors{s: b, mirrorOnly: false}
+			localBefore, storeBefore := chainFile(t, b, "it"), objectsOf(t, o)
+			done, res, err := r.Adopt(ctx, []string{"it"})
+			if err != nil || len(done) != 0 || len(res.Adopted) != 0 || !res.Failed() || len(res.Refused) != 1 {
+				t.Fatalf("adopt %+v %+v %v\n%s", done, res, err, out.String())
+			}
+			if served == 3 {
+				line := res.Refused[0]
+				if !strings.HasPrefix(line, "it event 1 from the store") || !strings.Contains(line, "the fork at 2") || !strings.Contains(line, "nothing replaced") {
+					t.Fatalf("refusal %q", line)
+				}
+			}
+			if strings.Contains(out.String(), "adopted:") {
+				t.Fatalf("output reports an adoption:\n%s", out.String())
+			}
+			if !bytes.Equal(localBefore, chainFile(t, b, "it")) {
+				t.Fatal("adopt changed the local chain")
+			}
+			if got := forksDir(t, b); len(got) != 0 {
+				t.Fatalf("adopt set events aside in %v", got)
+			}
+			if !maps.EqualFunc(storeBefore, objectsOf(t, o), bytes.Equal) {
+				t.Fatal("adopt changed the store")
+			}
+		})
+	}
+}
+
+func TestAdoptTakesStoreChainPastSharedPrefix(t *testing.T) {
+	a, b, o := mirrorTailFork(t)
+	var out bytes.Buffer
+	r := repl(b, o, &out)
+	r.Mirrors = &fakeMirrors{s: b, mirrorOnly: false}
+	localBefore := chain(t, b, "it")
+	done, res, err := r.Adopt(ctx, []string{"it"})
+	if err != nil || res.Failed() || len(done) != 1 || !slices.Equal(res.Adopted, []string{"it"}) {
+		t.Fatalf("adopt %+v %+v %v\n%s", done, res, err, out.String())
+	}
+	s := done[0]
+	if s.Fork != 2 || s.Taken != 3 {
+		t.Fatalf("set aside %+v", s)
+	}
+	if !bytes.Equal(chainFile(t, a, "it"), chainFile(t, b, "it")) {
+		t.Fatal("B's chain is not the store's")
+	}
+	if got, kept := readSetAside(t, s.Path), localBefore[2:]; !slices.Equal(hashesOf(got), hashesOf(kept)) {
+		t.Fatalf("%s holds %v, want %v", s.Path, idsOf(got), idsOf(kept))
+	}
+	if want := "adopted: it: this runtime's events 2..2 set aside in "; !strings.Contains(out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, out.String())
+	}
+}
+
 func TestSyncPushesRemirroredAdoption(t *testing.T) {
 	cases := []struct {
 		name string
