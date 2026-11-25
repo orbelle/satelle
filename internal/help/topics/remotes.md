@@ -45,6 +45,22 @@ container-start `[setup]` (a gate placed on a remote, or a node that joins with
 `--no-setup`): it runs before any substrate is on the machine and has
 `SATELLE_SUBSTRATE_DIR` unset.
 
+Once its kernel is open, a node run stamps its runtime as a node runtime
+(`runtime/runtime.json`: the substrate and work tree it was given, the
+substrate's digest and the node process) and hands everything it starts, its
+checks, triggers, after-skills, performers and judges, `SATELLE_NODE_RUN`
+(the node's run directory) and `SATELLE_NODE_WITHHOLD` (the names of its
+declared secrets, never their values). A satelle command started inside the
+node's work tree then opens the node's own substrate and ledger rather than
+walking up from the tree, with the named secrets withheld from every git
+lookup that resolution runs. The variable is only where to look: the command
+is refused unless that runtime is a node runtime, not the machine's, holds
+no link or special file, was stamped by a process the command descends from
+and, for a substrate other than the tree's own `.satelle`, still matches the
+stamped digest. The hooks and the session-start doctor never follow it: they
+always use the work tree's own substrate. Gate jobs a node serves for another
+kernel do not get either variable.
+
 `remote fire <remote> <item> --detach` does not hold the session: it returns
 once the docker-local or command node has started its run, printing the node,
 and records the run running while the node goes on working. Nothing brings

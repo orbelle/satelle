@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -93,5 +95,26 @@ func TestLedgerSeatsEqualTheCachesSeats(t *testing.T) {
 	}
 	if got := ledgerSeats(in, "s-none"); len(got) != 0 {
 		t.Errorf("a session with no seat: %+v", got)
+	}
+}
+
+func TestSessionDoctorIgnoresNodeHint(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	sub := namedSubstrate(t)
+	marker := filepath.Join(t.TempDir(), "node-check-ran")
+	writeFile(t, filepath.Join(sub, "skills", "node-probe.md"), "---\nname: node-probe\ntype: check\n---\n\n```sh\ntouch '"+marker+"'\nexit 0\n```\n")
+	cur, err := os.ReadFile(filepath.Join(sub, "doctor.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sub, "doctor.toml"), string(cur)+"\n[[check]]\nskill = \"node-probe\"\nfix = \"x\"\n")
+	stampNodeRun(t, sub, dir)
+	if in := loadDoctorInput(dir); in.r.DataDir != sub {
+		t.Fatalf("the hint is not live: satelle doctor resolved %s, want the node's %s", in.r.DataDir, sub)
+	}
+	sessionDoctor(dir, "claude")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the session-start doctor ran a check of the hinted node substrate")
 	}
 }

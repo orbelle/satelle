@@ -89,8 +89,11 @@ type doctorCheck struct {
 	run  func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string)
 }
 
-func loadDoctorInput(dir string) *doctorInput {
-	r, err := findRepo(dir)
+func loadDoctorInput(dir string) *doctorInput { return doctorInputFor(findRepo(dir)) }
+
+// doctorInputFor is the doctor's input for the repo r resolved to, or for no
+// repo when err is set.
+func doctorInputFor(r repo, err error) *doctorInput {
 	if err != nil {
 		return &doctorInput{}
 	}

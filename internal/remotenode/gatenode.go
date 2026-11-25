@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 )
 
@@ -115,7 +116,7 @@ func gateExecEnv(env []string) []string {
 	var out []string
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
-		if k == provider.EnvNodeID || k == provider.EnvNodeToken || k == provider.EnvServer {
+		if k == provider.EnvNodeID || k == provider.EnvNodeToken || k == provider.EnvServer || k == config.NodeRunEnv || k == config.NodeWithholdEnv {
 			continue
 		}
 		out = append(out, kv)

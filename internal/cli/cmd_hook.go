@@ -103,7 +103,7 @@ func hookDir(in hook.Input) string {
 
 func hookDefers(harness string, in hook.Input) bool {
 	return hook.Defers(harness, in, func() (string, bool) {
-		r, err := findRepo(hookDir(in))
+		r, err := findOwnRepo(hookDir(in))
 		return r.Tree, err == nil
 	})
 }
@@ -117,7 +117,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
 	}
-	r, err := findRepo(hookDir(in))
+	r, err := findOwnRepo(hookDir(in))
 	if err != nil {
 		return nil
 	}
@@ -323,7 +323,7 @@ func recordSession(harness string, in hook.Input, record func(home, session stri
 	if session == "" {
 		return
 	}
-	if _, err := findRepo(hookDir(in)); err != nil {
+	if _, err := findOwnRepo(hookDir(in)); err != nil {
 		return
 	}
 	anc := procgroup.Ancestors(os.Getpid())
@@ -335,7 +335,7 @@ func recordSession(harness string, in hook.Input, record func(home, session stri
 }
 
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
-	r, err := findRepo(hookDir(in))
+	r, err := findOwnRepo(hookDir(in))
 	if err != nil {
 		return "", "", false
 	}
@@ -444,7 +444,7 @@ func sessionGuidance(r repo) string {
 func sessionDoctor(dir, harness string) (block, notice string) {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorHookBudget)
 	defer cancel()
-	in := loadDoctorInput(dir)
+	in := doctorInputFor(findOwnRepo(dir))
 	in.harness = harness
 	in.sessionStart = true
 	rep := runDoctor(ctx, in)

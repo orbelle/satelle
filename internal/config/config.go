@@ -15,7 +15,14 @@ const (
 	SessionEnv           = "SATELLE_SESSION"
 	ProjectDirEnv        = "SATELLE_PROJECT_DIR"
 	SubstrateDirEnv      = "SATELLE_SUBSTRATE_DIR"
-	WorkerEnv            = "SATELLE_WORKER"
+	// NodeRunEnv names the node run directory (holding work/, runtime/ and
+	// out/) a node run hands to everything it starts. It is only where to
+	// look: authority comes from the runtime stamp it leads to (NodeRuntime).
+	NodeRunEnv = "SATELLE_NODE_RUN"
+	// NodeWithholdEnv names, comma-separated, the secrets a node run
+	// declared: names only, never values.
+	NodeWithholdEnv = "SATELLE_NODE_WITHHOLD"
+	WorkerEnv       = "SATELLE_WORKER"
 )
 
 func SessionFromEnv() string { return strings.TrimSpace(os.Getenv(SessionEnv)) }

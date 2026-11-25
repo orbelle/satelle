@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 )
 
@@ -130,5 +132,12 @@ func TestGateExec(t *testing.T) {
 	}
 	if _, err := call(GateExecJob, gateExecRequest{Argv: []string{"true"}}); err == nil {
 		t.Fatal("an exec with no time left ran")
+	}
+}
+
+func TestGateExecEnvDropsTheNodeHint(t *testing.T) {
+	got := gateExecEnv([]string{"PATH=/bin", config.NodeRunEnv + "=/node", config.NodeWithholdEnv + "=S", provider.EnvNodeToken + "=t", "KEEP=1"})
+	if want := []string{"PATH=/bin", "KEEP=1"}; !slices.Equal(got, want) {
+		t.Fatalf("gateExecEnv = %q, want %q", got, want)
 	}
 }

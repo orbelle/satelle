@@ -214,6 +214,12 @@ func IsRuntimeKeyDir(name string) bool {
 const RepoPathMarkerName = "repo.path"
 
 func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
+	return WriteRepoPathMarkerEnv(runtimeDir, repoRoot, nil)
+}
+
+// WriteRepoPathMarkerEnv is WriteRepoPathMarker whose git lookup runs with
+// env (nil keeps the process environment).
+func WriteRepoPathMarkerEnv(runtimeDir, repoRoot string, env []string) error {
 	runtimeDir = strings.TrimSpace(runtimeDir)
 	repoRoot = strings.TrimSpace(repoRoot)
 	if runtimeDir == "" || repoRoot == "" {
@@ -226,7 +232,7 @@ func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
 	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
 		return err
 	}
-	abs, err := filepath.Abs(CanonicalRepoRoot(repoRoot))
+	abs, err := filepath.Abs(canonicalRepoRootEnv(repoRoot, env))
 	if err != nil {
 		abs = repoRoot
 	}
@@ -245,11 +251,21 @@ func ReadRepoPathMarker(runtimeDir string) string {
 }
 
 func CanonicalRepoRoot(repoRoot string) string {
+	return canonicalRepoRootEnv(repoRoot, nil)
+}
+
+func canonicalRepoRootEnv(repoRoot string, env []string) string {
 	root := strings.TrimSpace(repoRoot)
 	if root == "" {
 		root = "."
 	}
-	common, _, ok := gitCommonIdentity(root)
+	var common string
+	var ok bool
+	if env == nil {
+		common, _, ok = gitCommonIdentity(root)
+	} else {
+		common, _, ok = gitCommonIdentityEnv(root, env)
+	}
 	if !ok {
 		return root
 	}

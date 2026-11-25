@@ -231,6 +231,15 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 		return Outcome{}, err
 	}
 	defer k.Close()
+	var withhold []string
+	for _, e := range def.SecretEntries() {
+		withhold = append(withhold, e.Key)
+	}
+	nr, err := MarkNodeRun(o.Dir, o.NodeID, root, tree, withhold)
+	if err != nil {
+		return Outcome{}, err
+	}
+	defer nr.Restore()
 	actor := "node:" + o.NodeID
 	report := Report{Version: o.Version, DefinitionVersion: version, Allow: def.Allow(), Repos: fetched,
 		Bindings: k.Agents.Names(), Now: time.Now().UnixNano()}
@@ -246,6 +255,9 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 	}
 	if cause := context.Cause(ctx); err == nil && cause != nil && ctx.Err() != nil && parent.Err() == nil {
 		err = cause
+	}
+	if err == nil {
+		err = nr.Verify()
 	}
 	return out, err
 }
