@@ -140,6 +140,13 @@ func (x *spriteBox) file(name string) string {
 
 func (x *spriteBox) release() (run, cand string, fire, read result) {
 	x.t.Helper()
+	run, cand, fire = x.fireNode()
+	read = x.block("\n### Read the node's result\n")
+	return run, cand, fire, read
+}
+
+func (x *spriteBox) fireNode() (run, cand string, fire result) {
+	x.t.Helper()
 	run, _ = x.fire()
 	x.mustBlock("### Build the candidate")
 	x.mustBlock("### Send back")
@@ -148,8 +155,7 @@ func (x *spriteBox) release() (run, cand string, fire, read result) {
 	cand = strings.TrimSpace(x.exec("cat", "", filepath.Join(x.rd, "drift-checked")).out)
 	x.git("checkout", "-q", "--detach", cand)
 	fire = x.block("\n### Fire the node's part\n")
-	read = x.block("\n### Read the node's result\n")
-	return run, cand, fire, read
+	return run, cand, fire
 }
 
 func (x *spriteBox) status() map[string]any {
@@ -458,4 +464,77 @@ func TestReleaseSpriteStopBringsBackOnlyASafeBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReleaseSpriteVerifyRefusesADraft(t *testing.T) {
+	x := newSpriteBox(t)
+	x.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 8 }\n"})
+	run, _, fire := x.fireNode()
+	if fire.code != 0 {
+		t.Fatalf("fire: exit %d\n%s%s", fire.code, fire.out, fire.err)
+	}
+	if x.draft("v1.0.1") || x.draft("serve-v1.0.1") {
+		t.Fatal("the node concluded with a release still a draft")
+	}
+	writeFile(t, filepath.Join(x.fake, "drafts", "serve-v1.0.1"), "", 0o644)
+	read := x.block("\n### Read the node's result\n")
+	if read.code == 0 || !strings.Contains(read.out, "verdict accept") || !strings.Contains(read.out, "verify: release serve-v1.0.1 is still a draft\n") || strings.Contains(read.out, "verify: ok") {
+		t.Fatalf("read on an accepted result whose release is a draft: exit %d\n%s%s", read.code, read.out, read.err)
+	}
+	if strings.Contains(read.out, "verify: release v1.0.1 ") {
+		t.Fatalf("verify refused the published v1.0.1:\n%s", read.out)
+	}
+	if r := x.run("execution", "attachment", run, "release-node"); r.code == 0 {
+		t.Fatalf("release-node was attached for a run whose release is a draft:\n%s", r.out)
+	}
+}
+
+func TestReleaseSpriteStopAtReleaseIsToPublishAndAReFirePublishes(t *testing.T) {
+	x := newSpriteBox(t)
+	id, _ := x.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 9 }\n"})
+	oldMain := x.rev("origin/main")
+	writeFile(t, filepath.Join(x.fake, "fail-edit"), "", 0o644)
+	run, cand, fire, read := x.release()
+	if fire.code == 0 || !strings.Contains(fire.out, "failed step release: ") {
+		t.Fatalf("fire: exit %d, want the stop at release\n%s%s", fire.code, fire.out, fire.err)
+	}
+	x.git("fetch", "-q", "origin", "--tags")
+	main := x.rev("origin/main")
+	if main == oldMain || x.rev(main+"^") != cand || x.rev("v1.0.1^{commit}") != main {
+		t.Fatalf("origin/main %s is not the bump on the candidate %s", main, cand)
+	}
+	for _, want := range []string{"verdict reject\n", "to-publish v1.0.1: main holds " + main + " ", "to-publish serve-v1.0.1: main holds " + main + " ", "verify: ok\n"} {
+		if !strings.Contains(read.out, want) {
+			t.Fatalf("read lacks %q:\n%s%s", want, read.out, read.err)
+		}
+	}
+	if strings.Contains(read.out, "not the run's base") {
+		t.Fatalf("verify required main at the run's base on the to-publish stop:\n%s", read.out)
+	}
+	if !x.draft("v1.0.1") || !x.draft("serve-v1.0.1") {
+		t.Fatal("a release was published by the stopped run")
+	}
+
+	x.must("execution", "set", run, "--status", "cancelled")
+	x.merged(id)
+	if err := os.Remove(filepath.Join(x.fake, "fail-edit")); err != nil {
+		t.Fatal(err)
+	}
+	run2, cand2, fire, read := x.release()
+	if fire.code != 0 || read.code != 0 {
+		t.Fatalf("re-fire: exit %d\n%s%s\nread: exit %d\n%s%s", fire.code, fire.out, fire.err, read.code, read.out, read.err)
+	}
+	if cand2 != main {
+		t.Fatalf("the re-fire's candidate %s, want origin/main %s", cand2, main)
+	}
+	rn := x.must("execution", "attachment", run2, "release-node")
+	for _, want := range []string{"version 1.0.1\n", "published v1.0.1\n", "published serve-v1.0.1\n", "main-after " + main + "\n", "verify: ok"} {
+		if !strings.Contains(rn, want) {
+			t.Fatalf("the re-fire's release-node lacks %q:\n%s", want, rn)
+		}
+	}
+	if x.draft("v1.0.1") || x.draft("serve-v1.0.1") || x.latest() != "v1.0.1" {
+		t.Fatalf("the re-fire left a draft, or v1.0.1 is not latest (%q)", x.latest())
+	}
+	x.mainStays(t, main)
 }

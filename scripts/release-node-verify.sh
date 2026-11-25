@@ -10,7 +10,7 @@ usage() {
 
 verify() {
   [ $# -eq 3 ] || usage
-  local rd=$1 node=$2 session=$3 back res bad=0 run cand base exe ver
+  local rd=$1 node=$2 session=$3 back res bad=0 run cand base exe ver sver
   back="$rd/node-out/$node/back"
   res="$back/result"
   [ -f "$res" ] && [ ! -L "$res" ] || { echo "verify: no result at $res"; return 1; }
@@ -20,20 +20,28 @@ verify() {
   exe=$(basename "$rd" | sed -n 's/^satelle-release-//p')
   cand=$(cat "$rd/drift-checked" 2>/dev/null)
   base=$(sed -n 's/^base: //p' "$rd/node-in/run")
-  local mainnow
+  local mainnow t d
   mainnow=$(git ls-remote origin refs/heads/main | cut -f1)
   if grep -q '^failed step ' "$res"; then
     echo "verdict reject"
     grep '^failed step ' "$res"
-    [ "$mainnow" = "$base" ] || no "origin/main is $mainnow, not the run's base $base"
+    if grep -q '^failed step release: ' "$res" && grep -q '^to-publish ' "$res" && [ -n "$(v main-after)" ]; then
+      [ "$mainnow" = "$(v main-after)" ] || no "origin/main is $mainnow, not main-after $(v main-after)"
+      for t in $(awk '$1 == "to-publish" { print $2 }' "$res"); do
+        echo "to-publish $t: main holds $(v main-after) and $t is still a draft; fire again to publish it"
+      done
+    else
+      [ "$mainnow" = "$base" ] || no "origin/main is $mainnow, not the run's base $base"
+    fi
   else
     echo "verdict accept"
     [ "$run" = "$exe" ] || no "run is $run, not $exe"
     [ "$(v tested)" = "$cand" ] || no "tested is $(v tested), not the candidate $cand"
     [ "$mainnow" = "$(v main-after)" ] || no "origin/main is $mainnow, not main-after $(v main-after)"
     git fetch -q origin main 2>/dev/null
+    ver=$(v version)
+    sver=$(v sver)
     if git merge-base --is-ancestor "$cand" "$mainnow" 2>/dev/null; then
-      ver=$(v version)
       if [ "$(v binary)" = unchanged ]; then
         [ "$mainnow" = "$cand" ] || no "a binary-unchanged run left main at $mainnow, not the candidate"
       elif ! printf '%s\n' "$ver" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+'; then
@@ -47,6 +55,13 @@ verify() {
       no "the candidate $cand is not under origin/main $mainnow"
     fi
     [ -z "$(git ls-remote origin "refs/heads/release/$exe")" ] || no "release/$exe is still on origin"
+    for t in ${ver:+"v$ver"} ${sver:+"serve-v$sver"}; do
+      if ! d=$(gh release view "$t" --json isDraft --jq .isDraft 2>/dev/null); then
+        [ "$(v binary)" = unchanged ] || no "release $t cannot be read"
+      elif [ "$d" != false ]; then
+        no "release $t is still a draft"
+      fi
+    done
     [ "$(v secret-scan)" = clean ] || no "the secret scan is not clean"
   fi
   case $(v privilege) in

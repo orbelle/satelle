@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # tag push + gh release create
+  contents: write   # tag push + gh release create --draft
 
 jobs:
   derive-tag:
@@ -210,7 +210,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release CLI $TAG"
           git push origin "$TAG"
+          # --draft: releases/latest serves nothing of this version until the
+          # release run publishes the draft after main holds the bump.
           gh release create "$TAG" \
+            --draft \
             --title "$TAG" \
             --notes "satelle CLI v${VER}
 
@@ -262,8 +265,10 @@ jobs:
             git tag -a "$TAG" -m "Release serve $TAG"
             git push origin "$TAG"
           fi
-          # --latest=false keeps releases/latest on the CLI (install/update contract).
+          # --latest=false keeps releases/latest on the CLI (install/update contract);
+          # --draft holds it back until the release run publishes it.
           gh release create "$TAG" \
+            --draft \
             --title "$TAG" \
             --latest=false \
             --notes "satelled v${VER} (local-tier daemon — push-fed mirror UI)" \

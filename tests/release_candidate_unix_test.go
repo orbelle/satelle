@@ -48,8 +48,11 @@ case "$1 $2" in
     if [ "$concl" = success ]; then
       ver=$(git -C "$ORIGIN" show "$sha:.version" | awk '$1 == "satelle.version:" { print $2 }')
       sver=$(git -C "$ORIGIN" show "$sha:.version" | awk '$1 == "satelled.version:" { print $2 }')
+      mkdir -p "$FAKE_DIR/drafts"
       for t in "v$ver" "serve-v$sver"; do
-        git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$t" >/dev/null || git -C "$ORIGIN" tag "$t" "$sha" || exit 1
+        git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$t" >/dev/null && continue
+        git -C "$ORIGIN" tag "$t" "$sha" || exit 1
+        : >"$FAKE_DIR/drafts/$t"
       done
     fi
     printf '[{"databaseId":7,"headSha":"%s","headBranch":"%s","status":"completed","conclusion":"%s","url":"https://ci.example/7"}]\n' "$sha" "$ref" "$concl" >"$FAKE_DIR/runs.json" ;;
@@ -61,10 +64,19 @@ case "$1 $2" in
   "run view") jq '.[0]' "$FAKE_DIR/runs.json" ;;
   "release view")
     git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$3" >/dev/null || { echo "release not found" >&2; exit 1; }
-    case " $* " in
-      *" --jq "*) echo 1 ;;
-      *) printf '{"tagName":"%s","assets":[{"name":"%s.tar.gz"}]}\n' "$3" "$3" ;;
+    d=false
+    [ -f "$FAKE_DIR/drafts/$3" ] && d=true
+    case "$(opt --json "$@") $(opt --jq "$@")" in
+      "isDraft "*) echo "$d" ;;
+      *" ") printf '{"tagName":"%s","isDraft":%s,"assets":[{"name":"%s.tar.gz"}]}\n' "$3" "$d" "$3" ;;
+      *) echo 1 ;;
     esac ;;
+  "release edit")
+    git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$3" >/dev/null || { echo "release not found" >&2; exit 1; }
+    [ -f "$FAKE_DIR/fail-edit" ] && { echo "fake gh: release edit failed" >&2; exit 1; }
+    case " $* " in *" --draft=false "*) rm -f "$FAKE_DIR/drafts/$3" ;; esac
+    case " $* " in *" --latest "*) [ -f "$FAKE_DIR/drafts/$3" ] || echo "$3" >"$FAKE_DIR/latest" ;; esac
+    echo "edited $3" >>"$FAKE_DIR/gh.log" ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
 `
@@ -270,7 +282,7 @@ func (c *candidateSandbox) attachDecision(run string) {
 
 func (c *candidateSandbox) land(run string) result {
 	c.t.Helper()
-	r := c.nodeSteps("bump", "guard", "publish", "push")
+	r := c.nodeSteps("bump", "guard", "publish", "push", "release")
 	if r.code == 0 {
 		c.attachDecision(run)
 	}
