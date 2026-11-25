@@ -10,13 +10,15 @@ You are the performer of `in_progress` in the substrate workflow
 (`.satelle/workflows/substrate.toml`), bound to the interactive session
 (`executor`, `command = "session"`): nothing is dispatched. A substrate item
 changes this repo's process under `.satelle/` (workflows, skills, principles,
-tasks, configuration) and nothing else. It has no plan state, no integration
+tasks, configuration), and the tests under `tests/` its change makes assert
+the wrong behaviour ([[satelle-split-authored-process]]). It has no plan state, no integration
 and no release: the gates on `in_progress -> done` are the validation, and the
 landing is a fast-forward of main to the item's branch.
 
-A change that needs any file outside `.satelle/` (Go, a test under `tests/`, a
-script, docs) is not substrate: it belongs on a chore or delivery item. Say so
-and cancel or re-raise this one; do not carry it here.
+A change that needs any other file (binary source, a script, docs) is not
+substrate: it belongs on a chore or delivery item. Say so and cancel or
+re-raise this one; do not carry it here. A test under `tests/` that pins what
+this change inverts changes on this branch, with the reason in its commit.
 
 ## 1. Pull the item
 
@@ -41,7 +43,7 @@ git worktree add -b <id> ../<id> origin/main
 satelle -C ../<id> story seat <id> --session <session>
 ```
 
-## 3. Edit `.satelle/` only
+## 3. Edit `.satelle/`, and the tests it needs
 
 - Make the smallest edit the story asks for.
 - Write a reference, not a restated value ([[satelle-reference-not-restate]]):
@@ -104,7 +106,8 @@ run in the main checkout) and remove the item's worktree
 
 ## Do not
 
-- Edit a path outside `.satelle/`; the paths gate refuses it.
+- Edit a path outside `.satelle/` and the tests under `tests/` this change
+  needs; the paths gate refuses it.
 - Bump a version, edit `docs/releases/`, tag, publish, or install: the binary is
   unchanged, so nothing is released.
 - Merge to main before the item is `done`, or merge anything but a fast-forward.

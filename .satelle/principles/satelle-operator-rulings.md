@@ -331,3 +331,18 @@ are reviewed*).
   or install before main holds the commit is out of order. The steps are the
   release skill's (`.satelle/skills/release/SKILL.md`;
   sto_7d759084, sto_29bb2101).
+- **Security review judges the kernel's threat model, nothing more.**
+  "Security is very basic, and again the kernel being attacked. Nothing more.
+  Still just a kernel." (operator, 2026-11-25), after two security panels
+  rejected plans for attacks by a process of the agent's own OS user rewriting
+  satelle's runtime. The model is the one `satelle help edit-gate --session
+  <session>` states. The security review rubric
+  (`.satelle/skills/satelle-security-review/SKILL.md`) judges against it, and
+  a finding outside it is noted, not a reason to reject (sto_c675d950).
+- **A shipped skill and this repo's copy change in one story.** A delivery
+  story may change both copies of a skill the binary ships: the template under
+  `internal/kernel/template/` and this repo's copy of the same file under
+  `.satelle/`, and no other `.satelle/` path (operator, 2026-11-25), after the
+  fallback judge of sto_eef1d36a could not ship with its independence rule
+  because a test requires the two copies to be equal
+  ([[satelle-split-authored-process]]; sto_aabc85ad).
