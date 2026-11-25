@@ -38,6 +38,7 @@ type Kernel struct {
 	Overrides     []agent.Override
 	Queues        map[string]*workflow.Queue
 	queueFiles    map[string]*workflow.Queue
+	linkedTree    bool
 	Harness       map[string]HarnessSettings
 	Git           Git
 	Dispatcher    agent.Dispatcher
@@ -115,6 +116,8 @@ func Open(o Options) (*Kernel, error) {
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {
 		k.Git = repo
+		linked, lerr := repo.IsLinked()
+		k.linkedTree = linked || lerr != nil
 	}
 	led.Now = func() time.Time { return k.Now() }
 	if o.ReadOnly != "" {

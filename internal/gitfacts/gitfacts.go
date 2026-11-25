@@ -84,13 +84,23 @@ func (r Repo) CommonDir() (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-func (r Repo) IsLinked() bool {
+func (r Repo) IsLinked() (bool, error) {
 	out, err := r.git("rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
 	if err != nil {
-		return false
+		return false, err
 	}
-	f := strings.Fields(out)
-	return len(f) == 2 && f[0] != f[1]
+	return linkedFrom(out)
+}
+
+func linkedFrom(out string) (bool, error) {
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+	}
+	if len(lines) != 2 || lines[0] == "" || lines[1] == "" {
+		return false, fmt.Errorf("git rev-parse --git-dir --git-common-dir: unreadable output %q", out)
+	}
+	return filepath.Clean(lines[0]) != filepath.Clean(lines[1]), nil
 }
 
 func (r Repo) Resolve(ref string) (string, error) {

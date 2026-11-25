@@ -77,7 +77,7 @@ func (k *Kernel) materializeQueues() error {
 
 func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 	def := k.queueFiles[id]
-	if def == nil {
+	if def == nil || k.linkedTree {
 		return false, nil
 	}
 	events, err := k.Ledger.Read(id)
@@ -165,12 +165,15 @@ func (k *Kernel) appendFileEvent(id, kind, prevHash string, at time.Time, p queu
 
 func (k *Kernel) notHeldYet(id string) error {
 	def := k.queueFiles[id]
-	if def == nil || def.ID == "" {
+	if def == nil || (def.ID == "" && !k.linkedTree) {
 		return nil
 	}
 	events, err := k.Ledger.Read(id)
 	if err != nil || len(events) > 0 {
 		return err
+	}
+	if def.ID == "" {
+		return fmt.Errorf("queue %s has no chain yet: %s is mirrored onto the ledger only by a command in the repository's main checkout, not in a linked worktree", def.Name, k.RelPath(def.File))
 	}
 	return fmt.Errorf("queue %s adopts %s, which this runtime does not hold yet; it arrives with the next ledger pull (or remove id from %s to start a new queue)", def.Name, id, k.RelPath(def.File))
 }
