@@ -44,16 +44,30 @@ verify() {
     else
       no "the candidate $cand is not under origin/main $mainnow"
     fi
-    [ -z "$(git ls-remote origin "refs/heads/release/$exe")" ] || no "release/$exe is still on origin"
+    local rb
+    if ! rb=$(git ls-remote origin "refs/heads/release/$exe"); then
+      no "git ls-remote origin failed, so release/$exe cannot be checked"
+    elif [ -n "$rb" ]; then
+      no "release/$exe is still on origin"
+    fi
     [ "$(v secret-scan)" = clean ] || no "the secret scan is not clean"
     tags=
     plain "$ver" && tags="v$ver"
     plain "$sver" && tags="$tags serve-v$sver"
   }
   draft() {
-    if [ "$(v binary)" = unchanged ] && [ -z "$(git ls-remote --tags origin "refs/tags/$1")" ]; then
-      echo none
-    elif ! d=$(gh release view "$1" --json isDraft --jq .isDraft 2>/dev/null); then
+    local tr
+    if [ "$(v binary)" = unchanged ]; then
+      if ! tr=$(git ls-remote --tags origin "refs/tags/$1"); then
+        echo unreadable
+        return
+      fi
+      if [ -z "$tr" ]; then
+        echo none
+        return
+      fi
+    fi
+    if ! d=$(gh release view "$1" --json isDraft --jq .isDraft 2>/dev/null); then
       echo unreadable
     else
       echo "$d"
