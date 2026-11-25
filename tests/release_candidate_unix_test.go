@@ -61,7 +61,14 @@ case "$1 $2" in
     if [ -n "$b" ]; then jq --arg b "$b" '[.[] | select(.headBranch == $b)]' "$FAKE_DIR/runs.json" 2>/dev/null || echo '[]'
     else cat "$FAKE_DIR/runs.json" 2>/dev/null || echo '[]'; fi ;;
   "run watch") exit 0 ;;
-  "run view") jq '.[0]' "$FAKE_DIR/runs.json" ;;
+  "run view")
+    k=$(cat "$FAKE_DIR/pending-views" 2>/dev/null || echo 0)
+    if [ "$k" -gt 0 ]; then
+      echo $((k - 1)) >"$FAKE_DIR/pending-views"
+      jq '.[0] | .status = "in_progress" | .conclusion = ""' "$FAKE_DIR/runs.json"
+    else
+      jq '.[0]' "$FAKE_DIR/runs.json"
+    fi ;;
   "release view")
     git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$3" >/dev/null || { echo "release not found" >&2; exit 1; }
     d=false

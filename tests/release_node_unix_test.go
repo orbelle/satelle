@@ -403,3 +403,60 @@ func TestReleaseNodeStopsAtReleaseAndAResumePublishesTheDrafts(t *testing.T) {
 	}
 	b.mainStays(t, bump)
 }
+
+func TestReleaseNodePublishWaitsOutAWatchThatReturnsEarly(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 8 }\n"})
+	b.tested()
+	b.decide()
+	writeFile(t, filepath.Join(b.fake, "pending-views"), "2\n", 0o644)
+	b.mustNode("bump", "guard", "publish")
+	bump := strings.TrimSpace(b.git("-C", b.work(), "rev-parse", "HEAD"))
+	if got := strings.TrimSpace(b.fakeLog("pending-views")); got != "0" {
+		t.Fatalf("pending-views %q, want the publish step to have read past every in-progress view", got)
+	}
+	if n := strings.Count(b.nodeFile("out/log"), "has not concluded after the watch (exit 0); waiting"); n != 2 {
+		t.Fatalf("%d waits logged, want 2:\n%s", n, b.nodeFile("out/log"))
+	}
+	if result := b.nodeFile("out/result"); !strings.Contains(result, "release-yml https://ci.example/7 "+bump+" success\n") || strings.Contains(result, "failed step ") {
+		t.Fatalf("the publish step did not record the concluded run:\n%s", result)
+	}
+	b.mustNode("push", "release")
+	result := b.nodeFile("out/result")
+	for _, want := range []string{"published v1.0.1\n", "published serve-v1.0.1\n", "main-after " + bump + "\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the run's result lacks %q:\n%s", want, result)
+		}
+	}
+	if strings.Contains(result, "to-publish ") || strings.Contains(result, "failed step ") {
+		t.Fatalf("a clean run's result:\n%s", result)
+	}
+	if b.draft("v1.0.1") || b.draft("serve-v1.0.1") || b.latest() != "v1.0.1" {
+		t.Fatalf("a draft is left, or v1.0.1 is not latest (%q)", b.latest())
+	}
+}
+
+func TestReleaseNodePublishFailsAWatchThatReturnsBeforeTheRunConcludes(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 9 }\n"})
+	oldMain := b.rev("origin/main")
+	b.tested()
+	b.decide()
+	writeFile(t, filepath.Join(b.fake, "pending-views"), "100\n", 0o644)
+	b.env["SATELLE_RELEASE_WAIT"] = "3"
+	defer delete(b.env, "SATELLE_RELEASE_WAIT")
+	r := b.nodeSteps("bump", "guard", "publish")
+	b.failedAt(t, r, "publish", "the watch of release.yml run https://ci.example/7 returned (exit 0) before the run concluded, and it had not concluded after 3 checks")
+	if got := strings.TrimSpace(b.fakeLog("pending-views")); got != "97" {
+		t.Fatalf("pending-views %q, want exactly 3 views within the bound", got)
+	}
+	for _, f := range []string{"out/result", "back/result"} {
+		if got := b.nodeFile(f); strings.Contains(got, "release-yml ") {
+			t.Fatalf("%s records a conclusion for a run that never concluded:\n%s", f, got)
+		}
+	}
+	b.mainStays(t, oldMain)
+	if strings.Contains(b.fakeLog("gh.log"), "release edit ") {
+		t.Fatalf("a failed publish published a release:\n%s", b.fakeLog("gh.log"))
+	}
+}
