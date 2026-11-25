@@ -211,6 +211,7 @@ jobs:
           git tag -a "$TAG" -m "Release CLI $TAG"
           git push origin "$TAG"
           gh release create "$TAG" \
+            --draft \
             --title "$TAG" \
             --notes "satelle CLI v${VER}
 
@@ -264,6 +265,7 @@ jobs:
           fi
           # --latest=false keeps releases/latest on the CLI (install/update contract).
           gh release create "$TAG" \
+            --draft \
             --title "$TAG" \
             --latest=false \
             --notes "satelled v${VER} (local-tier daemon — push-fed mirror UI)" \

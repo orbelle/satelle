@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -217,4 +219,187 @@ func TestReleaseNodeKeepsTheTokenFromTheSuiteAndScripts(t *testing.T) {
 		t.Fatalf("back/result:\n%s", res)
 	}
 	_ = run
+}
+
+func (c *candidateSandbox) draft(tag string) bool {
+	c.t.Helper()
+	_, err := os.Stat(filepath.Join(c.fake, "drafts", tag))
+	return err == nil
+}
+
+func (c *candidateSandbox) latest() string {
+	c.t.Helper()
+	b, _ := os.ReadFile(filepath.Join(c.fake, "latest"))
+	return strings.TrimSpace(string(b))
+}
+
+func TestReleaseWorkflowCreatesDrafts(t *testing.T) {
+	text := repoText(t, ".github/workflows/release.yml")
+	var calls []string
+	lines := strings.Split(text, "\n")
+	for i := 0; i < len(lines); i++ {
+		if !strings.HasPrefix(strings.TrimSpace(lines[i]), "gh release create ") {
+			continue
+		}
+		call := lines[i]
+		for strings.HasSuffix(lines[i], "\\") && i+1 < len(lines) {
+			i++
+			call += "\n" + lines[i]
+		}
+		calls = append(calls, call)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("%d gh release create calls in release.yml, want 2:\n%s", len(calls), strings.Join(calls, "\n--\n"))
+	}
+	serve := 0
+	for _, call := range calls {
+		args := strings.Fields(call)
+		if !slices.Contains(args, "--draft") {
+			t.Errorf("a gh release create call without --draft:\n%s", call)
+		}
+		if slices.Contains(args, "--latest=false") {
+			serve++
+		}
+	}
+	if serve != 1 {
+		t.Errorf("%d gh release create calls keep --latest=false, want the serve release's only", serve)
+	}
+}
+
+func TestReleaseNodePublishesItsDraftsOnlyAfterMainMoves(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 5 }\n"})
+	oldMain := b.rev("origin/main")
+	_, _, _, tested := b.tested()
+	b.decide()
+	b.mustNode("bump", "guard", "publish")
+	for _, tg := range []string{"v1.0.1", "serve-v1.0.1"} {
+		if !b.draft(tg) {
+			t.Fatalf("release.yml created %s published, want a draft", tg)
+		}
+	}
+	if l := b.latest(); l == "v1.0.1" {
+		t.Fatalf("the draft v1.0.1 is the latest release before main moved")
+	}
+	b.mainStays(t, oldMain)
+	b.mustNode("push")
+	if !b.draft("v1.0.1") || b.latest() == "v1.0.1" {
+		t.Fatalf("push published v1.0.1; only the release step publishes")
+	}
+	b.mustNode("release")
+	for _, tg := range []string{"v1.0.1", "serve-v1.0.1"} {
+		if b.draft(tg) {
+			t.Fatalf("%s is still a draft after the release step", tg)
+		}
+	}
+	if l := b.latest(); l != "v1.0.1" {
+		t.Fatalf("latest release %q, want v1.0.1", l)
+	}
+	result := b.nodeFile("out/result")
+	for _, want := range []string{"published v1.0.1\n", "published serve-v1.0.1\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the node's result lacks %q:\n%s", want, result)
+		}
+	}
+	if strings.Contains(result, "to-publish ") || strings.Contains(result, "failed step ") {
+		t.Fatalf("a clean run's result:\n%s", result)
+	}
+	log := b.fakeLog("gh.log")
+	if !strings.Contains(log, "release edit v1.0.1 --draft=false --latest --repo orbelle/satelle\n") ||
+		!strings.Contains(log, "release edit serve-v1.0.1 --draft=false --latest=false --repo orbelle/satelle\n") {
+		t.Fatalf("the drafts were not published with v on latest and serve off it:\n%s", log)
+	}
+	b.git("fetch", "-q", "origin", "--tags")
+	main := b.rev("origin/main")
+	if b.rev(main+"^") == tested && b.rev("v1.0.1^{commit}") == main && b.rev("serve-v1.0.1^{commit}") == main {
+		return
+	}
+	t.Fatalf("origin/main %s is not the bump on the tested candidate %s holding v1.0.1 and serve-v1.0.1", main, tested)
+}
+
+func TestReleaseNodeFailedMainPushLeavesDraftsAndSkipsTheVersion(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 6 }\n"})
+	oldMain := b.rev("origin/main")
+	run, _, _, tested := b.tested()
+	b.decide()
+	lock := filepath.Join(b.origin, "refs", "heads", "main.lock")
+	writeFile(t, lock, "", 0o644)
+	r := b.nodeSteps("bump", "guard", "publish", "push")
+	b.failedAt(t, r, "push", "git push main failed")
+	b.mainStays(t, oldMain)
+	for _, tg := range []string{"v1.0.1", "serve-v1.0.1"} {
+		if !b.draft(tg) {
+			t.Fatalf("%s is not a draft after the push of main failed", tg)
+		}
+	}
+	if b.latest() == "v1.0.1" || strings.Contains(b.fakeLog("gh.log"), "release edit ") {
+		t.Fatalf("a run that stopped before main moved published a release:\n%s", b.fakeLog("gh.log"))
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	b.git("push", "-q", "origin", "--delete", "release/"+run)
+	b.git("push", "-q", "origin", tested+":refs/heads/release/"+run)
+
+	b.mustNode("input", "clone", "fetch", "test", "decide", "bump")
+	if got := b.git("-C", b.work(), "show", "HEAD:.version"); !strings.Contains(got, "satelle.version: 1.0.2\n") || !strings.Contains(got, "satelled.version: 1.0.2\n") {
+		t.Fatalf("the next bump did not skip 1.0.1, whose tag a stopped run left:\n%s", got)
+	}
+	b.mustNode("guard", "publish", "push", "release")
+	result := b.nodeFile("out/result")
+	for _, want := range []string{"version 1.0.2\n", "published v1.0.2\n", "published serve-v1.0.2\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the next run's result lacks %q:\n%s", want, result)
+		}
+	}
+	if !b.draft("v1.0.1") || !b.draft("serve-v1.0.1") || b.latest() != "v1.0.2" {
+		t.Fatalf("the skipped version's drafts were published, or v1.0.2 is not latest (%q)", b.latest())
+	}
+}
+
+func TestReleaseNodeStopsAtReleaseAndAResumePublishesTheDrafts(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 7 }\n"})
+	run, _, _, _ := b.tested()
+	b.decide()
+	writeFile(t, filepath.Join(b.fake, "fail-edit"), "", 0o644)
+	b.mustNode("bump", "guard", "publish", "push")
+	b.git("fetch", "-q", "origin", "--tags")
+	bump := b.rev("origin/main")
+	r := b.node("release")
+	b.failedAt(t, r, "release", "main holds "+bump+" and v1.0.1 serve-v1.0.1 is still a draft")
+	result := b.nodeFile("back/result")
+	for _, want := range []string{"to-publish v1.0.1\n", "to-publish serve-v1.0.1\n", "main-after " + bump + "\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the stopped run's result lacks %q:\n%s", want, result)
+		}
+	}
+	b.mainStays(t, bump)
+	if !b.draft("v1.0.1") || !b.draft("serve-v1.0.1") {
+		t.Fatal("the drafts were published by a failed release edit")
+	}
+	if err := os.Remove(filepath.Join(b.fake, "fail-edit")); err != nil {
+		t.Fatal(err)
+	}
+
+	in := filepath.Join(b.rd, "node-in", "run")
+	body, err := os.ReadFile(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refire := regexp.MustCompile(`(?m)^(candidate|drift-checked|base|ff): [0-9a-f]{40}$`).ReplaceAllString(string(body), "${1}: "+bump)
+	writeFile(t, in, refire, 0o600)
+	b.git("push", "-q", "origin", bump+":refs/heads/release/"+run)
+	b.mustNode("input", "clone", "fetch", "test", "decide", "bump", "guard", "publish", "push", "release")
+	result = b.nodeFile("out/result")
+	for _, want := range []string{"version 1.0.1\n", "published v1.0.1\n", "published serve-v1.0.1\n", "main-after " + bump + "\n"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the re-fire's result lacks %q:\n%s", want, result)
+		}
+	}
+	if b.draft("v1.0.1") || b.draft("serve-v1.0.1") || b.latest() != "v1.0.1" {
+		t.Fatalf("the re-fire left a draft, or v1.0.1 is not latest (%q)", b.latest())
+	}
+	b.mainStays(t, bump)
 }
