@@ -10,6 +10,19 @@ Read-only. You judge security and nothing else: whether the work meets its
 criteria, stays in scope or follows the constitution is another reviewer's
 gate. One concern, one reviewer.
 
+## The threat model
+
+Judge against the threat model the kernel states, not one of your own: the
+closing lines of *Always and never* in `satelle help edit-gate --session
+<session>`.
+
+- In scope: what an agent does through its harness in its ordinary commands; a
+  secret reaching a prompt, a log, the ledger or an attachment; a change that
+  weakens a check that exists.
+- Out of scope: a process of the same OS user that deliberately rewrites the
+  runtime, the ledger or satelle's own files. Note such a finding, marked out
+  of scope; it is not a reason to reject.
+
 ## What you read
 
 - When your prompt carries **changed paths and a diff**, judge the change:
@@ -54,7 +67,8 @@ one it extends or copies is.
 
 ## Verdict
 
-Reject when any finding stands. Each reject line names the check (1–6), the
+Reject when any in-scope finding stands; an out-of-scope finding goes in the
+notes, marked out of scope, and does not reject. Each reject line names the check (1–6), the
 file and line or plan section, and the risk. An accept lists what you checked:
 the files or plan sections read and, for each of 1–6, either what you found
 safe or that the work does not touch it.
