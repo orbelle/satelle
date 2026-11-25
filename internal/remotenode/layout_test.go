@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// rewriteRun rewrites a staged in/run.json as a generic map, so a fixture can
-// name another layout or none, as a bundle from another satelle would.
 func rewriteRun(t *testing.T, nodeDir string, edit func(map[string]any)) {
 	t.Helper()
 	p := filepath.Join(nodeDir, "in", localRunFile)

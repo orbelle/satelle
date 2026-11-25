@@ -44,12 +44,8 @@ const (
 	localOutcome    = "outcome.json"
 )
 
-// NodeLayout is the node layout this binary writes into a node's in/ and
-// implements when it runs as the node; run.json names it.
 const NodeLayout = 1
 
-// legacyNodeLayout is the layout taken for a run.json that names none, as
-// bundles built before run.json named a layout do.
 const legacyNodeLayout = 1
 
 const (

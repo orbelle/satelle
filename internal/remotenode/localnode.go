@@ -94,8 +94,6 @@ func RunLocal(ctx context.Context, o LocalOptions) (out LocalOutcome, err error)
 	return runLocal(ctx, o, &values)
 }
 
-// checkLayout refuses a run.json laid out for another node layout than the
-// node implements. A run.json that names none is taken as legacyNodeLayout.
 func checkLayout(got, implements int) error {
 	if got == 0 {
 		got = legacyNodeLayout
