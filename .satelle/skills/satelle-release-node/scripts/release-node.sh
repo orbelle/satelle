@@ -15,6 +15,7 @@ SLUG=orbelle/satelle
 SAME=${SATELLE_RELEASE_TEST_SAME_UID:-}
 POLL=${SATELLE_RELEASE_POLL:-5}
 WAIT=${SATELLE_RELEASE_WAIT:-360}
+SUITE_PATH=${SATELLE_RELEASE_SUITE_PATH:-/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin}
 GITC=(-c core.hooksPath=/dev/null -c core.fsmonitor=)
 CRED=(-c credential.helper= -c 'credential.https://github.com.helper=!f(){ echo username=x-access-token; echo "password=$GH_TOKEN"; }; f')
 
@@ -189,7 +190,7 @@ step_test() {
     runas=("$(command -v runuser)" -u release --)
     [ -n "${runas[0]}" ] || fail test "runuser is not on PATH"
   fi
-  local senv=(PATH="${SATELLE_RELEASE_SUITE_PATH:-/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin}" HOME="$home" USER=release LANG=C.UTF-8 GOTOOLCHAIN=local GOFLAGS=-mod=readonly)
+  local senv=(PATH="$SUITE_PATH" HOME="$home" USER=release LANG=C.UTF-8 GOTOOLCHAIN=local GOFLAGS=-mod=readonly)
   if ! env -i "${senv[@]}" ${runas[@]+"${runas[@]}"} bwrap --dev-bind / / true >>"$LOG" 2>&1; then
     hermetic=snapshot
     senv+=(SATELLE_HERMETIC_ALLOW_SNAPSHOT=1)
@@ -211,11 +212,14 @@ step_decide() {
   local tested
   tested=$(get tested)
   [ -n "$tested" ] && head_is "$tested" || fail decide "the suite has not passed on the candidate"
-  env -u GH_TOKEN bash "$WORK/scripts/release-binary.sh" decide "$WORK" >"$OUT/release-binary" 2>>"$LOG" || {
+  env -u GH_TOKEN PATH="$SUITE_PATH" GOTOOLCHAIN=local bash "$WORK/scripts/release-binary.sh" decide "$WORK" >"$OUT/release-binary" 2>>"$LOG" || {
     rm -f "$OUT/release-binary"
     fail decide "the binary decision could not run"
   }
   rec "binary $(sed -n 's/^binary: //p' "$OUT/release-binary" | head -n1)"
+  local why
+  why=$(sed -n 's/^reason: //p' "$OUT/release-binary" | head -n1)
+  [ -z "$why" ] || rec "binary-reason $why"
 }
 
 nextver() {
