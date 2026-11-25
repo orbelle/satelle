@@ -20,7 +20,7 @@ Nothing is rewritten or force-pushed, so a branch already on origin stays a
 fast-forward. The earlier code stays in history at the commit the check
 names, from which the coder restores it after the re-plan. Once that commit
 exists, the tree equals the fork and the move is accepted. The check runs
-only git reads and `satelle ledger list`; the driver runs the commit.
+only git reads and `satelle ledger list <id> --session <session>`; the driver runs the commit.
 
 **The base.** As in `satelle-tree-unchanged-check`: `origin/main`, or, for
 a story stacked on another story, `origin/<parent id>` for the newest
