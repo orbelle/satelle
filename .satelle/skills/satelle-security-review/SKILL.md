@@ -14,8 +14,7 @@ gate. One concern, one reviewer.
 
 Judge against the threat model the kernel states, not one of your own: the
 closing lines of *Always and never* in `satelle help edit-gate --session
-<session>`. The operator's ruling on it is in [[satelle-operator-rulings]]
-(2026-11-25).
+<session>`.
 
 - In scope: what an agent does through its harness in its ordinary commands; a
   secret reaching a prompt, a log, the ledger or an attachment; a change that
