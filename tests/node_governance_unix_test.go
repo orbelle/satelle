@@ -18,9 +18,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotenode"
 )
 
-// governedBox is a command remote whose probe workflow carries one more
-// check, node-probe, running script inside the node; the script writes what
-// it saw under out.
 func governedBox(t *testing.T, script, extraDef string, files map[string]string) (b *commandBox, out string) {
 	t.Helper()
 	b = commandSandbox(t, "run")
@@ -141,8 +138,6 @@ cd '@REPO@' && GIT_PROBE_FROM_CHECK=1 satelle runtime path > "$out/own" 2>&1`, "
 	}
 }
 
-// markNodeRun writes a node run directory stamped by this test process (an
-// ancestor of every satelle it runs) and leaves the process env as it was.
 func markNodeRun(t *testing.T, runDir, substrate, tree string) {
 	t.Helper()
 	nr, err := remotenode.MarkNodeRun(runDir, "nod_test", substrate, tree, nil)

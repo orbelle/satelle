@@ -9,8 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// nodeRunDir builds a node run directory whose runtime carries a node stamp
-// naming the given process, with a substrate and tree of its own.
 func nodeRunDir(t *testing.T, proc procgroup.Proc) (string, RuntimeStamp) {
 	t.Helper()
 	dir, err := CanonicalPath(t.TempDir())

@@ -22,20 +22,14 @@ type repo struct {
 	DataDir string
 	Tree    string
 	Runtime string
-	// Node is the node id of the node run whose runtime this is; empty for
-	// the machine's runtime.
-	Node   string
-	gitEnv []string
+	Node    string
+	gitEnv  []string
 }
 
 var errNotInitialised = errors.New("no .satelle directory here or above; run `satelle init`")
 
-// findRepo resolves the command's substrate, tree and runtime, following the
-// node hint a node run hands to what it starts.
 func findRepo(dir string) (repo, error) { return resolveRepo(dir, os.Environ(), true) }
 
-// findOwnRepo resolves the work tree's own substrate and never reads the node
-// hint: the hooks and the session-start doctor use it.
 func findOwnRepo(dir string) (repo, error) { return resolveRepo(dir, os.Environ(), false) }
 
 type nodeRun struct {
@@ -57,10 +51,6 @@ type governance struct {
 	gitEnv          []string
 }
 
-// resolveGovernance finds the substrate and work tree a command started in
-// start is governed by. The declared secrets are withheld from gitEnv before
-// anything else runs; the node hint is followed only when nodeAware, and
-// only into the tree its verified node runtime names.
 func resolveGovernance(start string, environ []string, nodeAware bool) (governance, error) {
 	gitEnv := config.GitLookupEnv(environ, splitNames(envValue(environ, config.NodeWithholdEnv)))
 	if hint := envValue(environ, config.NodeRunEnv); nodeAware && hint != "" {
@@ -83,10 +73,6 @@ func resolveGovernance(start string, environ []string, nodeAware bool) (governan
 	return governance{dataDir, tree, nil, gitEnv}, nil
 }
 
-// governRepo is the repo governed by substrate over the work tree tree: on
-// the machine's runtime when node is nil, else on the node's verified
-// runtime, where a substrate other than the tree's own .satelle must still
-// match the digest the node run stamped.
 func governRepo(substrate, tree string, node *nodeRun, gitEnv []string) (repo, error) {
 	if node == nil {
 		return repo{DataDir: substrate, Tree: canonical(tree), Runtime: config.RuntimeDirEnv(filepath.Dir(substrate), gitEnv), gitEnv: gitEnv}, nil
@@ -97,8 +83,6 @@ func governRepo(substrate, tree string, node *nodeRun, gitEnv []string) (repo, e
 	return repo{DataDir: substrate, Tree: canonical(tree), Runtime: node.runtime, Node: node.stamp.Node, gitEnv: gitEnv}, nil
 }
 
-// matches requires a substrate other than the tree's own .satelle to still
-// match the digest the node run stamped.
 func (n *nodeRun) matches(substrate, tree string) error {
 	if canonical(substrate) == filepath.Join(canonical(tree), config.DefaultDataDir) {
 		return nil

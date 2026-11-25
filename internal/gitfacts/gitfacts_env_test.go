@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// fakeGit puts a git first on PATH that writes its environment to a file and
-// prints a top level, and returns the file.
 func fakeGit(t *testing.T) (bin, log string) {
 	t.Helper()
 	bin = t.TempDir()

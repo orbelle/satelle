@@ -14,9 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// stampNodeRun builds a node run directory whose runtime is stamped as a
-// node runtime given substrate over tree, by this test's parent process (an
-// ancestor of every command the test runs in-process), and exports the hint.
 func stampNodeRun(t *testing.T, substrate, tree string) (runDir, runtime string) {
 	t.Helper()
 	anc := procgroup.Ancestors(os.Getpid())
@@ -40,7 +37,6 @@ func stampNodeRun(t *testing.T, substrate, tree string) (runDir, runtime string)
 	return runDir, runtime
 }
 
-// namedSubstrate is a kernel substrate outside any work tree.
 func namedSubstrate(t *testing.T) string {
 	t.Helper()
 	sub := filepath.Join(canonical(t.TempDir()), "substrate")
@@ -162,7 +158,7 @@ func TestResolveRepoWithholdsBeforeGit(t *testing.T) {
 		}
 		b, err := os.ReadFile(log)
 		if os.IsNotExist(err) && r.Node != "" {
-			return // resolving a node runtime runs no git at all
+			return
 		}
 		if err != nil {
 			t.Fatalf("%s: git never ran: %v", name, err)

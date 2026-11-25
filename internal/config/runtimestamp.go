@@ -19,9 +19,6 @@ const (
 	nodeRuntimeBase  = "runtime"
 )
 
-// RuntimeStamp records what a runtime is: the machine's, or one a node run
-// created, with the substrate and tree that run was given, the substrate's
-// digest and the node process that wrote it.
 type RuntimeStamp struct {
 	Kind      string         `json:"kind"`
 	Node      string         `json:"node,omitempty"`
@@ -72,8 +69,6 @@ func ReadRuntimeStamp(runtimeDir string) (RuntimeStamp, error) {
 	return s, nil
 }
 
-// MarkMachineRuntime stamps runtimeDir as this machine's runtime, so it is
-// never opened as a node's.
 func MarkMachineRuntime(runtimeDir string) error {
 	if !IsRuntimeKeyDir(filepath.Base(runtimeDir)) {
 		return nil
@@ -84,7 +79,6 @@ func MarkMachineRuntime(runtimeDir string) error {
 	return WriteRuntimeStamp(runtimeDir, RuntimeStamp{Kind: RuntimeMachine})
 }
 
-// CanonicalPath is p made absolute, with every symlink resolved, cleaned.
 func CanonicalPath(p string) (string, error) {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -97,11 +91,6 @@ func CanonicalPath(p string) (string, error) {
 	return filepath.Clean(r), nil
 }
 
-// NodeRuntime returns the stamp and canonical path of the node runtime under
-// runDir, or refuses. It refuses unless runDir is absolute, its runtime entry
-// is a real directory outside either machine home, that runtime holds no
-// machine marker, its stamp is a well-formed node stamp written by an
-// ancestor of this process, and nothing in it is a link or special file.
 func NodeRuntime(runDir string) (RuntimeStamp, string, error) {
 	refuse := func(path, why string) (RuntimeStamp, string, error) {
 		return RuntimeStamp{}, "", fmt.Errorf("%s %s: %s is not a node runtime this command may open", NodeRunEnv, path, why)
@@ -193,8 +182,6 @@ func within(p, home string) bool {
 
 var errNotPlain = errors.New("not a plain file")
 
-// plainTree walks dir without following links and refuses any entry that is
-// not a directory or a regular file, and any regular file with another link.
 func plainTree(dir string) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

@@ -14,9 +14,6 @@ import (
 	"strings"
 )
 
-// Repo runs git fact commands in Dir. Env, when set, is the whole
-// environment git runs with (plus the two fixed variables); nil keeps the
-// process environment.
 type Repo struct {
 	Dir string
 	Env []string

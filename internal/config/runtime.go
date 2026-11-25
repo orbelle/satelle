@@ -217,8 +217,6 @@ func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
 	return WriteRepoPathMarkerEnv(runtimeDir, repoRoot, nil)
 }
 
-// WriteRepoPathMarkerEnv is WriteRepoPathMarker whose git lookup runs with
-// env (nil keeps the process environment).
 func WriteRepoPathMarkerEnv(runtimeDir, repoRoot string, env []string) error {
 	runtimeDir = strings.TrimSpace(runtimeDir)
 	repoRoot = strings.TrimSpace(repoRoot)

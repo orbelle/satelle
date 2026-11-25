@@ -11,12 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/pack"
 )
 
-// SubstrateDigest hashes every file under root the kernel can load, the
-// *.local.* overrides included, and skips only the kernel's own record
-// folders (runs/). Symlinks are followed as the kernel's reads follow them:
-// a link to a file is hashed by its target's content under the link's path,
-// a link to a directory is walked under the link's path. A cycle or a
-// non-regular target is an error.
 func SubstrateDigest(root string) (string, error) {
 	var entries []pack.DigestEntry
 	if err := digestDir(root, "", map[string]bool{}, &entries); err != nil {
