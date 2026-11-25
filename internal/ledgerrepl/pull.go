@@ -185,9 +185,6 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 	return nil
 }
 
-// sharesPrefix reports whether fetched, a chain that has passed VerifyChain,
-// holds the same first fork events as local: their hashes link, so equal
-// hashes at fork-1 mean the whole prefix is equal.
 func sharesPrefix(local, fetched []ledger.Event, fork int) bool {
 	return fork == 0 || (len(fetched) >= fork && fetched[fork-1].Hash == local[fork-1].Hash)
 }
