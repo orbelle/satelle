@@ -25,6 +25,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
 	t.Setenv("SATELLE_TOKEN", "")
 	t.Setenv("SATELLE_SESSION", "")
+	t.Setenv(config.WorkerEnv, "")
 	t.Setenv("SATELLE_PROJECT_DIR", "")
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	clearCallerMarkers(t)
