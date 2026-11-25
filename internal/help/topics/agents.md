@@ -43,9 +43,10 @@ and `combine` runs over the members as they answered. The field takes effect
 only when the binding judges a gate; a performer ignores it. `satelle
 validate --session <session>` refuses a fallback that is not in the catalog,
 that names the agent itself, that names a fallback of its own, that cannot
-judge (the same rule as a judge's grant), or that is a judge of the same
+judge (the same rule as a judge's grant), that is a judge of the same
 gate's judge set (its default judges, or one `[review.panels.<gate>]` tier's
-panel, each apart, since a tier's panel replaces the default).
+panel, each apart, since a tier's panel replaces the default), or that another
+judge of that set also names, so one binding never answers for two judges.
 
 ## Harness hooks
 

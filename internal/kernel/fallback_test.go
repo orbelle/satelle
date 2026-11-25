@@ -76,6 +76,8 @@ func TestValidateRefusesBadFallback(t *testing.T) {
 		{"session", `agent = "r1"`, "", `r1 = "me"`, "", []string{`judge "r1" fallback`, `"me"`}},
 		{"panel peer", "panel = [\"r1\", \"r2\"]", "", `r1 = "r2"`, "", []string{`judge "r1" fallback "r2" is also a judge of this gate`}},
 		{"tier peer", `agent = "r1"`, tiers, `r2 = "r3"`, "", []string{`judge "r2" fallback "r3" is also a judge of this gate`}},
+		{"shared fallback in a panel", "panel = [\"r1\", \"r2\"]", "", "r1 = \"r3\"\nr2 = \"r3\"", "", []string{`judges "r1" and "r2" name the same fallback "r3"`}},
+		{"shared fallback in a tier", `agent = "r1"`, tiers, "r2 = \"r1\"\nr3 = \"r1\"", "", []string{`judges "r2" and "r3" name the same fallback "r1"`}},
 		{"default names a tier judge", `agent = "r1"`, tiers, `r1 = "r2"`, "", nil},
 		{"tier judge names the default", `agent = "r1"`, tiers, `r3 = "r1"`, "", nil},
 		{"local override", `agent = "r1"`, "", "", "[agents.r1]\nfallback = \"ghost\"\n", []string{AgentsLocalFile, "agents.r1", "ghost", "overriding fallback"}},

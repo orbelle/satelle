@@ -605,9 +605,19 @@ func (c *Config) fallbackProblems(w *workflow.Workflow, gname string) []error {
 		}
 	}
 	for _, set := range c.judgeSets(gname, g) {
+		named := map[string]string{}
 		for _, j := range set {
-			if f := c.Agents[j].Fallback; f != "" && slices.Contains(set, f) {
+			f := c.Agents[j].Fallback
+			if f == "" {
+				continue
+			}
+			if slices.Contains(set, f) {
 				errs = append(errs, fmt.Errorf("workflow %s: gate %q: judge %q fallback %q is also a judge of this gate", w.Name, gname, j, f))
+			}
+			if first, dup := named[f]; dup && first != j {
+				errs = append(errs, fmt.Errorf("workflow %s: gate %q: judges %q and %q name the same fallback %q, so one binding could answer for both", w.Name, gname, first, j, f))
+			} else if !dup {
+				named[f] = j
 			}
 		}
 	}
