@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -32,6 +33,14 @@ func TestNodeRunLocalRefusesProgressWithSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(node, "in", "definition.bundle"), bundle, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run, err := json.Marshal(remotenode.LocalRun{NodeID: "nod_p",
+		Run: remotenode.RunDescriptor{Mode: remotenode.ModeItem, ItemID: "sto_p"}, Layout: remotenode.NodeLayout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "in", "run.json"), run, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := nodeRunLocalCmd()

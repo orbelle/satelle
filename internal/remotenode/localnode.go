@@ -94,11 +94,35 @@ func RunLocal(ctx context.Context, o LocalOptions) (out LocalOutcome, err error)
 	return runLocal(ctx, o, &values)
 }
 
+func checkLayout(got, implements int) error {
+	if got == 0 {
+		got = legacyNodeLayout
+	}
+	if got != implements {
+		return fmt.Errorf("%s is laid out for node layout %d; this node implements node layout %d; refused before setup", localRunFile, got, implements)
+	}
+	return nil
+}
+
 func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutcome, error) {
 	if o.Dispatcher == nil {
 		o.Dispatcher = agent.Runner{}
 	}
 	in := filepath.Join(o.Dir, "in")
+	var run LocalRun
+	b, err := os.ReadFile(filepath.Join(in, localRunFile))
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	if err := json.Unmarshal(b, &run); err != nil {
+		return LocalOutcome{}, fmt.Errorf("%s: %w", localRunFile, err)
+	}
+	if run.NodeID == "" || run.Run.ItemID == "" || run.Run.Mode != ModeItem && run.Run.Mode != ModeTask {
+		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item or task run", localRunFile)
+	}
+	if err := checkLayout(run.Layout, NodeLayout); err != nil {
+		return LocalOutcome{}, err
+	}
 	bundle, err := os.ReadFile(filepath.Join(in, localDefinition))
 	if err != nil {
 		return LocalOutcome{}, err
@@ -114,17 +138,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		}
 		steps = &stepLog{path: filepath.Join(o.Dir, "out", detachedProgress)}
 		o.Dispatcher = stepDispatcher{inner: o.Dispatcher, steps: steps}
-	}
-	var run LocalRun
-	b, err := os.ReadFile(filepath.Join(in, localRunFile))
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	if err := json.Unmarshal(b, &run); err != nil {
-		return LocalOutcome{}, fmt.Errorf("%s: %w", localRunFile, err)
-	}
-	if run.NodeID == "" || run.Run.ItemID == "" || run.Run.Mode != ModeItem && run.Run.Mode != ModeTask {
-		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item or task run", localRunFile)
 	}
 	steps.start(run.Run.Mode, run.Run.ItemID)
 	fmt.Fprintf(o.Log, "node: definition %s, run %s %s\n", def.Name, run.Run.Mode, run.Run.ItemID)
