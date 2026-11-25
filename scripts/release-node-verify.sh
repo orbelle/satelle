@@ -20,34 +20,24 @@ verify() {
   exe=$(basename "$rd" | sed -n 's/^satelle-release-//p')
   cand=$(cat "$rd/drift-checked" 2>/dev/null)
   base=$(sed -n 's/^base: //p' "$rd/node-in/run")
-  local mainnow t d
+  local mainnow t d tags pub
   mainnow=$(git ls-remote origin refs/heads/main | cut -f1)
-  if grep -q '^failed step ' "$res"; then
-    echo "verdict reject"
-    grep '^failed step ' "$res"
-    if grep -q '^failed step release: ' "$res" && grep -q '^to-publish ' "$res" && [ -n "$(v main-after)" ]; then
-      [ "$mainnow" = "$(v main-after)" ] || no "origin/main is $mainnow, not main-after $(v main-after)"
-      for t in $(awk '$1 == "to-publish" { print $2 }' "$res"); do
-        echo "to-publish $t: main holds $(v main-after) and $t is still a draft; fire again to publish it"
-      done
-    else
-      [ "$mainnow" = "$base" ] || no "origin/main is $mainnow, not the run's base $base"
-    fi
-  else
-    echo "verdict accept"
+  git fetch -q origin main 2>/dev/null
+  mainver() { git show "$mainnow:.version" 2>/dev/null | awk -v k="$1:" '$1 == k { print $2; exit }'; }
+  plain() { printf '%s\n' "$1" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+'; }
+  landed() {
     [ "$run" = "$exe" ] || no "run is $run, not $exe"
     [ "$(v tested)" = "$cand" ] || no "tested is $(v tested), not the candidate $cand"
     [ "$mainnow" = "$(v main-after)" ] || no "origin/main is $mainnow, not main-after $(v main-after)"
-    git fetch -q origin main 2>/dev/null
-    ver=$(v version)
-    sver=$(v sver)
+    ver=$(mainver satelle.version)
+    sver=$(mainver satelled.version)
     if git merge-base --is-ancestor "$cand" "$mainnow" 2>/dev/null; then
       if [ "$(v binary)" = unchanged ]; then
         [ "$mainnow" = "$cand" ] || no "a binary-unchanged run left main at $mainnow, not the candidate"
-      elif ! printf '%s\n' "$ver" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+'; then
-        no "version is not a plain x.y.z version"
-      elif [ "$ver" != "$(git show "$mainnow:.version" 2>/dev/null | sed -n 's/^satelle\.version: *//p')" ]; then
-        no "version $ver is not the satelle.version on origin/main $mainnow"
+      elif ! plain "$ver" || ! plain "$sver"; then
+        no "the .version on origin/main $mainnow does not hold plain x.y.z versions"
+      elif [ "$(v version)" != "$ver" ]; then
+        no "version $(v version) is not the satelle.version $ver on origin/main $mainnow"
       elif ! git diff --quiet "$cand" "$mainnow" -- . ':!.version' ":!docs/releases/v$ver.md"; then
         no "main differs from the candidate outside .version and docs/releases/v$ver.md"
       fi
@@ -55,14 +45,54 @@ verify() {
       no "the candidate $cand is not under origin/main $mainnow"
     fi
     [ -z "$(git ls-remote origin "refs/heads/release/$exe")" ] || no "release/$exe is still on origin"
-    for t in ${ver:+"v$ver"} ${sver:+"serve-v$sver"}; do
-      if ! d=$(gh release view "$t" --json isDraft --jq .isDraft 2>/dev/null); then
-        [ "$(v binary)" = unchanged ] || no "release $t cannot be read"
-      elif [ "$d" != false ]; then
-        no "release $t is still a draft"
-      fi
-    done
     [ "$(v secret-scan)" = clean ] || no "the secret scan is not clean"
+    tags=
+    plain "$ver" && tags="v$ver"
+    plain "$sver" && tags="$tags serve-v$sver"
+  }
+  draft() {
+    if [ "$(v binary)" = unchanged ] && [ -z "$(git ls-remote --tags origin "refs/tags/$1")" ]; then
+      echo none
+    elif ! d=$(gh release view "$1" --json isDraft --jq .isDraft 2>/dev/null); then
+      echo unreadable
+    else
+      echo "$d"
+    fi
+  }
+  if grep -q '^failed step ' "$res"; then
+    echo "verdict reject"
+    grep '^failed step ' "$res"
+    if grep -q '^failed step release: ' "$res" && grep -q '^to-publish ' "$res" && [ -n "$(v main-after)" ]; then
+      landed
+      pub=$(awk '$1 == "to-publish" { print $2 }' "$res" | sort -u)
+      for t in $tags; do
+        d=$(draft "$t")
+        case $d in
+          true)
+            printf '%s\n' "$pub" | grep -qxF -- "$t" || no "release $t is still a draft but the result does not name it to-publish"
+            echo "to-publish $t: main holds $mainnow and $t is still a draft; fire again to publish it" ;;
+          false) ;;
+          none) ;;
+          *) no "release $t cannot be read" ;;
+        esac
+      done
+      printf '%s\n' "$pub" | while IFS= read -r t; do
+        case " $tags " in *" $t "*) ;; *) echo "verify: to-publish names $t, which is not a release of origin/main $mainnow" ;; esac
+      done | grep . && bad=1
+    else
+      [ "$mainnow" = "$base" ] || no "origin/main is $mainnow, not the run's base $base"
+    fi
+  else
+    echo "verdict accept"
+    landed
+    for t in $tags; do
+      d=$(draft "$t")
+      case $d in
+        false | none) ;;
+        true) no "release $t is still a draft" ;;
+        *) no "release $t cannot be read" ;;
+      esac
+    done
   fi
   case $(v privilege) in
     release) ;;
