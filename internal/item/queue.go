@@ -31,8 +31,6 @@ const (
 	OverlapAllow  = "allow"
 )
 
-// Overlaps reports whether a fire may start while an earlier run of the queue
-// is still open, taking only the members no open run took.
 func (t Trigger) Overlaps() bool { return t.Overlap == OverlapAllow }
 
 func (t Trigger) Validate() error {
@@ -54,14 +52,12 @@ type QueueEntry struct {
 }
 
 type QueueFire struct {
-	Run      string `json:"run"`
-	Task     string `json:"task,omitempty"`
-	Workflow string `json:"workflow,omitempty"`
-	Cause    string `json:"cause,omitempty"`
-	// Inputs are the members the fire took; Kept are the explicit members it
-	// left queued because an open run of the queue holds them.
-	Inputs []string `json:"inputs,omitempty"`
-	Kept   []string `json:"kept,omitempty"`
+	Run      string   `json:"run"`
+	Task     string   `json:"task,omitempty"`
+	Workflow string   `json:"workflow,omitempty"`
+	Cause    string   `json:"cause,omitempty"`
+	Inputs   []string `json:"inputs,omitempty"`
+	Kept     []string `json:"kept,omitempty"`
 }
 
 type Fired struct {

@@ -369,8 +369,6 @@ type fireReadiness struct {
 	baseRef string
 }
 
-// runOpen reports whether a queue's fired run exists and is not in a terminal
-// state; a fired run that was never created is not open.
 func (k *Kernel) runOpen(id string) (item.Item, bool) {
 	if id == "" {
 		return item.Item{}, false
@@ -392,15 +390,11 @@ func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
 	return k.runOpen(st.LastFire.Run)
 }
 
-// heldRun is an open run of a queue and the members its fire took.
 type heldRun struct {
 	run    item.Item
 	inputs []string
 }
 
-// openRuns lists every open run the queue has fired, in fire order, each with
-// the members its fire's claim names (or, for a fire recorded before claims
-// named them, its run record's inputs).
 func (k *Kernel) openRuns(st item.QueueState) []heldRun {
 	var out []heldRun
 	for _, f := range st.Fires {
@@ -417,8 +411,6 @@ func (k *Kernel) openRuns(st item.QueueState) []heldRun {
 	return out
 }
 
-// untaken splits members into those no open run holds, and the explicit
-// members an open run holds (kept queued across the next fire).
 func untaken(st item.QueueState, members []string, open []heldRun) (take, kept []string) {
 	held := func(id string) bool {
 		return slices.ContainsFunc(open, func(h heldRun) bool { return slices.Contains(h.inputs, id) })
