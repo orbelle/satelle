@@ -23,7 +23,17 @@ type Trigger struct {
 	Workflow string `json:"workflow,omitempty" toml:"workflow"`
 	Base     string `json:"base,omitempty" toml:"base"`
 	MinSize  int    `json:"min_size" toml:"min_size"`
+	Overlap  string `json:"overlap,omitempty" toml:"overlap"`
 }
+
+const (
+	OverlapRefuse = "refuse"
+	OverlapAllow  = "allow"
+)
+
+// Overlaps reports whether a fire may start while an earlier run of the queue
+// is still open, taking only the members no open run took.
+func (t Trigger) Overlaps() bool { return t.Overlap == OverlapAllow }
 
 func (t Trigger) Validate() error {
 	if (t.Task == "") == (t.Workflow == "") {
@@ -31,6 +41,9 @@ func (t Trigger) Validate() error {
 	}
 	if t.MinSize < 0 {
 		return errors.New("a trigger's minimum size is 0 (fires only on queue fire) or more")
+	}
+	if t.Overlap != "" && t.Overlap != OverlapRefuse && t.Overlap != OverlapAllow {
+		return fmt.Errorf("trigger overlap %q is not %q or %q", t.Overlap, OverlapRefuse, OverlapAllow)
 	}
 	return nil
 }
@@ -45,6 +58,10 @@ type QueueFire struct {
 	Task     string `json:"task,omitempty"`
 	Workflow string `json:"workflow,omitempty"`
 	Cause    string `json:"cause,omitempty"`
+	// Inputs are the members the fire took; Kept are the explicit members it
+	// left queued because an open run of the queue holds them.
+	Inputs []string `json:"inputs,omitempty"`
+	Kept   []string `json:"kept,omitempty"`
 }
 
 type Fired struct {
@@ -57,6 +74,7 @@ type QueueState struct {
 	Explicit []string          `json:"explicit"`
 	Causes   map[string]string `json:"causes,omitempty"`
 	LastFire *Fired            `json:"last_fire,omitempty"`
+	Fires    []Fired           `json:"-"`
 	added    map[QueueEntry]bool
 }
 
@@ -88,9 +106,18 @@ func FoldQueue(events []ledger.Event) QueueState {
 		case KindQueueFired:
 			var f QueueFire
 			if e.Decode(&f) == nil {
+				explicit, causes := st.Explicit, st.Causes
 				st.Explicit = []string{}
 				st.Causes = map[string]string{}
-				st.LastFire = &Fired{QueueFire: f, At: e.At, Actor: e.Actor}
+				for _, id := range f.Kept {
+					if slices.Contains(explicit, id) && !slices.Contains(st.Explicit, id) {
+						st.Explicit = append(st.Explicit, id)
+						st.Causes[id] = causes[id]
+					}
+				}
+				fired := Fired{QueueFire: f, At: e.At, Actor: e.Actor}
+				st.Fires = append(st.Fires, fired)
+				st.LastFire = &fired
 			}
 		}
 	}

@@ -38,7 +38,7 @@ from = ["backlog"]
 to = "held"
 `)
 	transitions := ""
-	for _, to := range []string{"review", "ops", "stuck", "approved", "approved2", "closedq", "badbase", "blocked"} {
+	for _, to := range []string{"review", "ops", "stuck", "approved", "approved2", "approvedo", "closedq", "badbase", "blocked"} {
 		transitions += "[[transition]]\nfrom = [\"in_progress\"]\nto = \"" + to + "\"\n"
 	}
 	write(t, filepath.Join(root, "workflows", "delivery.toml"), `name = "delivery"
@@ -54,6 +54,8 @@ performer = { operator = "deploy-record" }
 enqueue = ["release"]
 [states.approved2]
 enqueue = ["first", "second"]
+[states.approvedo]
+enqueue = ["overlapq"]
 [states.closedq]
 enqueue = ["shut"]
 [states.badbase]
@@ -72,6 +74,7 @@ to = "done"
 	for _, q := range []string{"release", "first", "second", "shut"} {
 		write(t, filepath.Join(root, "queues", q+".toml"), "title = \""+q+"\"\n[trigger]\nworkflow = \"runbook\"\nmin_size = 0\n")
 	}
+	write(t, filepath.Join(root, "queues", "overlapq.toml"), "title = \"overlapq\"\n[trigger]\nworkflow = \"runbook\"\nmin_size = 0\noverlap = \"allow\"\n")
 	write(t, filepath.Join(root, "queues", "badref.toml"), "title = \"badref\"\n[trigger]\nworkflow = \"runbook\"\nbase = \"refs/heads/nope\"\nmin_size = 0\n")
 	k, err := Open(Options{Root: root})
 	if err != nil {
@@ -232,6 +235,22 @@ func TestNextMove(t *testing.T) {
 			move(t, k, s, "in_progress", "approved")
 			return s, ""
 		}, want{}},
+		{"overlap: a member no open run took fires a new run", func(t *testing.T, k *Kernel) (string, string) {
+			r1 := story(t, k, "r1")
+			move(t, k, r1, "in_progress", "approvedo")
+			seatOn(t, k, fire(t, k, "overlapq"), other)
+			r2 := story(t, k, "r2")
+			move(t, k, r2, "in_progress", "approvedo")
+			return r2, ""
+		}, want{act: MoveFire, target: "overlapq"}},
+		{"overlap: a member an open run took is that run's move", func(t *testing.T, k *Kernel) (string, string) {
+			r1 := story(t, k, "r1")
+			move(t, k, r1, "in_progress", "approvedo")
+			run := fire(t, k, "overlapq")
+			r2 := story(t, k, "r2")
+			move(t, k, r2, "in_progress", "approvedo")
+			return r1, run
+		}, want{act: MoveSeat, targetIsRun: true, queue: "overlapq", carries: true}},
 		{"open run at a park state", func(t *testing.T, k *Kernel) (string, string) {
 			s := story(t, k, "s")
 			move(t, k, s, "in_progress", "approved")

@@ -315,11 +315,15 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	if t == nil || t.MinSize == 0 || len(out.Added) == 0 {
 		return out, nil
 	}
-	_, _, m, err := k.QueueMembers(queueID)
+	_, st, m, err := k.QueueMembers(queueID)
 	if err != nil {
 		return out, err
 	}
-	if len(m.Members) < t.MinSize {
+	members := m.Members
+	if t.Overlaps() {
+		members, _ = untaken(st, members, k.openRuns(st))
+	}
+	if len(members) < t.MinSize {
 		return out, nil
 	}
 	fire, err := k.Fire(queueID, "", "enqueue", actor)
@@ -361,15 +365,17 @@ type fireReadiness struct {
 	events  []ledger.Event
 	trigger *item.Trigger
 	members []string
+	kept    []string
 	baseRef string
 }
 
-func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
-	lf := st.LastFire
-	if lf == nil || lf.Run == "" {
+// runOpen reports whether a queue's fired run exists and is not in a terminal
+// state; a fired run that was never created is not open.
+func (k *Kernel) runOpen(id string) (item.Item, bool) {
+	if id == "" {
 		return item.Item{}, false
 	}
-	run, err := k.Get(lf.Run)
+	run, err := k.Get(id)
 	if err != nil {
 		return item.Item{}, false
 	}
@@ -377,6 +383,58 @@ func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
 		return run, true
 	}
 	return item.Item{}, false
+}
+
+func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
+	if st.LastFire == nil {
+		return item.Item{}, false
+	}
+	return k.runOpen(st.LastFire.Run)
+}
+
+// heldRun is an open run of a queue and the members its fire took.
+type heldRun struct {
+	run    item.Item
+	inputs []string
+}
+
+// openRuns lists every open run the queue has fired, in fire order, each with
+// the members its fire's claim names (or, for a fire recorded before claims
+// named them, its run record's inputs).
+func (k *Kernel) openRuns(st item.QueueState) []heldRun {
+	var out []heldRun
+	for _, f := range st.Fires {
+		run, open := k.runOpen(f.Run)
+		if !open {
+			continue
+		}
+		inputs := f.Inputs
+		if inputs == nil {
+			inputs = k.runInputs(run.ID)
+		}
+		out = append(out, heldRun{run: run, inputs: inputs})
+	}
+	return out
+}
+
+// untaken splits members into those no open run holds, and the explicit
+// members an open run holds (kept queued across the next fire).
+func untaken(st item.QueueState, members []string, open []heldRun) (take, kept []string) {
+	held := func(id string) bool {
+		return slices.ContainsFunc(open, func(h heldRun) bool { return slices.Contains(h.inputs, id) })
+	}
+	take = []string{}
+	for _, id := range members {
+		if !held(id) {
+			take = append(take, id)
+		}
+	}
+	for _, id := range st.Explicit {
+		if held(id) && !slices.Contains(kept, id) {
+			kept = append(kept, id)
+		}
+	}
+	return take, kept
 }
 
 func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
@@ -398,14 +456,19 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	t := *q.Trigger
 	r.trigger = &t
 	st := item.FoldQueue(events)
-	if run, open := k.lastOpenRun(st); open {
-		return r, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
+	if !t.Overlaps() {
+		if run, open := k.lastOpenRun(st); open {
+			return r, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
+		}
 	}
 	m, err := k.membership(q, st)
 	if err != nil {
 		return r, err
 	}
 	r.members = m.Members
+	if t.Overlaps() {
+		r.members, r.kept = untaken(st, m.Members, k.openRuns(st))
+	}
 	if len(r.members) == 0 {
 		return r, nil
 	}
@@ -443,7 +506,7 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	q, events, t, members, baseRef := r.queue, r.events, *r.trigger, r.members, r.baseRef
 	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
-	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause}
+	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause, Inputs: members, Kept: r.kept}
 	if _, err := k.appendAfter(queueID, item.KindQueueFired, actor, prev, claim); err != nil {
 		var stale *ledger.StaleTail
 		if errors.As(err, &stale) {
