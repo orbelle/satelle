@@ -122,6 +122,14 @@ func plainWords(seg []bashTok) []pushArg {
 	return out
 }
 
+func pushAssignments(leads []string) int {
+	n := 0
+	for n < len(leads) && isAssignmentPrefix(leads[n]) {
+		n++
+	}
+	return n
+}
+
 func pushReservedWord(t string) bool {
 	return shellCompoundWords[t] || t == "time"
 }
@@ -168,7 +176,7 @@ func pushSegments(command string) ([][]string, *PushDest) {
 		for i, w := range words {
 			leads[i], texts[i] = w.Lead, w.Text
 		}
-		n := leadingAssignments(leads)
+		n := pushAssignments(leads)
 		if n >= len(words) {
 			continue
 		}

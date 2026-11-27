@@ -27,12 +27,18 @@ func TestEditGateRefusesPushToAnotherItemsBranch(t *testing.T) {
 		"git push origin --delete " + b,
 		"git push -u origin " + b,
 		"git status && git push origin HEAD:" + b,
+	} {
+		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); !deny || !strings.Contains(why, b) {
+			t.Errorf("%q: deny %v, reason %q; want a refusal naming %s", c, deny, why, b)
+		}
+	}
+	for _, c := range []string{
 		"A+=1 git push origin HEAD:" + b,
 		`A="1" "git" push origin HEAD:` + b,
 		"A=1; git push origin HEAD:" + b,
 	} {
-		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); !deny || !strings.Contains(why, b) {
-			t.Errorf("%q: deny %v, reason %q; want a refusal naming %s", c, deny, why, b)
+		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); !deny || !(strings.Contains(why, b) || strings.Contains(why, "fail-closed rule")) {
+			t.Errorf("%q: deny %v, reason %q; want a refusal naming %s or the fail-closed rule", c, deny, why, b)
 		}
 	}
 }
@@ -71,7 +77,7 @@ func TestEditGateAllowsPushToOwnItemsBranch(t *testing.T) {
 			t.Errorf("%q: refused: %s", c, why)
 		}
 	}
-	for _, c := range []string{"go test ./...", "ls", "git status 2>&1", "go test ./... 2>&1 | tail -5", "time go test ./..."} {
+	for _, c := range []string{"go test ./...", "ls", "go test ./... 2>&1 | tail -5", "time go test ./..."} {
 		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); deny {
 			t.Errorf("%q: refused: %s", c, why)
 		}

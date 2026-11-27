@@ -776,10 +776,7 @@ func leadingAssignments(words []string) int {
 
 func isAssignmentWord(w string) bool {
 	eq := strings.IndexByte(w, '=')
-	if eq < 0 || strings.HasPrefix(w, "-") {
-		return false
-	}
-	return isShellIdent(strings.TrimSuffix(w[:eq], "+"))
+	return eq > 0 && !strings.HasPrefix(w, "-") && isShellIdent(w[:eq])
 }
 
 func isAssignmentPrefix(w string) bool {

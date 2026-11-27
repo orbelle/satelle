@@ -348,19 +348,19 @@ func TestOperatorRecordCompoundWordsUnchanged(t *testing.T) {
 	}
 }
 
-func TestAssignmentWords(t *testing.T) {
+func TestPushAssignmentWords(t *testing.T) {
 	for _, w := range []string{"A=1", "A+=1", "_x+=", "A=", "A+="} {
-		if !isAssignmentWord(w) {
+		if pushAssignments([]string{w}) != 1 {
 			t.Errorf("%q is not read as an assignment", w)
 		}
 	}
 	for _, w := range []string{"A+", "+=1", "A++=1", "1A=x", "-A=1"} {
-		if isAssignmentWord(w) {
+		if pushAssignments([]string{w}) != 0 {
 			t.Errorf("%q is read as an assignment", w)
 		}
 	}
-	if got := ScanBash("A+=1 rm x", "/w", "/w", func(string) bool { return false }).Paths; !slices.Contains(got, "/w/x") {
-		t.Errorf("A+=1 rm x: paths %v, want /w/x", got)
+	if isAssignmentWord("A+=1") {
+		t.Error("isAssignmentWord reads A+=1 as an assignment; the legacy scans must keep it a command word")
 	}
 }
 

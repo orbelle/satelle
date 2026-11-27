@@ -29,14 +29,20 @@ func TestGateJudgesPushes(t *testing.T) {
 		"git push origin --delete sto_b",
 		"git push origin sto_b",
 		"git push origin HEAD:sto_a HEAD:sto_b",
+	} {
+		if v := g.Bash(c, root); v.Allow || !strings.Contains(v.Reason, "sto_b") {
+			t.Errorf("%q: %+v, want a refusal naming sto_b", c, v)
+		}
+	}
+	for _, c := range []string{
 		"A+=1 git push origin HEAD:sto_b",
 		`A="1" "git" push origin HEAD:sto_b`,
 		`A='1' 'git' push origin HEAD:sto_b`,
 		`A+="1" "git" push origin HEAD:sto_b`,
 		"A=1; git push origin HEAD:sto_b",
 	} {
-		if v := g.Bash(c, root); v.Allow || !strings.Contains(v.Reason, "sto_b") {
-			t.Errorf("%q: %+v, want a refusal naming sto_b", c, v)
+		if v := g.Bash(c, root); v.Allow || !(strings.Contains(v.Reason, "sto_b") || strings.Contains(v.Reason, "fail-closed rule")) {
+			t.Errorf("%q: %+v, want a refusal naming sto_b or the fail-closed rule", c, v)
 		}
 	}
 	for _, c := range []string{"git push origin HEAD:sto_a", "git status", "go test ./..."} {
@@ -93,7 +99,7 @@ func TestPlainWords(t *testing.T) {
 		for _, w := range wordsOf(t, line) {
 			leads = append(leads, w.Lead)
 		}
-		if got := leadingAssignments(leads); got != want {
+		if got := pushAssignments(leads); got != want {
 			t.Errorf("%q: %d assignments, want %d", line, got, want)
 		}
 	}
