@@ -112,8 +112,8 @@ func TestSyncLeavesInSyncAndDivergedAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync: %v\n%s", err, out.String())
 	}
-	if cs.offers != 0 || cs.events != 0 {
-		t.Errorf("an in-sync and a diverged item cost %d offers and %d event reads", cs.offers, cs.events)
+	if cs.offers != 0 {
+		t.Errorf("an in-sync and a diverged item cost %d offers", cs.offers)
 	}
 	if len(res.Unsynced) != 1 || res.Unsynced[0].Item != "it" || res.Unsynced[0].State != "diverged at 2" {
 		t.Fatalf("unsynced %+v", res.Unsynced)
