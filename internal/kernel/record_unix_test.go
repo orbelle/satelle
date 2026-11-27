@@ -259,8 +259,100 @@ func TestRecordMarkers(t *testing.T) {
 	}
 	jp := d.reqs[0].Prompt
 	jdir := folderOf(jp)
-	if !strings.Contains(jp, strings.ReplaceAll(section, dir, jdir)) {
-		t.Error("the judge's record section differs from the performer's")
+	childrenLine := filepath.Join(dir, "children.md") + fmt.Sprintf(" (%d children)\n", InlineChildrenMax+1)
+	lead := section[:strings.Index(section, childrenLine)+len(childrenLine)]
+	if !strings.Contains(jp, strings.ReplaceAll(lead, dir, jdir)) {
+		t.Error("the judge's record lead differs from the performer's")
+	}
+	if strings.Contains(jp, "[shown ") {
+		t.Error("the judge's prompt carries an inlined body marker")
+	}
+}
+
+func TestJudgeRecordNamesPathsWithoutBodies(t *testing.T) {
+	k, d, repo := multiState(t)
+	it := toWork(t, k, repo)
+	mustAttach(t, k, it.ID, "plan", "plan-marker-AC1\n")
+	mustAttach(t, k, it.ID, "notes/md", "notes-marker-AC1\n")
+	big := strings.Repeat("filler-AC1 ", (20<<10)/len("filler-AC1 ")+1)
+	mustAttach(t, k, it.ID, "big", big)
+	if _, err := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("only child"), Parent: &it.ID}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	d.reqs = nil
+	if _, err := k.Transition(context.Background(), it.ID, "closed", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.reqs) == 0 {
+		t.Fatal("no judge dispatched")
+	}
+	for _, req := range d.reqs {
+		p := req.Prompt
+		dir := folderOf(p)
+		if dir == "" {
+			t.Fatalf("%s: the prompt names no record folder", req.Binding.Name)
+		}
+		for _, want := range []string{
+			filepath.Join(dir, "attachments", "plan"),
+			filepath.Join(dir, "attachments", "notes_md"),
+			filepath.Join(dir, "attachments", "big"),
+			"no attachment body is in this prompt",
+			"[open] only child",
+		} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s: the prompt lacks %q", req.Binding.Name, want)
+			}
+		}
+		for _, bad := range []string{"plan-marker-AC1", "notes-marker-AC1", "filler-AC1", "\nAttachment ", "[shown "} {
+			if strings.Contains(p, bad) {
+				t.Errorf("%s: the prompt holds %q", req.Binding.Name, bad)
+			}
+		}
+		if len(p) >= InlineBodyMax {
+			t.Errorf("%s: the prompt is %d bytes with %d bytes attached", req.Binding.Name, len(p), len(big))
+		}
+	}
+	runsEmpty(t, k)
+}
+
+func TestJudgeReachesVerdictFromRecordFiles(t *testing.T) {
+	body := strings.Repeat("plan line\n", (20<<10)/len("plan line\n")+1) + "last-line-AC2\n"
+	for _, tc := range []struct {
+		name     string
+		expected string
+		moved    bool
+	}{
+		{"full body read", body, true},
+		{"other body expected", "a different plan\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, d, repo := multiState(t)
+			it := toWork(t, k, repo)
+			mustAttach(t, k, it.ID, "plan", body)
+			d.onDispatch = func(role agent.Role, req agent.Request) {
+				if role != agent.Judge {
+					return
+				}
+				path := filepath.Join(folderOf(req.Prompt), "attachments", "plan")
+				if !strings.Contains(req.Prompt, path) {
+					t.Errorf("%s: the prompt does not name %s", req.Binding.Name, path)
+				}
+				b, err := os.ReadFile(path)
+				if err == nil && string(b) == tc.expected {
+					d.answers[req.Binding.Name] = accept
+				} else {
+					d.answers[req.Binding.Name] = reject
+				}
+			}
+			res, err := k.Transition(context.Background(), it.ID, "closed", "me")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Moved != tc.moved {
+				t.Fatalf("moved %v, want %v: %s", res.Moved, tc.moved, gates(res))
+			}
+			runsEmpty(t, k)
+		})
 	}
 }
 
