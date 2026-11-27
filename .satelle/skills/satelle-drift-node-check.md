@@ -12,10 +12,11 @@ a node the firing tree's HEAD commit, checked out at its work tree
 `drift-node` workflow. This check runs on that workflow's `backlog → done`
 move, after `change-judged`.
 
-The node's overlay rewrites the work tree's `.satelle/satelle.toml`, so the
+The node's substrate is the firing tree's, unpacked at `/node/substrate`
+apart from the work tree (`satelle help remotes --session <session>`). The
 check clones the checked-out commit into a temp dir and runs that clone's own
 `scripts/drift-check.sh` with the clone as its root: what it judges is the
-commit, not the overlay. drift-check.sh is a bash script; the node image's
+commit alone. drift-check.sh is a bash script; the node image's
 final stage installs bash (`Dockerfile`). An image with no bash fails here as
 "could not check" (exit 2), never as drift.
 
