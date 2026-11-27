@@ -31,7 +31,7 @@ clean list is not a licence to wave through children you can see are open.
 
 The numbered criteria derive from the story's behavior; they are not a second
 spec. Judge the behavior first. The numbered criteria are the
-`## Acceptance criteria` section of the `plan` attachment in the record folder
+`## Acceptance criteria` section of `attachments/plan` in the record folder
 when the plan has that section, else the criteria in your prompt.
 
 1. **Read the story body** and name the behavior it states.
