@@ -222,9 +222,8 @@ func queueFireCmd() *cobra.Command {
 		Long: `fire runs the queue's trigger over its members now, in this process: it
 records queue.fired on the queue and creates the run (an execution under the
 trigger's task, or under the queue in the trigger's workflow) whose task.run
-lists the members it took. Satelle schedules and watches nothing else; a queue fires
-only here, when an enqueue reaches its minimum size, or from this machine's
-sync pass when [[wake]] in ~/.satelle/config.toml names it. Any session may fire,
+lists the members it took. Satelle schedules and watches nothing; a queue fires
+only here, or when an enqueue reaches its minimum size. Any session may fire,
 normally the one whose items the queue holds, at any time.
 
 It exits 0 when it fired or the queue had no members, and 2 when the last

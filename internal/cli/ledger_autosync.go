@@ -55,12 +55,7 @@ answering and never installs or updates satelle. Each fix is one line of
 satelle logs --doctor; what each project's pass left is recorded, and session
 start lists only that. Each partition of this machine's satelled whose
 recorded project path no longer exists is removed; a satelled that is not
-answering removes no partition. After the seat fixes, the pass wakes each
-queue this machine's ~/.satelle/config.toml [[wake]] names for the project:
-where the store is local or the queue was proven in sync this pass, it fires
-the queue as satelle queue fire does (cause wake, by satelle-sync.service)
-when it has members and no open run, and pushes the fire in the same pass;
-the wake is off unless listed and never fails the pass. Exits 1 when any project's pass failed; a
+answering removes no partition. Exits 1 when any project's pass failed; a
 confirm or a prune that fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -74,7 +69,7 @@ confirm or a prune that fails does not fail the pass.`,
 			var failed []string
 			var visited []projectFix
 			for _, path := range gc.Projects.Paths {
-				ok, fix := autosyncProject(cmd.Context(), out, path, stale, gc.WakeQueues)
+				ok, fix := autosyncProject(cmd.Context(), out, path, stale)
 				if !ok {
 					failed = append(failed, path)
 				}
@@ -145,7 +140,7 @@ func pruneGonePartitions(ctx context.Context, out io.Writer) {
 	}
 }
 
-func autosyncProject(ctx context.Context, out io.Writer, path string, stale func(string) bool, wakeFor func(string) []string) (bool, *projectFix) {
+func autosyncProject(ctx context.Context, out io.Writer, path string, stale func(string) bool) (bool, *projectFix) {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
 		fmt.Fprintf(out, "%s: skipped: no such directory\n", path)
 		return true, nil
@@ -174,10 +169,7 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 		pf.seats = rep
 		return released
 	}
-	wake := func(k *kernel.Kernel, synced func(string) bool) []string {
-		return wakeQueues(out, path, k, wakeFor(uiRepoRoot(r)), synced)
-	}
-	pass, summary := syncPass(ctx, r, fix, wake)
+	pass, summary := syncPass(ctx, r, fix)
 	if pass.Reason != "" {
 		fmt.Fprintf(out, "%s: sync failing: %s\n", path, pass.Reason)
 		return false, pf
@@ -186,22 +178,17 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	return true, pf
 }
 
-type queueWake func(k *kernel.Kernel, synced func(string) bool) []string
-
-func syncPass(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncstate.Pass, string) {
+func syncPass(ctx context.Context, r repo, fix seatFix) (syncstate.Pass, string) {
 	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
 	defer cancel()
-	pass, summary := syncRepo(ctx, r, fix, wake)
+	pass, summary := syncRepo(ctx, r, fix)
 	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
 	confirmUI(ctx, r)
 	return pass, summary
 }
 
-func syncRepo(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncstate.Pass, string) {
+func syncRepo(ctx context.Context, r repo, fix seatFix) (syncstate.Pass, string) {
 	const op = "ledger autosync"
-	if wake == nil {
-		wake = func(*kernel.Kernel, func(string) bool) []string { return nil }
-	}
 	k, err := r.open()
 	if err != nil {
 		fix(nil, err.Error(), nil)
@@ -213,7 +200,6 @@ func syncRepo(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncsta
 	}
 	local := func() (syncstate.Pass, string) {
 		fix(k, "", allSynced)
-		wake(k, allSynced)
 		return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"
 	}
 	unreached := func(store string, err error) (syncstate.Pass, string) {
@@ -242,10 +228,8 @@ func syncRepo(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncsta
 	}
 	pushed := res.Push
 	reasons := []string{syncReason(res)}
-	released := fix(k, "", syncedIn(res))
-	released = append(released, wake(k, syncedIn(res))...)
-	if len(released) > 0 {
-		follow, err := rp.Push(ctx, distinct(released)...)
+	if released := fix(k, "", syncedIn(res)); len(released) > 0 {
+		follow, err := rp.Push(ctx, released...)
 		pushed.Events += follow.Events
 		pushed.Written = append(pushed.Written, follow.Written...)
 		pushed.Items = len(distinct(pushed.Written))
