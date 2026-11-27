@@ -40,6 +40,14 @@ func syncedIn(res ledgerrepl.SyncResult) func(string) bool {
 	return func(id string) bool { return !out[id] }
 }
 
+func passSynced(res ledgerrepl.SyncResult) func(string) bool {
+	if len(res.Unsynced) > 0 || len(res.Push.Refused) > 0 || len(res.Pull.Refused) > 0 ||
+		len(res.Push.DivergedItems()) > 0 || len(res.Pull.DivergedItems()) > 0 {
+		return func(string) bool { return false }
+	}
+	return allSynced
+}
+
 func unattendedSeats(ctx context.Context, in *doctorInput, k *kernel.Kernel, why string, synced func(string) bool) (resolveReport, []string) {
 	rep := resolveReport{Actions: []resolveAction{}, Left: []resolveLeft{}}
 	if in.cfg == nil {

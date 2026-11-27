@@ -220,6 +220,13 @@ release or a build-skew restart only when the last pass, within 6 minutes,
 left it or did not clear it; `satelle doctor --session <session>` still lists
 every issue.
 
+After its seat fixes the pass wakes each queue `[[wake]]` in this machine's
+`~/.satelle/config.toml` names for the project (off unless listed; see
+`satelle help queues --session <session>`): where the store is local or the whole pass was
+proven in sync (one diverged, refused or unsynced item anywhere holds every
+wake), it fires the queue when it has members and no open run, and
+pushes the fire in the same pass. An unreached store wakes nothing.
+
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever
 `[ledger] store` names, because the node runs there, by the same replicator
