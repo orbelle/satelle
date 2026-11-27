@@ -50,10 +50,17 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 		seen[id] = true
 		c := lst.Chains[id]
 		st := ItemStatus{Item: id, Local: len(local), Store: c.Len}
-		if st.State, st.Fork, err = r.state(ctx, id, local, c); err != nil {
+		if line, ok := lst.Refused[id]; ok {
+			st.State, st.Fork = refusedState(line), -1
+		} else if st.State, st.Fork, err = r.state(ctx, id, local, c); err != nil {
 			return nil, err
 		}
 		out = append(out, st)
+	}
+	for id, line := range lst.Refused {
+		if !seen[id] {
+			out = append(out, ItemStatus{Item: id, State: refusedState(line), Fork: -1})
+		}
 	}
 	for id, c := range lst.Chains {
 		if !seen[id] {
@@ -65,6 +72,8 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 }
 
 const divergedAt = "diverged at "
+
+func refusedState(line string) string { return "refused: " + line }
 
 func (r *Replicator) state(ctx context.Context, id string, local []ledger.Event, c Chain) (string, int, error) {
 	n := c.Len
@@ -80,7 +89,7 @@ func (r *Replicator) state(ctx context.Context, id string, local []ledger.Event,
 		s, err := ledger.SharedPrefix(local, n, func(seq int) (string, error) { return r.Store.HashAt(ctx, id, seq) })
 		var ref *refusal
 		if errors.As(err, &ref) {
-			return "refused: " + ref.line, -1, nil
+			return refusedState(ref.line), -1, nil
 		}
 		if err != nil {
 			return "", -1, err

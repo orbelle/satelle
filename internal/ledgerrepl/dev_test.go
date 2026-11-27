@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,8 +13,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/wire/chainpb"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type world struct {
@@ -370,6 +374,162 @@ func TestStatusOnEveryStore(t *testing.T) {
 			if got[k] != v {
 				t.Errorf("%s: %q, want %q (all %v)", k, got[k], v, got)
 			}
+		}
+	})
+}
+
+func staleHeadErr(t *testing.T) error {
+	t.Helper()
+	st, err := status.New(codes.FailedPrecondition, "stale head").WithDetails(&chainpb.StaleHead{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.Err()
+}
+
+func refusedLine(t *testing.T, lines []string, prefix, has string) {
+	t.Helper()
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], prefix) || !strings.Contains(lines[0], has) {
+		t.Fatalf("refused %q, want one line starting %q containing %q", lines, prefix, has)
+	}
+}
+
+func TestSyncAStoreRefusedItemStillSyncsTheRest(t *testing.T) {
+	type env struct {
+		w    *world
+		a, b *ledger.Store
+	}
+	ahead := func(withBlob bool) func(t *testing.T, e env) {
+		return func(t *testing.T, e env) {
+			add(t, e.a, "bad", "x", 2)
+			pushOn(t, e.a, e.w.dev())
+			copyChain(t, e.a, e.b, "bad")
+			if withBlob {
+				attach(t, e.b, "bad", "plan", "# the plan\n")
+				return
+			}
+			add(t, e.b, "bad", "y", 1)
+		}
+	}
+	behind := func(withBlob bool) func(t *testing.T, e env) {
+		return func(t *testing.T, e env) {
+			add(t, e.a, "bad", "x", 2)
+			copyChain(t, e.a, e.b, "bad")
+			if withBlob {
+				attach(t, e.a, "bad", "plan", "# the plan\n")
+			} else {
+				add(t, e.a, "bad", "x", 1)
+			}
+			pushOn(t, e.a, e.w.dev())
+		}
+	}
+	cases := []struct {
+		name      string
+		setup     func(t *testing.T, e env)
+		method    string
+		err       func(t *testing.T) error
+		untouched bool
+		check     func(t *testing.T, e env, res SyncResult)
+	}{
+		{"offer refused", ahead(false), "Chain/Append", func(*testing.T) error { return status.Error(codes.InvalidArgument, "chain break") }, true,
+			func(t *testing.T, e env, res SyncResult) {
+				refusedLine(t, res.Push.Refused, "bad: Chain.Append refused by the store", "chain break")
+			}},
+		{"offer stale and short", ahead(false), "Chain/Append", staleHeadErr, true,
+			func(t *testing.T, e env, res SyncResult) {
+				refusedLine(t, res.Push.Refused, "bad:", "does not end at event 1")
+			}},
+		{"read refused at push", ahead(false), "Chain/Read", func(*testing.T) error { return status.Error(codes.DataLoss, "lost") }, true,
+			func(t *testing.T, e env, res SyncResult) {
+				refusedLine(t, res.Push.Refused, "bad: Chain.Read refused by the store", "lost")
+			}},
+		{"read refused at status", behind(false), "Chain/Read", func(*testing.T) error { return status.Error(codes.DataLoss, "lost") }, true,
+			func(t *testing.T, e env, res SyncResult) {
+				if len(res.Unsynced) != 1 || res.Unsynced[0].Item != "bad" || !strings.HasPrefix(res.Unsynced[0].State, "refused: bad:") {
+					t.Fatalf("unsynced %+v", res.Unsynced)
+				}
+			}},
+		{"attachment put refused", ahead(true), "PutAttachment", func(*testing.T) error { return status.Error(codes.InvalidArgument, "too odd") }, true,
+			func(t *testing.T, e env, res SyncResult) {
+				refusedLine(t, res.Push.Refused, "bad: AttachmentService.PutAttachment refused by the store", "too odd")
+			}},
+		{"attachment get refused", behind(true), "GetAttachment", func(*testing.T) error { return status.Error(codes.DataLoss, "lost") }, false,
+			func(t *testing.T, e env, res SyncResult) {
+				if len(res.Pull.Gaps) != 1 || res.Pull.Gaps[0].Item != "bad" || !strings.HasPrefix(res.Pull.Gaps[0].Why, "bad:") {
+					t.Fatalf("gaps %+v", res.Pull.Gaps)
+				}
+				if got, want := hashesOf(chain(t, e.b, "bad")), e.w.serverHashes("bad"); strings.Join(got, ",") != strings.Join(want, ",") {
+					t.Errorf("bad's events were not pulled: %v, want %v", got, want)
+				}
+			}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := env{w: newWorld(t), a: newStore(t), b: newStore(t)}
+			add(t, e.a, "theirs", "t", 2)
+			c.setup(t, e)
+			pushOn(t, e.a, e.w.dev())
+			add(t, e.b, "mine", "m", 2)
+			localBefore := chainFile(t, e.b, "bad")
+			storeBefore := e.w.serverHashes("bad")
+			e.w.srv.RefuseItem(c.method, "bad", c.err(t))
+			var out bytes.Buffer
+			res, err := replOn(e.b, e.w.dev(), &out).Sync(ctx)
+			if err != nil {
+				t.Fatalf("sync: %v\n%s", err, out.String())
+			}
+			if got, want := e.w.serverHashes("mine"), hashesOf(chain(t, e.b, "mine")); strings.Join(got, ",") != strings.Join(want, ",") {
+				t.Errorf("mine was not pushed: %v\n%s", got, out.String())
+			}
+			if got, want := hashesOf(chain(t, e.b, "theirs")), hashesOf(chain(t, e.a, "theirs")); strings.Join(got, ",") != strings.Join(want, ",") {
+				t.Errorf("theirs was not pulled: %v\n%s", got, out.String())
+			}
+			if c.untouched {
+				if !bytes.Equal(localBefore, chainFile(t, e.b, "bad")) {
+					t.Error("B's bad changed")
+				}
+				if !res.Failed() {
+					t.Error("a refused item did not fail the pass")
+				}
+			}
+			if got := e.w.serverHashes("bad"); strings.Join(got, ",") != strings.Join(storeBefore, ",") {
+				t.Errorf("the server's bad changed: %v", got)
+			}
+			c.check(t, e, res)
+		})
+	}
+	t.Run("place refused", func(t *testing.T) {
+		w := newWorld(t)
+		a, b := newStore(t), newStore(t)
+		add(t, a, "theirs", "t", 2)
+		pushOn(t, a, w.dev())
+		add(t, b, "mine", "m", 2)
+		seed := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "seeded"})
+		w.srv.RefuseItem("Chain/Append", seed, status.Error(codes.InvalidArgument, "no"))
+		var out bytes.Buffer
+		r := replOn(b, w.dev(), &out)
+		r.Choose = &rules{}
+		res, err := r.Sync(ctx)
+		if err != nil {
+			t.Fatalf("sync: %v\n%s", err, out.String())
+		}
+		refusedLine(t, res.Pull.Refused, seed+":", "no")
+		if slices.Contains(res.Pull.Placed, seed) || len(chain(t, b, seed)) != 1 {
+			t.Fatalf("placed %v, chain %d", res.Pull.Placed, len(chain(t, b, seed)))
+		}
+		if got := w.serverHashes("mine"); len(got) != 2 || len(chain(t, b, "theirs")) != 2 {
+			t.Fatalf("mine on the server %v, theirs in B %d\n%s", got, len(chain(t, b, "theirs")), out.String())
+		}
+	})
+	t.Run("store-wide failure still stops", func(t *testing.T) {
+		w := newWorld(t)
+		a, b := newStore(t), newStore(t)
+		add(t, a, "theirs", "t", 2)
+		pushOn(t, a, w.dev())
+		add(t, b, "mine", "m", 2)
+		w.srv.FailMethods("Append")
+		if _, err := replOn(b, w.dev(), nil).Sync(ctx); err == nil || !strings.Contains(err.Error(), "Chain.Append") {
+			t.Fatalf("sync: %v", err)
 		}
 	})
 }

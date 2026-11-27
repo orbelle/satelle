@@ -58,6 +58,12 @@ type Server struct {
 	grpc       *grpc.Server
 	down       bool
 	failing    []string
+	refusals   []itemRefusal
+}
+
+type itemRefusal struct {
+	method, item string
+	err          error
 }
 
 type Call struct {
@@ -129,6 +135,30 @@ func (s *Server) FailMethods(substr ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failing = append([]string(nil), substr...)
+}
+
+func (s *Server) RefuseItem(method, item string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refusals = append(s.refusals, itemRefusal{method: method, item: item, err: err})
+}
+
+func (s *Server) refusal(method string, req any) error {
+	item := ""
+	switch r := req.(type) {
+	case interface{ GetItemId() string }:
+		item = r.GetItemId()
+	case *satellepb.PutAttachmentRequest:
+		item = r.GetAttachment().GetItemId()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.refusals {
+		if f.item == item && strings.Contains(method, f.method) {
+			return f.err
+		}
+	}
+	return nil
 }
 
 func (s *Server) SetMe(me *satellepb.GetMeResponse) {
@@ -250,6 +280,9 @@ func (s *Server) authorize(ctx context.Context, method string) error {
 
 func (s *Server) unaryAuth(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 	if err := s.authorize(ctx, info.FullMethod); err != nil {
+		return nil, err
+	}
+	if err := s.refusal(info.FullMethod, req); err != nil {
 		return nil, err
 	}
 	return h(ctx, req)

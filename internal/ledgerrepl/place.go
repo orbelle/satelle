@@ -20,7 +20,7 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 		if err != nil || it.Workflow != "" {
 			return nil
 		}
-		lst, err := r.Store.Chains(ctx, []string{id})
+		lst, err := r.listOne(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -67,7 +67,7 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 			res.Placed = append(res.Placed, id)
 			return nil
 		}
-		lst, err = r.Store.Chains(ctx, []string{id})
+		lst, err = r.listOne(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -81,4 +81,12 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 	}
 	res.Unplaced = append(res.Unplaced, id)
 	return nil
+}
+
+func (r *Replicator) listOne(ctx context.Context, id string) (Listing, error) {
+	lst, err := r.Store.Chains(ctx, []string{id})
+	if line, ok := lst.Refused[id]; ok && err == nil {
+		return lst, &refusal{line}
+	}
+	return lst, err
 }
