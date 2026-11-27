@@ -20,6 +20,7 @@ func TestServeBinaryImportIsolation(t *testing.T) {
 		"github.com/bobmcallan/satelle/internal/cli",
 		"github.com/bobmcallan/satelle/internal/kernel",
 		"github.com/bobmcallan/satelle/internal/uipush",
+		"github.com/bobmcallan/satelle/internal/capacity",
 	}
 	deps := string(out)
 	for _, f := range forbidden {
