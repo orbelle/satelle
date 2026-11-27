@@ -25,9 +25,11 @@ const (
 )
 
 var (
-	goldenApplyD  = []string{"--user show-environment", "--user daemon-reload", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
-	goldenApplyND = []string{"--user show-environment", "--user daemon-reload", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
-	goldenStatusC = []string{"--user is-active satelle.service", "--user is-active satelle-sync.timer", "--user is-active satelle-follow.service"}
+	goldenApplyD   = []string{"--user show-environment", "--user daemon-reload", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenApplyND  = []string{"--user show-environment", "--user daemon-reload", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenRefreshD = []string{"--user show-environment", "--user daemon-reload", "--user show -p MainPID --value satelle.service", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer", "--user show -p MainPID --value satelle-follow.service", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenRepointD = []string{"--user show-environment", "--user daemon-reload", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer", "--user show -p MainPID --value satelle-follow.service", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenStatusC  = []string{"--user is-active satelle.service", "--user is-active satelle-sync.timer", "--user is-active satelle-follow.service"}
 )
 
 func goldenSvc(bin, addr, port string) string {
@@ -213,7 +215,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 		writeFile(t, g.u, goldenSvc(g.sat, "0.0.0.0", "1"))
 		out, calls := g.run(t, "service", "refresh")
 		goldenEq(t, "refresh", out, "kept "+g.u+"\nkept "+g.ss+"\nkept "+g.tm+"\nkept "+g.fl+"\n"+goldenENABLED+goldenTIMERON+goldenFOLLOWON+g.statusO())
-		goldenCalls(t, "refresh", calls, goldenApplyD, goldenStatusC)
+		goldenCalls(t, "refresh", calls, goldenRefreshD, goldenStatusC)
 	})
 	t.Run("refresh, missing and repointed", func(t *testing.T) {
 		g := newGoldenEnv(t)
@@ -225,7 +227,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 		writeFile(t, g.u, goldenSvc("/old/satelled", "0.0.0.0", "1"))
 		out, calls := g.run(t, "service", "refresh")
 		goldenEq(t, "refresh", out, "wrote "+g.u+" (was /old/satelled)\nkept "+g.ss+"\nwrote "+g.tm+" (missing)\nkept "+g.fl+"\n"+goldenENABLED+goldenTIMERON+goldenFOLLOWON+g.statusO())
-		goldenCalls(t, "refresh", calls, goldenApplyD, goldenStatusC)
+		goldenCalls(t, "refresh", calls, goldenRepointD, goldenStatusC)
 	})
 	t.Run("refresh, no satelled and no unit", func(t *testing.T) {
 		g := newGoldenEnv(t)

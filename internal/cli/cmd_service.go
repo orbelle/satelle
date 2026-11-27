@@ -58,9 +58,11 @@ func writeDefinition(w io.Writer, path, body string, force bool, binOf func(stri
 			why = " (missing)"
 		case !sameBinary(binOf(string(old)), binOf(body)):
 			why = " (was " + binOf(string(old)) + ")"
-		default:
+		case string(old) == body || strings.Replace(string(old), binOf(string(old)), binOf(body), 1) == body:
 			fmt.Fprintf(w, "kept %s\n", path)
 			return false, nil
+		default:
+			why = " (changed)"
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -89,8 +91,10 @@ address are machine settings in ~/.satelle/config.toml [service].
 
 Installing or updating satelle (scripts/install.sh, satelle update) installs
 and refreshes both, so syncing is the default: it installs a missing unit,
-repoints one naming another binary, restarts satelled onto the new build,
-starts the sync timer and prints 'satelle service status'. --no-service or
+rewrites one that differs from what satelle would write (one naming another
+binary among them), restarts satelled or satelle-follow.service only when its
+unit was rewritten or it does not run the installed binary, starts the sync
+timer and prints 'satelle service status'. --no-service or
 SATELLE_NO_SERVICE=1 skips every unit change. With no systemd user manager the
 units and the autosync command are printed instead.
 
@@ -127,12 +131,15 @@ refresh does the same by hand. install writes every unit afresh and records
 		},
 		&cobra.Command{
 			Use:   "refresh",
-			Short: "Install missing units, repoint any naming another binary, restart satelled and start the sync timer",
+			Short: "Install missing or changed units, restart satelled and follow only when not on the installed build, and start the sync timer",
 			Long: `refresh is what installing or updating satelle runs: it writes each unit that
-is missing or whose ExecStart names another binary than this satelle (and the
-satelled beside it, else on PATH), keeps the rest, restarts satelled and
-satelle-follow.service and enables and starts satelle-sync.timer, then prints
-'satelle service status'.
+is missing or differs from what satelle would write for this satelle (and the
+satelled beside it, else on PATH), one naming another binary among them, and
+keeps the rest. It restarts satelled and satelle-follow.service only when its
+unit was rewritten or it does not run the installed binary; one already
+running the current build keeps running ('satelle service restart' restarts
+satelled unconditionally). It enables and starts satelle-sync.timer, then
+prints 'satelle service status'.
 It never changes ~/.satelle/config.toml; 'satelle service install' records
 [service]. With no systemd user manager it prints the units and the autosync
 command instead. On macOS it does the same with the dev.satelle.satelled,

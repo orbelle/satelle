@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/bobmcallan/satelle/internal/item"
 )
 
 const fakeSprite = `#!/bin/sh
@@ -602,4 +604,151 @@ func TestReleaseSpriteStopAtReleaseIsToPublishAndAReFirePublishes(t *testing.T) 
 		t.Fatalf("the re-fire left a draft, or v1.0.1 is not latest (%q)", x.latest())
 	}
 	x.mainStays(t, main)
+}
+
+func (x *spriteBox) redAwareMain() {
+	x.t.Helper()
+	x.write("Makefile", "test:\n\tgit rev-parse HEAD >>'"+x.suiteLog+"'\n\t@for f in red-*; do [ -e \"$$f\" ] || continue; echo \"--- FAIL: Test$$f (0.00s)\"; exit 1; done\n")
+	x.git("add", "Makefile")
+	x.git("commit", "-q", "-m", "a suite that fails on a red file")
+	x.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	x.git("fetch", "-q", "origin")
+	x.base = x.rev("HEAD")
+}
+
+func (x *spriteBox) again() (cand string, fire, read result) {
+	x.t.Helper()
+	x.git("checkout", "-q", "--detach", x.base)
+	x.mustBlock("### Build the candidate")
+	x.mustBlock("### Send back")
+	x.driftGate()
+	x.mustBlock(nodeInputHeading)
+	cand = strings.TrimSpace(x.exec("cat", "", filepath.Join(x.rd, "drift-checked")).out)
+	x.git("checkout", "-q", "--detach", cand)
+	fire = x.block("\n### Fire the node's part\n")
+	read = x.block("\n### Read the node's result\n")
+	return cand, fire, read
+}
+
+func (x *spriteBox) storyStatus(id string) string {
+	x.t.Helper()
+	var it item.Item
+	x.mustJSON(&it, "story", "get", id)
+	return it.Status
+}
+
+func (x *spriteBox) isolating(read result, leaves ...string) {
+	x.t.Helper()
+	if read.code != 3 || !strings.Contains(read.err, "isolate: ") {
+		x.t.Fatalf("read: exit %d, want 3 and isolate\n%s%s", read.code, read.out, read.err)
+	}
+	for _, id := range leaves {
+		if !strings.Contains(read.err, id) {
+			x.t.Fatalf("read does not leave out %s:\n%s", id, read.err)
+		}
+	}
+}
+
+func TestReleaseSpriteIsolatesTheStoryThatBreaksTheSuite(t *testing.T) {
+	x := newSpriteBox(t)
+	x.redAwareMain()
+	good, goodHead := x.story("g", "### Fixed\n- G fixes the source\n", [2]string{"g.txt", "good\n"})
+	red, redHead := x.story("r", "### Fixed\n- R breaks the suite\n", [2]string{"red-r", "red\n"})
+	run, _, fire, read := x.release()
+	if fire.code == 0 {
+		t.Fatalf("fire: want the red candidate's reject\n%s%s", fire.out, fire.err)
+	}
+	x.isolating(read, red)
+	if x.runStatus(run) == "cancelled" {
+		t.Fatalf("the run %s was cancelled on the first red suite", run)
+	}
+	cand, fire, read := x.again()
+	if fire.code != 0 || read.code != 0 {
+		t.Fatalf("trial: fire exit %d\n%s%s\nread exit %d\n%s%s", fire.code, fire.out, fire.err, read.code, read.out, read.err)
+	}
+	if r := x.exec("git", "", "merge-base", "--is-ancestor", redHead, cand); r.code == 0 {
+		t.Fatalf("the passing candidate %s carries the red head", cand)
+	}
+	x.git("fetch", "-q", "origin")
+	if r := x.exec("git", "", "merge-base", "--is-ancestor", goodHead, "origin/main"); r.code != 0 {
+		t.Fatal("the good story did not land on main")
+	}
+	if st := x.storyStatus(red); st != "in_progress" {
+		t.Fatalf("the red story is %s, want in_progress", st)
+	}
+	if st := x.storyStatus(good); st == "in_progress" {
+		t.Fatal("the good story was sent back")
+	}
+	sb := x.must("story", "attachment", red, "release-sendback")
+	if !strings.Contains(sb, "Testred-r") || !strings.Contains(sb, "leaving out "+red+" made it pass") {
+		t.Fatalf("release-sendback:\n%s", sb)
+	}
+	rec := x.must("execution", "attachment", run, "release-isolation")
+	if !strings.Contains(rec, "Testred-r") || !strings.Contains(rec, "trial 1: left out "+red+": passed") {
+		t.Fatalf("release-isolation:\n%s", rec)
+	}
+	x.noToken("release-isolation", rec, sb)
+}
+
+func TestReleaseSpriteIsolationLeavesOutMoreWhenOneIsNotEnough(t *testing.T) {
+	x := newSpriteBox(t)
+	x.redAwareMain()
+	good, goodHead := x.story("g", "### Fixed\n- G fixes the source\n", [2]string{"g.txt", "good\n"})
+	r1, _ := x.story("r1", "### Fixed\n- R1 breaks the suite\n", [2]string{"red-1", "red\n"})
+	r2, _ := x.story("r2", "### Fixed\n- R2 breaks the suite\n", [2]string{"red-2", "red\n"})
+	run, _, _, read := x.release()
+	x.isolating(read, r2)
+	_, _, read = x.again()
+	x.isolating(read, r1)
+	_, _, read = x.again()
+	x.isolating(read, r1, r2)
+	_, fire, read := x.again()
+	if fire.code != 0 || read.code != 0 {
+		t.Fatalf("trial 3: fire exit %d\n%s%s\nread exit %d\n%s%s", fire.code, fire.out, fire.err, read.code, read.out, read.err)
+	}
+	for _, id := range []string{r1, r2} {
+		if st := x.storyStatus(id); st != "in_progress" {
+			t.Fatalf("%s is %s, want in_progress", id, st)
+		}
+	}
+	if st := x.storyStatus(good); st == "in_progress" {
+		t.Fatal("the good story was sent back")
+	}
+	x.git("fetch", "-q", "origin")
+	if r := x.exec("git", "", "merge-base", "--is-ancestor", goodHead, "origin/main"); r.code != 0 {
+		t.Fatal("the good story did not land on main")
+	}
+	rec := x.must("execution", "attachment", run, "release-isolation")
+	for _, want := range []string{"trial 1: left out " + r2 + ": the suite failed", "trial 2: left out " + r1 + ": the suite failed", "trial 3: left out " + r2 + " " + r1 + ": passed"} {
+		if !strings.Contains(rec, want) {
+			t.Fatalf("release-isolation lacks %q:\n%s", want, rec)
+		}
+	}
+}
+
+func TestReleaseSpriteIsolationCancelsWhenNoCandidatePasses(t *testing.T) {
+	x := newSpriteBox(t)
+	x.redAwareMain()
+	red, _ := x.story("r", "### Fixed\n- R breaks the suite\n", [2]string{"red-r", "red\n"})
+	ok, _ := x.story("o", "### Fixed\n- O fixes the source\n", [2]string{"o.txt", "ok\n"})
+	oldMain := x.rev("origin/main")
+	run, _, _, read := x.release()
+	x.isolating(read, ok)
+	_, _, read = x.again()
+	if read.code == 0 || !strings.Contains(read.err, "is cancelled and its items stay approved") {
+		t.Fatalf("read: exit %d, want the cancel\n%s%s", read.code, read.out, read.err)
+	}
+	if st := x.runStatus(run); st != "cancelled" {
+		t.Fatalf("the run is %s, want cancelled", st)
+	}
+	for _, id := range []string{red, ok} {
+		if st := x.storyStatus(id); st != "approved" {
+			t.Fatalf("%s is %s, want approved", id, st)
+		}
+	}
+	ev := x.must("execution", "attachment", run, "release-evidence")
+	if !strings.Contains(ev, "trial 1: left out "+ok+": the suite failed") {
+		t.Fatalf("release-evidence lacks the trial:\n%s", ev)
+	}
+	x.mainStays(t, oldMain)
 }

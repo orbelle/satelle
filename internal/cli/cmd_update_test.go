@@ -283,6 +283,7 @@ func fakeSystemctl(t *testing.T, failOn string) (log string) {
 	if failOn != "" {
 		script += "case \"$*\" in *" + failOn + "*) exit 1;; esac\n"
 	}
+	script += "case \"$*\" in \"--user show -p MainPID --value \"*) for last; do :; done; cat '" + systemctlPIDs(log) + "'/\"$last\".pid 2>/dev/null;; esac\n"
 	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +296,8 @@ func fakeSystemctl(t *testing.T, failOn string) (log string) {
 	}
 	return log
 }
+
+func systemctlPIDs(log string) string { return filepath.Join(filepath.Dir(log), "pids") }
 
 func userUnitDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
@@ -323,7 +326,7 @@ func TestUpdateInstallsTheServiceAndTimer(t *testing.T) {
 		noUnits  bool
 		wantKept bool
 	}{
-		{name: "unit present, no timer", unit: func(d string) string { return renderUnit(d, "127.0.0.1", 1) }, wantKept: true},
+		{name: "unit present, no timer", unit: func(d string) string { return renderUnit(d, "0.0.0.0", 1) }, wantKept: true},
 		{name: "unit names another binary", unit: func(string) string { return renderUnit("/old/satelled", "127.0.0.1", 1) },
 			check: func(t *testing.T, out, _, daemon, _ string) {
 				if !strings.Contains(out, "(was /old/satelled)") {
