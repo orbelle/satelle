@@ -1,0 +1,89 @@
+# The recorded results of the built satelle on the testdata/singlerepo fixture.
+# The fixture's ledger was written by satelle 1.0.149, the release before the external control-plane epic.
+# $REPO, $FOREIGN and $HOME stand for the sandbox paths; $KEY for <repo dir name>-<first 8 hex of sha256 of the repo's .git path>.
+# captured by: SATELLE_EXISTING_WRITE=1 go test -tags integration -run '^TestExistingSingleRepoProject$' ./tests/
+=== repo key and runtime path
+$HOME/.satelle/$KEY
+[exit 0]
+=== runtime list
+unknown  $HOME/.satelle/$KEY  
+[exit 0]
+=== story list
+sto_2a540655   todo           First fixture story
+sto_35c66e93   todo           Second fixture story
+sto_bac39dbf   finished       Third fixture story, finished
+[exit 0]
+=== story get sto_2a540655
+sto_2a540655  First fixture story
+kind       story
+status     todo
+workflow   default
+tags       area:fixture
+
+The body of the first story.
+
+acceptance criteria
+  1. first criterion
+  2. second criterion
+attachment plan (text/markdown, 26 bytes)
+[exit 0]
+=== story get sto_bac39dbf
+sto_bac39dbf  Third fixture story, finished
+kind       story
+status     finished
+workflow   default
+[exit 0]
+=== story attachment sto_2a540655 plan
+# Plan
+
+The fixture plan.
+[exit 0]
+=== validate
+$REPO/.satelle: configuration valid
+[exit 0]
+=== ledger verify
+ledger verified: 3 chains intact
+[exit 0]
+=== session start
+[context]
+satelle session: s-existing
+seats     none
+Pass `--session <session>` on every satelle command, where `<session>` is the id on the satelle session: line. Run each satelle command on its own, as one simple command, not joined to cd, export, ; or &&; for another worktree use `satelle -C <dir> <command>`.
+
+Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state's performer may change the tree: `satelle story seat <id> --session <session>`. A seat on a state that allows attachments only refuses every tree edit there; record its work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>`. See `satelle help edit-gate --session <session>`.
+
+Drive each seated item to a terminal state of its workflow. A turn may end with one short of that only at a park state or at a state that declares it waits on an external party (waits: a person's approval, an outside CI or score). Otherwise the stop is blocked once, naming the next move: make it. The stop straight after a blocked one is let through.
+satelle doctor: N issue(s) (read-only; `satelle doctor` lists each with its fix)
+  harness (1): claude: .claude/settings.json is absent, so this session has no satelle context or edit gate — fix: satelle agents install claude
+[system message]
+satelle doctor: N issue(s); run `satelle doctor` for each
+  harness (1) — fix: satelle agents install claude
+[exit 0]
+=== seat sto_35c66e93
+seated s-existing on sto_35c66e93 at local:$REPO (base $HEAD)
+[exit 0]
+=== set sto_35c66e93 doing
+sto_35c66e93: todo -> doing
+[exit 0]
+=== edit gate, path inside the repo
+decision: allow
+reason: 
+=== edit gate, path in another repository
+decision: allow
+reason: 
+=== edit gate, another session inside the repo
+decision: deny
+reason: satelle: edit to main.go blocked. Edits are allowed only while this session holds a seat at local:$REPO on an item whose current state's performer may change the tree. Seat one with `satelle story seat <id> --session <session>` (see `satelle status --session <session>` and `satelle help edit-gate --session <session>`).
+=== state files
+builds.json
+machine-id
+sessions/s-existing.json
+sessions/s-other.json
+$KEY/blobs/9f7ad80284314c5e121ac61f3e14ed239bf5d79b6f5e6e5b2f465a21df390627
+$KEY/cache.db
+$KEY/ledger.lock
+$KEY/ledger/sto_2a540655.jsonl
+$KEY/ledger/sto_35c66e93.jsonl
+$KEY/ledger/sto_bac39dbf.jsonl
+$KEY/repo.path
+$KEY/runtime.json
