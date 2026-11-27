@@ -126,9 +126,10 @@ before printed:
    but a valid configuration with no substrate finding, stop, report it, and
    push nothing.
 8. `git push origin <merge>:main`, a fast-forward because `<merge>` has
-   `origin/main` as a parent; then `git push origin <merge>:refs/heads/<id>`.
-   If main moved again after step 1, git refuses the push: start again from
-   step 1.
+   `origin/main` as a parent. Push nothing to the item's branch: main now
+   carries the work, and the edit gate refuses a push to a done item's branch
+   (`satelle help edit-gate --session <session>`). If main moved again after
+   step 1, git refuses the push: start again from step 1.
 
 The operator ruled this landing interim on 2026-11-28
 ([[satelle-operator-rulings]]): it retires when the substrate moves to
