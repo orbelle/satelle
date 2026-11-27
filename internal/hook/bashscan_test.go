@@ -45,6 +45,7 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: `tar -C "/dst" -xf a.tar`, paths: []string{"/dst"}},
 		{cmd: `bash -c 'rm -f q'`, paths: []string{"/w/q"}},
 		{cmd: `python3 -c 'print(1)'`, inline: []string{"/w"}},
+		{cmd: `cd /o && python3 -c 'print(1)' && git merge x`, paths: []string{"/o"}, inline: []string{"/o"}},
 		{cmd: "python3 script.py"},
 		{cmd: "cat <<'EOF' | python3 -\nprint(1)\nEOF", inline: []string{"/w"}},
 		{cmd: "chmod +x /tmp/x.sh", paths: []string{"/tmp/x.sh"}},

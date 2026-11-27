@@ -21,13 +21,15 @@ type BashTargets struct {
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
-	seen := map[string]bool{}
+	// Each list keeps its own seen set: a path the scan reads as inline must
+	// still be judged as a tree path when another segment acts on it.
+	seen := map[*[]string]map[string]bool{&t.Paths: {}, &t.Inline: {}}
 	add := func(dst *[]string, p string) {
 		p = path.Clean(p)
-		if p == "" || p == "." || seen[p] {
+		if p == "" || p == "." || seen[dst][p] {
 			return
 		}
-		seen[p] = true
+		seen[dst][p] = true
 		*dst = append(*dst, p)
 	}
 	base := path.Clean(filepath.ToSlash(cwd))
@@ -258,7 +260,7 @@ func plainCommand(words []plainWord) string {
 	w := words[0]
 	switch {
 	case isAssignmentPrefix(w.Unquoted):
-		return "an assignment (" + w.Unquoted + ")"
+		return "an assignment to " + w.Unquoted[:strings.IndexAny(w.Unquoted, "+=")]
 	case w.Value == "cd":
 		if len(words) != 2 || words[1].Value == "" || strings.HasPrefix(words[1].Value, "-") {
 			return "a cd whose target is not one plain literal path"

@@ -243,6 +243,13 @@ func TestGateGitDirQuoted(t *testing.T) {
 	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
 		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
 	}
+	// A directory the line also runs an inline program in is still judged as a
+	// tree path: one seen set across both lists let the inline entry drop it.
+	cmd = "cd " + filepath.ToSlash(foreign) + " && python3 -c 'print(1)' && git merge x"
+	v = seated.Bash(cmd, root)
+	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
+		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
+	}
 }
 
 func TestParseInputAcrossHarnesses(t *testing.T) {
@@ -917,6 +924,13 @@ func TestGateRefusesUnreadGit(t *testing.T) {
 		}
 		if ScanBash(cmd, f.root, f.root, nil).Unreadable == "" {
 			t.Errorf("%q: Unreadable is empty", cmd)
+		}
+	}
+
+	for _, cmd := range []string{"GITHUB_TOKEN=s3cr3t git push", "X+=s3cr3t git push"} {
+		v := g.Bash(cmd, f.root)
+		if v.Allow || strings.Contains(v.Reason, "s3cr3t") || !strings.Contains(v.Reason, "an assignment to "+cmd[:strings.IndexAny(cmd, "+=")]) {
+			t.Errorf("%q: %+v, want refused naming the variable and never its value", cmd, v)
 		}
 	}
 
