@@ -87,6 +87,23 @@ A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to
 the working directory of any interpreter running inline program text.
 
+A git command that is not read-only, run after a `cd` to one literal path on
+the same line, is judged at every directory the line could be in; `-C` values,
+a glued `-C<dir>` included, are followed in order. The gate reads a line only
+when every token is a plain literal word (letters, digits, `-_./,:+@^=%`, plain
+single quotes, or double quotes without `$`, a backquote or `!`) or one of
+`&&`, `||`, `;`, `|`. A segment's command may not be an assignment, or a
+builtin or keyword other than `cd` (`echo`, `printf`, `true` and `pwd`
+included), and a `cd` takes one literal path. A line holding anything else, a
+redirection, a line continuation or `$(…)` included, is unread: under the
+fail-closed rule it is refused when it holds the word git, whatever the git
+subcommand and whatever the seat. Rewrite it in plain form (`git -C <dir>`, a
+commit message with `-m '<text>'` or `-F <file>`, separate commands). The gate
+does not read git run by another program (`xargs`, `env`, `bash -c`, a
+script), or git options, configuration or environment that run programs: those
+are level 0's concern, the operator's identity, credential and sandbox
+controls.
+
 ## The stop check
 
 A session drives each item it holds a seat on to a terminal state of its
