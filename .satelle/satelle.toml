@@ -39,7 +39,7 @@ category = "chore"
 edit_exempt_paths = [".claude/**", ".grok/**", ".gitignore"]
 
 [hook]
-inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-fleet-roles.md", ".satelle/principles/satelle-reference-not-restate.md", ".satelle/skills/satelle-workflow-standard.md"]
+inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-reference-not-restate.md", ".satelle/skills/satelle-workflow-standard.md"]
 
 [review]
 tier_tag = "risk"
