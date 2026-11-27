@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -340,5 +341,165 @@ func TestServerSpritesRunsTheCheckOnAJoinedNode(t *testing.T) {
 				t.Error("the connection was not released")
 			}
 		})
+	}
+}
+
+type loggingHandle struct {
+	hostHandle
+	mu     sync.Mutex
+	log    []string
+	failOn string
+}
+
+func (l *loggingHandle) record(s string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.log = append(l.log, s)
+}
+
+func (l *loggingHandle) Exec(ctx context.Context, argv ...string) ([]byte, error) {
+	l.record(strings.Join(argv, " "))
+	if l.failOn != "" && argv[0] == l.failOn {
+		return []byte("refused by the test node"), errors.New("exit status 1")
+	}
+	return l.hostHandle.Exec(ctx, argv...)
+}
+
+func (l *loggingHandle) CopyIn(ctx context.Context, host, machine string) error {
+	l.record("copy-in " + machine)
+	return l.hostHandle.CopyIn(ctx, host, machine)
+}
+
+type loggingStarter struct {
+	h    *loggingHandle
+	root string
+}
+
+func (s *loggingStarter) StartSprite(context.Context, SpriteStart) (SpriteNode, error) {
+	return SpriteNode{Node: "nod_fake", Handle: s.h, Root: s.root}, nil
+}
+
+func runLoggedGate(t *testing.T, f spriteFixture, failOn, skillDir, script string) (*loggingStarter, gate.RemoteOutcome, error) {
+	t.Helper()
+	s := &loggingStarter{h: &loggingHandle{failOn: failOn}, root: filepath.Join(t.TempDir(), "gate")}
+	out, err := GateChecker{Tree: f.tree, DataDir: f.dataDir, Sprites: s}.RunRemote(testCtx(t), gate.RemoteCheck{
+		Remote: "integration", Gate: "chk", Script: script, Head: f.head,
+		Env: gate.CheckEnv{Item: "sto_1", SkillDir: skillDir},
+	})
+	return s, out, err
+}
+
+func TestRemoteGateSkillStagingOrder(t *testing.T) {
+	f := newSpriteFixture(t)
+	skill := t.TempDir()
+	writeSkill(t, skill, map[string]string{"scripts/run.sh": "exit 0\n", "assets/a.txt": "a\n"})
+	s, out, err := runLoggedGate(t, f, "", skill, "sh scripts/run.sh")
+	if err != nil || out.Exit != 0 {
+		t.Fatalf("RunRemote = %+v, %v", out, err)
+	}
+	nodeSkill := filepath.Join(s.root, "in", gateSkill)
+	want := []string{
+		"rm -rf " + nodeSkill,
+		"copy-in " + filepath.Join(s.root, "in"),
+		"find " + nodeSkill + " -type f -exec chmod a-w {} +",
+		"git init -q " + filepath.Join(s.root, "work"),
+	}
+	at := 0
+	for _, l := range s.h.log {
+		if at < len(want) && l == want[at] {
+			at++
+		}
+	}
+	if at != len(want) {
+		t.Fatalf("the node saw\n%s\nwant in order\n%s", strings.Join(s.h.log, "\n"), strings.Join(want, "\n"))
+	}
+	err = filepath.WalkDir(nodeSkill, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			fi, err := d.Info()
+			if err != nil {
+				return err
+			}
+			if fi.Mode()&0o222 != 0 {
+				t.Errorf("staged %s is writable: %v", p, fi.Mode())
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, out, err = runLoggedGate(t, f, "", "", "exit 0")
+	if err != nil || out.Exit != 0 {
+		t.Fatalf("RunRemote with no skill = %+v, %v", out, err)
+	}
+	for _, l := range s.h.log {
+		if strings.HasPrefix(l, "find ") {
+			t.Errorf("a check with no skill sealed one: %q", l)
+		}
+	}
+}
+
+func TestRemoteGateRunsTheSubstrateSkillNotTheHead(t *testing.T) {
+	skill := t.TempDir()
+	writeSkill(t, skill, map[string]string{
+		"scripts/run.sh": "echo \"FROM-SUBSTRATE $SATELLE_SKILL_DIR\"; cat \"$SATELLE_SKILL_DIR/assets/a.txt\"\n",
+		"assets/a.txt":   "SUBSTRATE-ASSET\n",
+	})
+	tampered := func(t *testing.T) spriteFixture {
+		f := newSpriteFixture(t)
+		writeSkill(t, filepath.Join(f.tree, ".satelle", "skills", "chk"), map[string]string{"scripts/run.sh": "echo TAMPERED\n"})
+		gittest.Git(t, f.tree, "add", ".satelle/skills")
+		gittest.Git(t, f.tree, "commit", "-q", "-m", "tamper")
+		gittest.Git(t, f.tree, "push", "-q", "origin", "main")
+		gittest.Git(t, f.tree, "fetch", "-q", "origin")
+		f.head.Commit = gittest.Git(t, f.tree, "rev-parse", "HEAD")
+		return f
+	}
+	for _, c := range []struct {
+		name     string
+		fixture  func(*testing.T) spriteFixture
+		tampered bool
+	}{
+		{"modified", tampered, true},
+		{"deleted", newSpriteFixture, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := c.fixture(t)
+			s, out, err := runLoggedGate(t, f, "", skill, "sh scripts/run.sh")
+			if err != nil || out.Exit != 0 {
+				t.Fatalf("RunRemote = %+v, %v", out, err)
+			}
+			want := "FROM-SUBSTRATE " + filepath.Join(s.root, "in", gateSkill)
+			if !strings.Contains(out.Output, want) || !strings.Contains(out.Output, "SUBSTRATE-ASSET") {
+				t.Fatalf("output %q lacks %q and the asset", out.Output, want)
+			}
+			if strings.Contains(out.Output, "/work/") || strings.Contains(out.Output, "TAMPERED") {
+				t.Fatalf("the check ran from the head: %q", out.Output)
+			}
+			if c.tampered {
+				b, err := os.ReadFile(filepath.Join(s.root, "work", ".satelle", "skills", "chk", "scripts", "run.sh"))
+				if err != nil || string(b) != "echo TAMPERED\n" {
+					t.Fatalf("the head's tampered script is not checked out: %q, %v", b, err)
+				}
+			}
+		})
+	}
+
+	f := newSpriteFixture(t)
+	for _, failOn := range []string{"rm", "find"} {
+		s, out, err := runLoggedGate(t, f, failOn, skill, "sh scripts/run.sh")
+		if err == nil || !strings.Contains(out.Output, "refused by the test node") {
+			t.Fatalf("%s failing: RunRemote = %+v, %v; want the gate failed with the node's output", failOn, out, err)
+		}
+		wrapper := "sh " + filepath.Join(s.root, "in", gateWrapper)
+		for _, l := range s.h.log {
+			if strings.HasPrefix(l, wrapper) || strings.HasPrefix(l, "git ") {
+				t.Fatalf("%s failing: the node went on to %q", failOn, l)
+			}
+		}
 	}
 }

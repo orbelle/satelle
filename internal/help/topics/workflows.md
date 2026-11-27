@@ -116,7 +116,12 @@ When a check skill is a directory (`.satelle/skills/<name>/SKILL.md`),
 the stdin JSON object. The script still runs with the item's worktree as its
 working directory, and shell check scripts resolve relative `scripts/<file>`
 and `assets/<file>` paths against `$SATELLE_SKILL_DIR` automatically, both
-locally and on a remote node.
+locally and on a remote node. On a remote node `SATELLE_SKILL_DIR` names a
+read-only copy of the skill directory, staged from this repo's substrate into
+the node's gate input and never read from the checked-out head: the target repo
+needs no `.satelle/skills`, and a commit cannot change the check that judges
+it. A remote gate refuses a skill that holds a symlink or special file, and
+`*.local.*` files in the skill are not shipped.
 
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:

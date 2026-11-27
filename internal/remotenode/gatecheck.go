@@ -191,15 +191,24 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 	}
 	defer os.RemoveAll(tmp)
 	in := filepath.Join(tmp, "in")
-	shallow, err := stageGate(g.Tree, in, c)
+	shallow, skill, err := stageGate(g.Tree, in, c)
 	if err != nil {
 		return fail(err, "")
 	}
 	if _, err := h.Exec(ctx, "mkdir", "-p", root); err != nil {
 		return fail(err, "")
 	}
+	nodeSkill := path.Join(root, "in", gateSkill)
+	if b, err := h.Exec(ctx, "rm", "-rf", nodeSkill); err != nil {
+		return fail(err, string(b))
+	}
 	if err := h.CopyIn(ctx, in, path.Join(root, "in")); err != nil {
 		return fail(err, "")
+	}
+	if skill {
+		if b, err := h.Exec(ctx, "find", nodeSkill, "-type", "f", "-exec", "chmod", "a-w", "{}", "+"); err != nil {
+			return fail(err, string(b))
+		}
 	}
 
 	phase = "fetching the head"
@@ -265,8 +274,6 @@ func collectLog(ctx context.Context, h provider.Handle, root, tmp string) string
 	return strings.TrimSpace(string(b))
 }
 
-func validateSkillRel(rel string) error { return validateTreeRel("skill directory", rel) }
-
 func validateTreeRel(what, rel string) error {
 	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") {
 		return fmt.Errorf("%s %q must be relative to the worktree", what, rel)
@@ -312,35 +319,34 @@ func resolveAbsPath(p string) (string, error) {
 	return abs, nil
 }
 
-func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
+func stageGate(tree, in string, c gate.RemoteCheck) (shallow, skill bool, err error) {
 	if err := os.MkdirAll(in, 0o755); err != nil {
-		return false, err
+		return false, false, err
 	}
-	skillRel, substrateRel := "", ""
+	substrateRel := ""
 	if c.Env.SkillDir != "" {
 		c.Script = gate.ResolveSkillScript(c.Script)
-		rel, err := treeRel("skill directory", tree, c.Env.SkillDir)
-		if err != nil {
-			return false, err
+		if err := stageSkill(c.Env.SkillDir, filepath.Join(in, gateSkill)); err != nil {
+			return false, false, fmt.Errorf("gate %s: %w", c.Gate, err)
 		}
-		skillRel = rel
+		skill = true
 		c.Env.SkillDir = ""
 	}
 	if c.Env.Substrate != "" {
 		rel, err := treeRel("substrate directory", tree, c.Env.Substrate)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		substrateRel = rel
 		c.Env.Substrate = ""
 	}
-	shallow, err := stageHead(tree, in, c.Head.Ref)
+	shallow, err = stageHead(tree, in, c.Head.Ref)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	wrapper, err := gateWrapperScript(c.Env, c.Script, skillRel, substrateRel)
+	wrapper, err := gateWrapperScript(c.Env, c.Script, skill, substrateRel)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for name, b := range map[string]string{
 		gateScript:  c.Script,
@@ -348,18 +354,13 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 		gateWrapper: wrapper,
 	} {
 		if err := os.WriteFile(filepath.Join(in, name), []byte(b), 0o644); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
-	return shallow, nil
+	return shallow, skill, nil
 }
 
-func gateWrapperScript(env gate.CheckEnv, script, skillRel, substrateRel string) (string, error) {
-	if skillRel != "" {
-		if err := validateSkillRel(skillRel); err != nil {
-			return "", err
-		}
-	}
+func gateWrapperScript(env gate.CheckEnv, script string, skill bool, substrateRel string) (string, error) {
 	if substrateRel != "" {
 		if err := validateTreeRel("substrate directory", substrateRel); err != nil {
 			return "", err
@@ -375,8 +376,8 @@ func gateWrapperScript(env gate.CheckEnv, script, skillRel, substrateRel string)
 		k, v, _ := strings.Cut(kv, "=")
 		fmt.Fprintf(&b, "export %s=%s\n", k, ShQuote(v))
 	}
-	if skillRel != "" {
-		fmt.Fprintf(&b, "export SATELLE_SKILL_DIR=\"$root/work/\"%s\n", ShQuote(skillRel))
+	if skill {
+		b.WriteString(`export SATELLE_SKILL_DIR="$root/in/` + gateSkill + `"` + "\n")
 	}
 	if substrateRel != "" {
 		fmt.Fprintf(&b, "export %s=\"$root/work/\"%s\n", config.SubstrateDirEnv, ShQuote(substrateRel))
