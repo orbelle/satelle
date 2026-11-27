@@ -142,6 +142,26 @@ func TestRunLocalWarnsOnPin(t *testing.T) {
 	}
 }
 
+func TestSubstrateBundleRefusesASymlink(t *testing.T) {
+	tree, _, _ := localFixture(t, "1.0.0")
+	dataDir := filepath.Join(tree, ".satelle")
+	outside := filepath.Join(t.TempDir(), "host-secret")
+	if err := os.WriteFile(outside, []byte("host-secret-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dataDir, "leak.md")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	gittest.Git(t, tree, "add", "-f", ".satelle/leak.md")
+	sub, err := SubstrateBundle(tree, dataDir)
+	if err == nil || !strings.Contains(err.Error(), ".satelle/leak.md") {
+		t.Fatalf("SubstrateBundle = %v", err)
+	}
+	if strings.Contains(string(sub), "host-secret-value") {
+		t.Fatal("the bundle carries the symlink's target")
+	}
+}
+
 func TestLoadLocalAndSubstrateBundle(t *testing.T) {
 	tree, _, _ := localFixture(t, "1.0.0")
 	dataDir := filepath.Join(tree, ".satelle")

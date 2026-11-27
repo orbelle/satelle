@@ -125,10 +125,18 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 		if !ok || config.LocalOnlyPath(p) {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(tree, filepath.FromSlash(f)))
+		path := filepath.Join(tree, filepath.FromSlash(f))
+		fi, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		if !fi.Mode().IsRegular() {
+			return nil, fmt.Errorf("the substrate's tracked %s is not a regular file: a fire ships no symlink or special file", f)
+		}
+		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
