@@ -704,3 +704,68 @@ groups = [{ gates = ["two"] }]
 		})
 	}
 }
+
+func sealedTestSubstrate(t *testing.T) (string, substrateState) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "b", "f.md"), []byte("sealed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealSubstrate(root); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := snapshotSubstrate(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, sealed
+}
+
+func TestSubstrateGuardIgnoresAnEvictedDirectoryInode(t *testing.T) {
+	root, sealed := sealedTestSubstrate(t)
+	evicted := substrateState{}
+	for p, e := range sealed {
+		evicted[p] = e
+	}
+	dir, ok := evicted["a/b"]
+	if !ok || !dir.Mode.IsDir() || dir.ID.Ino == 0 {
+		t.Fatalf("a/b is not a directory with an inode number: %+v", dir)
+	}
+	dir.ID.Ino += 1000
+	evicted["a/b"] = dir
+	g := &substrateGuard{root: root, sealed: evicted}
+	if err := g.check(); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	lines, err := hashedDiff(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 0 {
+		t.Fatalf("hashedDiff = %v, want no line", lines)
+	}
+}
+
+func TestSubstrateGuardNamesAChangedFile(t *testing.T) {
+	root, sealed := sealedTestSubstrate(t)
+	f := filepath.Join(root, "a", "b", "f.md")
+	if err := os.Chmod(f, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, substrateFileMode); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := hashedDiff(&substrateGuard{root: root, sealed: sealed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(lines, "changed a/b/f.md") {
+		t.Fatalf("hashedDiff = %v, want it to name changed a/b/f.md", lines)
+	}
+}
