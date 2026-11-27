@@ -543,13 +543,13 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	switch p := b.Placement; {
 	case strings.HasPrefix(p, agent.PlaceRemote):
 	case p == agent.PlaceCloud:
-		rec, err := k.record(it, events, false)
+		rec, err := k.record(it, events, recordInline)
 		if err != nil {
 			return agent.Result{}, err
 		}
 		prompt += rec.Section
 	default:
-		rec, err := k.record(it, events, true)
+		rec, err := k.record(it, events, recordFolder)
 		if err != nil {
 			return agent.Result{}, err
 		}

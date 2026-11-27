@@ -55,7 +55,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		run.Head, run.HeadErr = k.pushedHead(events, sp)
 	}
 	if k.judged(w, tr) {
-		rec, err := k.record(it, events, true)
+		rec, err := k.record(it, events, recordPointers)
 		if err != nil {
 			return gate.Run{}, sp, done, err
 		}
