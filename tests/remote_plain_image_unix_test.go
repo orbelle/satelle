@@ -94,7 +94,7 @@ kind = "task"
 task = "`+task+`"
 
 [setup]
-on_create = ["sh \"$SATELLE_SUBSTRATE_DIR\"/remotes/plain/setup.sh"]
+on_create = ["sh .satelle/remotes/plain/setup.sh"]
 
 [lifecycle]
 scope = "run"

@@ -54,8 +54,6 @@ type Kernel struct {
 	Sessions      SessionOwner
 	SessionMeta   func(session string) (harness, model string)
 	Progress      func(item string)
-	RecordsDir    string
-	Guard         func() error
 }
 
 func (k *Kernel) SubstrateDir() string { return substrateDir(k.Root) }

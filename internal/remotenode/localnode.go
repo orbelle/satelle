@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/filebundle"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -155,34 +155,22 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		fmt.Fprintf(o.Log, "node: read %d secrets\n", len(vs))
 	}
 
-	root := filepath.Join(o.Dir, nodeSubstrateDir)
 	tree := filepath.Join(o.Dir, "work")
-	runtime := filepath.Join(o.Dir, "runtime")
-	if err := unpackSubstrate(in, root, overlay); err != nil {
-		return LocalOutcome{}, err
-	}
-	if err := os.MkdirAll(tree, 0o755); err != nil {
-		return LocalOutcome{}, err
-	}
-	if run.WorkCommit != "" {
-		fmt.Fprintf(o.Log, "node: work tree at %s\n", run.WorkCommit)
-	}
-	if err := sealSubstrate(root); err != nil {
-		return LocalOutcome{}, err
-	}
-	sealed, err := snapshotSubstrate(root, true)
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	guard := &substrateGuard{root: root, sealed: sealed}
-	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	defer nr.Restore()
-	reject := func(head string, lines []string, prefix, status string) (LocalOutcome, error) {
-		fmt.Fprintln(o.Log, "node: "+head)
-		return rejectRun(o.Dir, *values, priv, head, lines, prefix, steps, status)
+	root := filepath.Join(tree, ".satelle")
+	if run.Checkout == "" {
+		sub, err := os.ReadFile(filepath.Join(in, localSubstrate))
+		if err != nil {
+			return LocalOutcome{}, err
+		}
+		entries, err := filebundle.Decode(sub, nil)
+		if err != nil {
+			return LocalOutcome{}, fmt.Errorf("%s: %w", localSubstrate, err)
+		}
+		if err := filebundle.Write(root, entries, false, nil); err != nil {
+			return LocalOutcome{}, err
+		}
+	} else {
+		fmt.Fprintf(o.Log, "node: work tree at %s\n", run.Checkout)
 	}
 	for _, phase := range []struct {
 		name string
@@ -194,11 +182,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		fmt.Fprintf(o.Log, "node: setup %s: %d commands\n", phase.name, len(phase.cmds))
 		for i, c := range phase.cmds {
 			steps.setup(phase.name, i+1, len(phase.cmds))
-			err := RunSetup(ctx, tree, phase.name, []string{c}, []string{kernel.SubstrateVar(root)}, localSetupTimeout, o.Log)
-			if guard.check() != nil {
-				return reject(changedBy(fmt.Sprintf("setup %s command %d", phase.name, i+1)), guard.failures(), "", "setup")
-			}
-			if err != nil {
+			if err := RunSetup(ctx, tree, phase.name, []string{c}, []string{kernel.SubstrateVar(root)}, localSetupTimeout, o.Log); err != nil {
 				var se *SetupError
 				if errors.As(err, &se) {
 					se.Index = i + 1
@@ -207,24 +191,16 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 			}
 		}
 	}
-	if lines, err := hashedDiff(guard); err != nil {
-		return LocalOutcome{}, err
-	} else if len(lines) > 0 {
-		return reject(changedBy("setup"), lines, "", "setup")
-	}
-	records, err := prepareRecords(tree)
-	if err != nil {
-		return reject(err.Error(), nil, "", "setup")
-	}
-	k, err := openNodeKernel(root, tree, runtime, nil, guardDispatcher{inner: o.Dispatcher, guard: guard}, nil, clean)
+	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, nil, clean)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
-	k.RecordsDir = records
-	k.Guard = guard.check
-	var closeOnce sync.Once
-	closeKernel := func() { closeOnce.Do(func() { k.Close() }) }
-	defer closeKernel()
+	defer k.Close()
+	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	defer nr.Restore()
 
 	if err := importIn(k.Ledger, in, run.Run.ItemID); err != nil {
 		return LocalOutcome{}, err
@@ -254,10 +230,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	fmt.Fprintf(o.Log, "node: driving %s\n", target)
 	res, err := k.DriveSteps(ctx, target, actor, run.Steps)
 	if err != nil {
-		if lines := guard.failures(); len(lines) > 0 {
-			closeKernel()
-			return reject(changedBy("the run"), lines, prefix, "")
-		}
 		return LocalOutcome{}, err
 	}
 	out := LocalOutcome{Verdict: res.Verdict, Notes: fmt.Sprintf("%s%s: %s", prefix, target, res.Notes), Steps: res.Steps}
@@ -268,14 +240,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	out.Notes += gates
 	if warn != "" {
 		out.Notes += "\n" + warn
-	}
-	lines, err := hashedDiff(guard)
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	if len(lines) > 0 {
-		closeKernel()
-		return reject(changedBy("the run"), lines, out.Notes+"\n", res.Item.Status)
 	}
 	out.Notes = redact(out.Notes, *values)
 	steps.concluded(res.Verdict, res.Item.Status)

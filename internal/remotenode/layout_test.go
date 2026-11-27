@@ -35,30 +35,23 @@ func rewriteRun(t *testing.T, nodeDir string, edit func(map[string]any)) {
 }
 
 func TestRunLocalRefusesAnotherLayout(t *testing.T) {
-	if NodeLayout != 3 {
-		t.Fatalf("NodeLayout = %d; this test names the layouts either side of 3", NodeLayout)
+	marker := filepath.Join(t.TempDir(), "marker")
+	f := secretFixture(t, "echo checked", []string{"touch " + marker}, "")
+	nodeDir := f.stage(t, "nod_1a70")
+	rewriteRun(t, nodeDir, func(m map[string]any) { m["layout"] = NodeLayout + 1 })
+	_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
+		Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("node layout %d", NodeLayout+1)) ||
+		!strings.Contains(err.Error(), fmt.Sprintf("node layout %d", NodeLayout)) {
+		t.Fatalf("RunLocal on another layout = %v", err)
 	}
-	for _, layout := range []int{2, 4} {
-		t.Run(fmt.Sprintf("layout %d", layout), func(t *testing.T) {
-			marker := filepath.Join(t.TempDir(), "marker")
-			f := secretFixture(t, "echo checked", []string{"touch " + marker}, "")
-			nodeDir := f.stage(t, "nod_1a70")
-			rewriteRun(t, nodeDir, func(m map[string]any) { m["layout"] = layout })
-			_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
-				Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
-			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("laid out for node layout %d", layout)) ||
-				!strings.Contains(err.Error(), fmt.Sprintf("this node implements node layout %d", NodeLayout)) {
-				t.Fatalf("RunLocal on layout %d = %v", layout, err)
-			}
-			for _, d := range []string{"substrate", "work", "runtime", "out"} {
-				if _, err := os.Stat(filepath.Join(nodeDir, d)); !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("a refused run made %s: %v", d, err)
-				}
-			}
-			if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
-				t.Fatalf("a refused run ran its setup: %v", err)
-			}
-		})
+	for _, d := range []string{"work", "runtime", "out"} {
+		if _, err := os.Stat(filepath.Join(nodeDir, d)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("a refused run made %s: %v", d, err)
+		}
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused run ran its setup: %v", err)
 	}
 }
 
@@ -82,7 +75,7 @@ func TestRunLocalRefusesNoLayout(t *testing.T) {
 				!strings.Contains(err.Error(), fmt.Sprintf("this node implements node layout %d", NodeLayout)) {
 				t.Fatalf("RunLocal with no layout = %v", err)
 			}
-			for _, d := range []string{"substrate", "work", "runtime", "out"} {
+			for _, d := range []string{"work", "runtime", "out"} {
 				if _, err := os.Stat(filepath.Join(nodeDir, d)); !errors.Is(err, fs.ErrNotExist) {
 					t.Fatalf("a refused run made %s: %v", d, err)
 				}
@@ -125,7 +118,7 @@ func TestRunLocalRefusesALayoutOneRunBeforeSetup(t *testing.T) {
 	rewriteRun(t, nodeDir, func(m map[string]any) { m["layout"] = 1 })
 	_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
 		Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
-	if err == nil || !strings.Contains(err.Error(), "is laid out for node layout 1; this node implements node layout 3; refused before setup") {
+	if err == nil || !strings.Contains(err.Error(), "is laid out for node layout 1; this node implements node layout 2; refused before setup") {
 		t.Fatalf("RunLocal on a layout-1 run = %v", err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {

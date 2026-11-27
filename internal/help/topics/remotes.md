@@ -30,10 +30,7 @@ smallest one is `docker-probe`:
 `satelle-node:local`, unless `[machine] image` names another, starts the
 container `satelle-node-<node>` with no network, seats the item at
 `remote:<node>`, and hands the node its definition, the repo's tracked
-`.satelle` files, its run and the item's chain. Those files are the node's
-substrate, unpacked read-only (files 0444) at `/node/substrate`, apart from
-its work tree `/node/work`. A firing satelle and a node of another node layout
-are refused before setup. The node is given its secrets,
+`.satelle` files, its run and the item's chain. The node is given its secrets,
 then runs setup, then drives the
 item (`--steps N` bounds it to N steps; 0, the default, goes as far as the
 item goes) and concludes; the fire verifies the chain the node returns,
@@ -43,20 +40,15 @@ imports it, releases the seat (also on failure) and records the run, which
 
 Setup commands a node runs get `SATELLE_SUBSTRATE_DIR`, the directory of the
 node's governing `.satelle`, already holding the substrate (see `satelle help
-workflows --session <session>`); on a docker-local or command node it is
-`/node/substrate`. The node checks the substrate after every setup command,
-before every check and dispatch, and again at the end: a run whose setup or
-steps change, add or remove anything there, even when the bytes are restored,
-is rejected naming each path, and nothing of it is brought back. The exception is a docker-local node's
+workflows --session <session>`). The exception is a docker-local node's
 container-start `[setup]` (a gate placed on a remote, or a node that joins with
 `--no-setup`): it runs before any substrate is on the machine and has
 `SATELLE_SUBSTRATE_DIR` unset.
 
-Once its substrate is unpacked and sealed, before setup, a node run stamps its
-runtime as a node runtime (`runtime/runtime.json`: the substrate and work tree
-it was given, the substrate's digest and the node process) and hands
-everything it starts, its setup commands, checks, triggers, after-skills,
-performers and judges, `SATELLE_NODE_RUN`
+Once its kernel is open, a node run stamps its runtime as a node runtime
+(`runtime/runtime.json`: the substrate and work tree it was given, the
+substrate's digest and the node process) and hands everything it starts, its
+checks, triggers, after-skills, performers and judges, `SATELLE_NODE_RUN`
 (the node's run directory) and `SATELLE_NODE_WITHHOLD` (the names of its
 declared secrets, never their values). A satelle command started inside the
 node's work tree then opens the node's own substrate and ledger rather than
@@ -65,9 +57,9 @@ lookup that resolution runs. The variable is only where to look: the command
 is refused unless that runtime is a node runtime, not the machine's, holds
 no link or special file, was stamped by a process the command descends from
 and, for a substrate other than the tree's own `.satelle`, still matches the
-stamped digest. On a docker-local or command node that substrate is
-`/node/substrate`, so a satelle command run from `/node/work` opens it, never
-the work tree's `.satelle`, and its digest is checked every time. A refused `SATELLE_NODE_RUN` fails the command,
+stamped digest; enforcing that digest begins where the substrate is separate
+from the work tree, and where it is the tree's own `.satelle` that substrate
+governs as it does today. A refused `SATELLE_NODE_RUN` fails the command,
 `doctor`, `init` and the project commands included, with a non-zero
 exit; it is never read as not in a repo. The hooks, the session-start doctor
 and `ledger autosync` never follow it: they always use the work tree's own
@@ -169,11 +161,7 @@ refused for a definition that declares `[secrets]`, by `satelle validate
 
 A docker-local task remote may set `[drive] checkout = true`: the fire bundles
 the firing tree's HEAD commit and checks it out, detached, at the node's work
-tree `/node/work` before setup, with no network; the commit's own `.satelle`
-stays there unchanged for the task to read, and the substrate governing the
-run is still the firing tree's, at `/node/substrate`. Record folders for
-performers are made at `/node/work/.satelle/runs`; a commit that tracks a
-symlink at `.satelle`, or anything at `.satelle/runs`, is refused.
+tree before setup, with no network, in place of the tracked `.satelle` files.
 `docker-drift-check` uses it to run `scripts/drift-check.sh` on the commit.
 The default node image carries git, jq and bash. A concluded run's notes carry
 each gate the node ran, as `gate <gate> <result>:` followed by the gate's full

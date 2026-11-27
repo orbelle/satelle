@@ -7,10 +7,7 @@ import (
 	"syscall"
 )
 
-func FileIdentity(info fs.FileInfo) (FileID, bool) {
+func extraLinks(info fs.FileInfo) bool {
 	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return FileID{}, false
-	}
-	return FileID{Dev: uint64(st.Dev), Ino: uint64(st.Ino), Ctime: st.Ctim.Nano(), Nlink: uint64(st.Nlink)}, true
+	return ok && st.Nlink > 1
 }
