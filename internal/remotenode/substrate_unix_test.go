@@ -566,6 +566,22 @@ func TestRunLocalRefusesAPlantedRecordsPath(t *testing.T) {
 	}
 }
 
+func TestRunLocalRefusesASwappedWorkTree(t *testing.T) {
+	outside := t.TempDir()
+	keep := filepath.Join(outside, "keep")
+	if err := os.Mkdir(keep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := setupFixture(t, "echo checked", []string{`cd .. && mv work work.real && ln -s '` + outside + `' work`})
+	nodeDir := f.stage(t, "nod_7a")
+	r := runRejected(t, f, nodeDir, nil)
+	r.names(t, "the work tree "+filepath.Join(nodeDir, "work")+" is not a directory")
+	r.noGates(t)
+	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 1 || !exists(keep) {
+		t.Fatalf("the run wrote outside the node: %v, %v", entries, err)
+	}
+}
+
 func TestRunLocalWorkTreeSatelleWritesDoNotGovern(t *testing.T) {
 	plant := `mkdir -p .satelle/workflows && printf '[workflows]\ndefault = "other"\n' > .satelle/satelle.toml && ` +
 		`sed 's/gates.two/gates.planted/; s/"two"/"planted"/' "$SATELLE_SUBSTRATE_DIR/workflows/chk.toml" > .satelle/workflows/chk.toml`

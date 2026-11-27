@@ -209,6 +209,9 @@ func sealSubstrate(root string) error {
 func prepareRecords(tree string) (string, error) {
 	data := filepath.Join(tree, ".satelle")
 	records := filepath.Join(data, "runs")
+	if fi, err := os.Lstat(tree); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("refused: the work tree %s is not a directory", tree)
+	}
 	fi, err := os.Lstat(data)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

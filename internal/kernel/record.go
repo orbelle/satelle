@@ -298,6 +298,7 @@ func (k *Kernel) recordsParent() (string, error) {
 	}
 	check := []string{k.RecordsDir}
 	if rel, err := filepath.Rel(k.Dir, k.RecordsDir); err == nil && k.Dir != "" && rel != "." && !strings.HasPrefix(rel, "..") {
+		check = append(check, k.Dir)
 		p := k.Dir
 		for _, part := range strings.Split(rel, string(filepath.Separator)) {
 			p = filepath.Join(p, part)

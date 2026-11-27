@@ -423,3 +423,18 @@ func TestRecordsDirSymlinkRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordsParentRefusesASymlinkedWorkTree(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(outside, "records"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(t.TempDir(), "work")
+	if err := os.Symlink(outside, tree); err != nil {
+		t.Fatal(err)
+	}
+	k := &Kernel{Dir: tree, RecordsDir: filepath.Join(tree, "records")}
+	if _, err := k.recordsParent(); err == nil || !strings.Contains(err.Error(), tree+" is not a directory") {
+		t.Fatalf("recordsParent under a symlinked work tree = %v", err)
+	}
+}
