@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -1066,4 +1068,89 @@ func TestJudgeDispatchAppliesDiffBoundAndSummaries(t *testing.T) {
 	if !strings.Contains(trailer, "- c_huge.go\n") || strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- b_cut.go\n") {
 		t.Fatalf("default: unexpected cut list:\n%s", trailer)
 	}
+}
+
+func TestGuardStopsEveryScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the scripts are sh")
+	}
+	marker := func(dir, name string) workflow.Skill {
+		return workflow.Skill{Meta: map[string]string{"type": workflow.TypeCheck}, Script: "touch " + filepath.Join(dir, name)}
+	}
+	always := func(dir, name string) workflow.Skill {
+		s := marker(dir, name)
+		s.Meta["after"] = "always"
+		return s
+	}
+	ran := func(dir, name string) bool {
+		_, err := os.Stat(filepath.Join(dir, name))
+		return err == nil
+	}
+	guardErr := errors.New("the substrate was changed")
+	failFrom := func(n int) func() error {
+		calls := 0
+		return func() error {
+			calls++
+			if calls >= n {
+				return guardErr
+			}
+			return nil
+		}
+	}
+	run := func(t *testing.T, after []string, guard func() error) (Result, string) {
+		t.Helper()
+		dir := t.TempDir()
+		r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}},
+			map[string]workflow.Gate{"g": {Skill: "chk", Trigger: "trig", After: after}})
+		r.Skills["trig"] = marker(dir, "trig")
+		r.Skills["chk"] = marker(dir, "chk")
+		r.Skills["af"] = marker(dir, "af")
+		r.Skills["aa"] = always(dir, "aa")
+		r.Dir, r.Guard = t.TempDir(), guard
+		rs, _ := r.Execute(context.Background())
+		if len(rs) != 1 {
+			t.Fatalf("results %s", results(rs))
+		}
+		return rs[0], dir
+	}
+	t.Run("guard fails from the start", func(t *testing.T) {
+		res, dir := run(t, []string{"aa", "af"}, failFrom(1))
+		for _, n := range []string{"trig", "chk", "aa", "af"} {
+			if ran(dir, n) {
+				t.Errorf("%s ran", n)
+			}
+		}
+		if res.Result != Error || !strings.Contains(res.Notes, guardErr.Error()) {
+			t.Fatalf("result %+v", res)
+		}
+	})
+	t.Run("guard fails after the main check", func(t *testing.T) {
+		res, dir := run(t, []string{"aa", "af"}, failFrom(3))
+		if !ran(dir, "trig") || !ran(dir, "chk") || ran(dir, "aa") || ran(dir, "af") {
+			t.Fatal("the scripts before the guard failed did not run, or those after it did")
+		}
+		if res.Result != Error || !Refuses(res.Result) || !strings.Contains(res.Notes, guardErr.Error()) {
+			t.Fatalf("result %+v", res)
+		}
+	})
+	t.Run("guard fails after the first after-skill", func(t *testing.T) {
+		res, dir := run(t, []string{"af", "aa"}, failFrom(4))
+		if !ran(dir, "af") || ran(dir, "aa") {
+			t.Fatal("the first after-skill did not run, or the second did")
+		}
+		if res.Result != Error || !strings.Contains(res.Notes, "after aa: not run: "+guardErr.Error()) {
+			t.Fatalf("result %+v", res)
+		}
+	})
+	t.Run("nil Guard", func(t *testing.T) {
+		res, dir := run(t, []string{"aa", "af"}, nil)
+		for _, n := range []string{"trig", "chk", "aa", "af"} {
+			if !ran(dir, n) {
+				t.Errorf("%s did not run", n)
+			}
+		}
+		if res.Result != Accept {
+			t.Fatalf("result %+v", res)
+		}
+	})
 }
