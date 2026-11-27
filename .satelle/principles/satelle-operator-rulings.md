@@ -381,3 +381,7 @@ are reviewed*).
   repositories is intended." "satelle-substrate starts on a clean ledger;
   importing the old one is a later, optional step." (operator, 2026-11-27;
   epic sto_5afbd604, [[satelle-control-plane-architecture]] §1).
+- **The control-plane repository is named satelle-factory.** "a better name,
+  or more industry aligned name is satelle-factory" (operator, 2026-11-27): it
+  replaces satelle-substrate in the ruling above; the stories of epics
+  sto_5afbd604 and sto_540e3431 name it so.
