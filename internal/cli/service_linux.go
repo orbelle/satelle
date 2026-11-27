@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -45,30 +46,83 @@ func applyUnits(w io.Writer, u serviceUnits, force bool) error {
 		printUnits(w, u)
 		return errNoSystemd
 	}
+	written := map[string]bool{}
 	for _, f := range []struct{ name, body string }{
 		{serviceUnitName, u.Daemon}, {syncServiceName, u.SyncService}, {syncTimerName, u.SyncTimer}, {followServiceName, u.Follow},
 	} {
-		if _, err := writeDefinition(w, userUnitPath(f.name), f.body, force, unitDaemon); err != nil {
+		wrote, err := writeDefinition(w, userUnitPath(f.name), f.body, force, unitDaemon)
+		if err != nil {
+			return err
+		}
+		written[f.name] = wrote
+	}
+	if err := systemctlStep("daemon-reload"); err != nil {
+		return err
+	}
+	daemonLine := ""
+	if _, err := os.Stat(unitPath()); err == nil {
+		if daemonLine, err = startUnit(serviceUnitName, written[serviceUnitName]); err != nil {
 			return err
 		}
 	}
-	steps := [][]string{{"daemon-reload"}}
-	_, daemonErr := os.Stat(unitPath())
-	if daemonErr == nil {
-		steps = append(steps, []string{"enable", serviceUnitName}, []string{"restart", serviceUnitName})
+	if err := systemctlStep("enable", "--now", syncTimerName); err != nil {
+		return err
 	}
-	steps = append(steps, []string{"enable", "--now", syncTimerName}, []string{"enable", followServiceName}, []string{"restart", followServiceName})
-	for _, args := range steps {
-		if out, err := systemctl(args...); err != nil {
-			return fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, out)
-		}
+	followLine, err := startUnit(followServiceName, written[followServiceName])
+	if err != nil {
+		return err
 	}
-	if daemonErr == nil {
-		fmt.Fprintf(w, "%s enabled and (re)started\n", serviceUnitName)
+	if daemonLine != "" {
+		fmt.Fprintf(w, "%s %s\n", serviceUnitName, daemonLine)
 	}
 	fmt.Fprintf(w, "%s enabled and started: each project on this machine syncs every %s\n", syncTimerName, mirror.SyncPeriod)
-	fmt.Fprintf(w, "%s enabled and (re)started: writes push and other locations' changes pull within seconds\n", followServiceName)
+	fmt.Fprintf(w, "%s %s: writes push and other locations' changes pull within seconds\n", followServiceName, followLine)
 	return nil
+}
+
+func systemctlStep(args ...string) error {
+	if out, err := systemctl(args...); err != nil {
+		return fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return nil
+}
+
+func startUnit(name string, wrote bool) (string, error) {
+	bin := ""
+	if b, err := os.ReadFile(userUnitPath(name)); err == nil {
+		bin = unitDaemon(string(b))
+	}
+	keep := !wrote && runsInstalled(name, bin)
+	if err := systemctlStep("enable", name); err != nil {
+		return "", err
+	}
+	if keep {
+		return "enabled and already running " + bin + ", not restarted", nil
+	}
+	if err := systemctlStep("restart", name); err != nil {
+		return "", err
+	}
+	return "enabled and (re)started", nil
+}
+
+func runsInstalled(name, bin string) bool {
+	if bin == "" {
+		return false
+	}
+	out, err := systemctl("show", "-p", "MainPID", "--value", name)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	running, err := os.Stat("/proc/" + strconv.Itoa(pid) + "/exe")
+	if err != nil {
+		return false
+	}
+	installed, err := os.Stat(bin)
+	return err == nil && os.SameFile(running, installed)
 }
 
 func uninstallUnit(w io.Writer) error {

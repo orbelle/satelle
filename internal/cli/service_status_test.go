@@ -195,3 +195,53 @@ func TestServiceRefreshKeepsMatchingUnits(t *testing.T) {
 		t.Errorf("second refresh rewrote a unit:\n%s", second)
 	}
 }
+
+func TestWriteDefinitionKeepsOnlyWhatSatelleWouldWrite(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "bin", "satelled")
+	writeExec(t, real, "#!/bin/sh\nexit 0\n")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(filepath.Join(dir, "bin"), link); err != nil {
+		t.Fatal(err)
+	}
+	amp := filepath.Join(dir, "a&b")
+	if err := os.Symlink(filepath.Join(dir, "bin"), amp); err != nil {
+		t.Fatal(err)
+	}
+	want := renderUnit(real, "0.0.0.0", 1)
+	for _, tc := range []struct {
+		name, old, body string
+		binOf           func(string) string
+		why             string
+	}{
+		{name: "identical bytes", old: want, body: want, binOf: unitDaemon},
+		{name: "same file through a symlinked path", old: renderUnit(filepath.Join(link, "satelled"), "0.0.0.0", 1), body: want, binOf: unitDaemon},
+		{name: "another binary", old: renderUnit("/old/satelled", "0.0.0.0", 1), body: want, binOf: unitDaemon, why: " (was /old/satelled)"},
+		{name: "other bytes differ", old: renderUnit(real, "0.0.0.0", 2), body: want, binOf: unitDaemon, why: " (changed)"},
+		{name: "missing", body: want, binOf: unitDaemon, why: " (missing)"},
+		{name: "escaped plist path rewrites once", old: renderDaemonPlist(filepath.Join(amp, "satelled"), "0.0.0.0", 1), body: renderDaemonPlist(real, "0.0.0.0", 1), binOf: plistProgram, why: " (changed)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "def")
+			if tc.old != "" {
+				writeFile(t, p, tc.old)
+			}
+			var out bytes.Buffer
+			wrote, err := writeDefinition(&out, p, tc.body, false, tc.binOf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := "kept " + p + "\n"
+			if tc.why != "" {
+				line = "wrote " + p + tc.why + "\n"
+			}
+			if wrote != (tc.why != "") || out.String() != line {
+				t.Errorf("wrote %v, output %q, want %q", wrote, out.String(), line)
+			}
+			out.Reset()
+			if wrote, _ := writeDefinition(&out, p, tc.body, false, tc.binOf); wrote {
+				t.Errorf("a second write rewrote it: %q", out.String())
+			}
+		})
+	}
+}
