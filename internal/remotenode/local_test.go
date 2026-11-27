@@ -1288,7 +1288,7 @@ func TestRunLocalSetupNamesTheSubstrate(t *testing.T) {
 		t.Fatalf("RunLocal = %+v, %v\n%s", out, err, log.String())
 	}
 	seen, err := os.ReadFile(filepath.Join(nodeDir, "substrate-seen"))
-	if want := filepath.Join(nodeDir, "work", ".satelle") + "\n"; err != nil || string(seen) != want {
+	if want := filepath.Join(nodeDir, "substrate") + "\n"; err != nil || string(seen) != want {
 		t.Fatalf("setup saw SATELLE_SUBSTRATE_DIR %q (%v), want %q", seen, err, want)
 	}
 }
