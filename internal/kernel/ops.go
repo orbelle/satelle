@@ -139,10 +139,11 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 		return draft, fmt.Errorf("id prefix %q for kind %q is not usable in an id", prefix, draft.Kind)
 	}
 	if id != "" {
-		if n, _ := k.Ledger.Size(id); n > 0 {
-			return draft, fmt.Errorf("item %s already exists", id)
-		}
-		if _, err := k.append(id, item.KindCreated, actor, f); err != nil {
+		if _, err := k.appendAfter(id, item.KindCreated, actor, "", f); err != nil {
+			var stale *ledger.StaleTail
+			if errors.As(err, &stale) {
+				return draft, fmt.Errorf("item %s already exists: %w", id, err)
+			}
 			return draft, err
 		}
 		return k.Get(id)
@@ -612,16 +613,29 @@ type TaskRunRecord struct {
 	Queue   string   `json:"queue,omitempty"`
 }
 
-func (k *Kernel) runInputs(run string) []string {
-	ev, err := k.Cache.Events(run, KindTaskRun)
-	if err != nil || len(ev) == 0 {
-		return nil
-	}
+func firstTaskRun(events []ledger.Event) (TaskRunRecord, bool, error) {
 	var rec TaskRunRecord
-	if ev[0].Decode(&rec) != nil {
-		return nil
+	for _, e := range events {
+		if e.Kind == KindTaskRun {
+			return rec, true, e.Decode(&rec)
+		}
 	}
-	return rec.Inputs
+	return rec, false, nil
+}
+
+func (k *Kernel) taskRun(id string) (item.Item, TaskRunRecord, bool, error) {
+	if !ledger.ValidItem(id) {
+		return item.Item{}, TaskRunRecord{}, false, fmt.Errorf("invalid item id %q", id)
+	}
+	if n, err := k.Ledger.Size(id); err != nil || n == 0 {
+		return item.Item{}, TaskRunRecord{}, false, err
+	}
+	run, events, err := k.load(id)
+	if err != nil {
+		return run, TaskRunRecord{}, false, err
+	}
+	rec, settled, err := firstTaskRun(events)
+	return run, rec, settled, err
 }
 
 func (k *Kernel) TaskInputs(taskID string) ([]string, error) {
@@ -675,11 +689,33 @@ func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunR
 		rec.BaseRef, _ = g.Branch()
 	}
 	exec, err := k.create(f, actor, id)
+	var stale *ledger.StaleTail
+	if id != "" && errors.As(err, &stale) {
+		existing, gerr := k.Get(id)
+		if gerr != nil || existing.Kind != ExecutionKind || (f.Parent != nil && existing.Parent != *f.Parent) {
+			return exec, rec, err
+		}
+		exec, err = existing, nil
+	}
 	if err != nil {
 		return exec, rec, err
 	}
-	if _, err := k.append(exec.ID, KindTaskRun, actor, rec); err != nil {
+	_, events, err := k.load(exec.ID)
+	if err != nil {
 		return exec, rec, err
+	}
+	if prior, ok, err := firstTaskRun(events); ok || err != nil {
+		return exec, prior, err
+	}
+	if _, err := k.appendAfter(exec.ID, KindTaskRun, actor, events[len(events)-1].Hash, rec); err != nil {
+		if !errors.As(err, &stale) {
+			return exec, rec, err
+		}
+		run, prior, settled, rerr := k.taskRun(exec.ID)
+		if rerr != nil || !settled {
+			return exec, rec, err
+		}
+		return run, prior, nil
 	}
 	return exec, rec, nil
 }

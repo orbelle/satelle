@@ -193,10 +193,15 @@ func TestOriginDoesNotChangeKernelReads(t *testing.T) {
 	same("rejections", rejections(it, with), rejections(it, without))
 	same("FoldSeats", item.FoldSeats(with[:3]), item.FoldSeats(without[:3]))
 	same("FoldAttachments", item.FoldAttachments(with), item.FoldAttachments(without))
-	if got := k.runInputs(run.ID); !reflect.DeepEqual(got, []string{it.ID}) {
-		t.Fatalf("runInputs %v", got)
+	_, rec, _, err := k.taskRun(run.ID)
+	if err != nil || !reflect.DeepEqual(rec.Inputs, []string{it.ID}) {
+		t.Fatalf("taskRun %v %v", rec.Inputs, err)
 	}
-	same("runInputs", k.runInputs(run.ID), twin.runInputs(run.ID))
+	_, twinRec, _, err := twin.taskRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same("taskRun", rec, twinRec)
 	qa, err := k.Ledger.Read(q.ID)
 	if err != nil {
 		t.Fatal(err)
