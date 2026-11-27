@@ -346,7 +346,7 @@ func TestPushReaderReadsWhatGitReceives(t *testing.T) {
 	const record = `git() { for a; do if [ "$a" = push ]; then printf '%s\037' "$@"; printf '\036'; exit 0; fi; done; }`
 	for c := range pushBranchRows {
 		if strings.Contains(c, "/usr/bin/git") {
-			continue // an absolute path runs the real git, not the recording function
+			continue
 		}
 		var fromBash [][]string
 		for _, rec := range strings.Split(strings.TrimSuffix(runUnderBash(t, record, c), "\036"), "\036") {
