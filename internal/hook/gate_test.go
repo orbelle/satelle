@@ -243,8 +243,6 @@ func TestGateGitDirQuoted(t *testing.T) {
 	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
 		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
 	}
-	// A directory the line also runs an inline program in is still judged as a
-	// tree path: one seen set across both lists let the inline entry drop it.
 	cmd = "cd " + filepath.ToSlash(foreign) + " && python3 -c 'print(1)' && git merge x"
 	v = seated.Bash(cmd, root)
 	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {

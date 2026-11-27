@@ -21,8 +21,6 @@ type BashTargets struct {
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
-	// Each list keeps its own seen set: a path the scan reads as inline must
-	// still be judged as a tree path when another segment acts on it.
 	seen := map[*[]string]map[string]bool{&t.Paths: {}, &t.Inline: {}}
 	add := func(dst *[]string, p string) {
 		p = path.Clean(p)
