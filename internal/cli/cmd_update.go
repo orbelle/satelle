@@ -88,12 +88,13 @@ of the highest version (serve-v<version> tags, compared numerically), or with
 serve-v<version> when --version is given. Every download is checked before
 anything is replaced, so a refusal leaves both binaries as they were.
 
-Then, even when both were current, update installs and refreshes the service
-as 'satelle service refresh' does: it installs satelled's unit and
-satelle-sync.timer when missing, repoints a unit naming another binary,
-restarts satelled onto the new build, starts the sync timer and prints
-'satelle service status'; with no systemd user manager it prints the units and
-the autosync command. On macOS it does the same with the dev.satelle.satelled
+Then update refreshes the service as 'satelle service refresh' does: it
+installs a missing unit, rewrites a unit that differs from what satelle would
+write (one naming another binary among them), and restarts satelled or
+satelle-follow.service only when its unit was rewritten or it does not run the
+installed binary, so a satelled and follow already running the current build
+keep running; it starts the sync timer and prints 'satelle service status';
+with no systemd user manager it prints the units and the autosync command. On macOS it does the same with the dev.satelle.satelled
 and dev.satelle.sync launch agents. --no-service or SATELLE_NO_SERVICE=1 skips every unit
 change; a running satelled then keeps the old build until
 'satelle service restart'.

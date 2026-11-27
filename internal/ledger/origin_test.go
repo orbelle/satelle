@@ -192,6 +192,11 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 		"remotenode/fetch.go":    true,
 		"uipush/client.go":       true,
 	}
+	gitRemote := map[string]bool{
+		"reporeg/reporeg.go":  true,
+		"cli/cmd_repo.go":     true,
+		"cli/doctor_repos.go": true,
+	}
 	needles := []string{"OriginKey", ".Origin", "ledger.Origin", "EnvRole", "WorkerFromEnv", "WorkerEnv", `"origin"`}
 	root := ".."
 	var hits []string
@@ -215,6 +220,9 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 			return err
 		}
 		for _, n := range needles {
+			if n == `"origin"` && gitRemote[rel] {
+				continue
+			}
 			if strings.Contains(string(b), n) {
 				hits = append(hits, rel+": "+n)
 			}

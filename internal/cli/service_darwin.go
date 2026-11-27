@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -70,6 +71,7 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 		written[a.label] = wrote
 	}
 	_, daemonErr := os.Stat(launchAgentPath(daemonLabel))
+	started := map[string]string{daemonLabel: "loaded and (re)started", followLabel: "loaded and (re)started"}
 	for _, label := range []string{daemonLabel, syncLabel, followLabel} {
 		path := launchAgentPath(label)
 		if _, err := os.Stat(path); err != nil {
@@ -93,17 +95,76 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 				return err
 			}
 		case label == daemonLabel || label == followLabel:
+			bin := ""
+			if b, err := os.ReadFile(path); err == nil {
+				bin = plistProgram(string(b))
+			}
+			if runsInstalled(label, bin) {
+				started[label] = "loaded and already running " + bin + ", not restarted"
+				continue
+			}
 			if err := launchctlStep("kickstart", "-k", agentTarget(label)); err != nil {
 				return err
 			}
 		}
 	}
 	if daemonErr == nil {
-		fmt.Fprintf(w, "%s loaded and (re)started\n", daemonLabel)
+		fmt.Fprintf(w, "%s %s\n", daemonLabel, started[daemonLabel])
 	}
 	fmt.Fprintf(w, "%s loaded: each project on this machine syncs every %s\n", syncLabel, mirror.SyncPeriod)
-	fmt.Fprintf(w, "%s loaded and (re)started: writes push and other locations' changes pull within seconds\n", followLabel)
+	fmt.Fprintf(w, "%s %s: writes push and other locations' changes pull within seconds\n", followLabel, started[followLabel])
 	return nil
+}
+
+func agentPID(label string) int {
+	out, err := launchctl("print", agentTarget(label))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "pid = "); ok {
+			if pid, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && pid > 0 {
+				return pid
+			}
+		}
+	}
+	return 0
+}
+
+func runsInstalled(label, bin string) bool {
+	if bin == "" {
+		return false
+	}
+	pid := agentPID(label)
+	if pid == 0 {
+		return false
+	}
+	st, err := os.Stat(bin)
+	if err != nil {
+		return false
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "txt", "-F", "Di").Output()
+	if err != nil {
+		return false
+	}
+	dev := "D0x" + strconv.FormatUint(uint64(uint32(sys.Dev)), 16)
+	ino := "i" + strconv.FormatUint(sys.Ino, 10)
+	lastDev := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(line, "D"):
+			lastDev = line
+		case strings.HasPrefix(line, "f"), strings.HasPrefix(line, "p"):
+			lastDev = ""
+		case strings.HasPrefix(line, "i") && line == ino && strings.EqualFold(lastDev, dev):
+			return true
+		}
+	}
+	return false
 }
 
 func unload(label string) error {
