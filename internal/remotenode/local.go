@@ -40,12 +40,12 @@ const RemotesDir = kernel.RemotesDir
 
 const (
 	localDefinition = "definition.bundle"
-	localSubstrate  = "substrate.bundle"
+	localSubstrate  = "substrate-ro.bundle"
 	localRunFile    = "run.json"
 	localOutcome    = "outcome.json"
 )
 
-const NodeLayout = 2
+const NodeLayout = 4
 
 const (
 	RunRunning   = "running"
@@ -125,10 +125,18 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 		if !ok || config.LocalOnlyPath(p) {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(tree, filepath.FromSlash(f)))
+		path := filepath.Join(tree, filepath.FromSlash(f))
+		fi, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		if !fi.Mode().IsRegular() {
+			return nil, fmt.Errorf("the substrate's tracked %s is not a regular file: a fire ships no symlink or special file", f)
+		}
+		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -138,11 +146,12 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 }
 
 type LocalRun struct {
-	NodeID   string        `json:"node_id"`
-	Run      RunDescriptor `json:"run"`
-	Steps    int           `json:"steps,omitempty"`
-	Checkout string        `json:"checkout,omitempty"`
-	Layout   int           `json:"layout,omitempty"`
+	NodeID          string        `json:"node_id"`
+	Run             RunDescriptor `json:"run"`
+	Steps           int           `json:"steps,omitempty"`
+	WorkCommit      string        `json:"work_commit,omitempty"`
+	Layout          int           `json:"layout,omitempty"`
+	SubstrateDigest string        `json:"substrate_digest,omitempty"`
 }
 
 type LocalOutcome struct {
@@ -1270,13 +1279,21 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 		if shallow, err = stageHead(o.Tree, in, "HEAD"); err != nil {
 			return "", false, err
 		}
-		lr.Checkout = commit
-	} else {
-		sub, err := SubstrateBundle(o.Tree, o.DataDir)
-		if err != nil {
+		lr.WorkCommit = commit
+	}
+	sub, err := SubstrateBundle(o.Tree, o.DataDir)
+	if err != nil {
+		return "", false, err
+	}
+	files[localSubstrate] = sub
+	for _, name := range []string{localSubstrate, localDefinition} {
+		if err := os.WriteFile(filepath.Join(in, name), files[name], 0o644); err != nil {
 			return "", false, err
 		}
-		files[localSubstrate] = sub
+		delete(files, name)
+	}
+	if lr.SubstrateDigest, err = stagedSubstrateDigest(in, o.Bundle); err != nil {
+		return "", false, err
 	}
 	runJSON, err := json.Marshal(lr)
 	if err != nil {
@@ -1295,7 +1312,7 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 			return "", false, err
 		}
 	}
-	return lr.Checkout, shallow, nil
+	return lr.WorkCommit, shallow, nil
 }
 
 func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (imported, error) {

@@ -7,8 +7,8 @@ description: Risk-assess gate on delivery plan -> in_progress and chore backlog 
 # Risk assessment (cold)
 
 You have not seen this story before. Read the card (your prompt) and, when the
-record folder your prompt names holds a `plan`, that plan with its `## Touches`
-section. Rate the impact risk of the change the story asks for:
+record folder your prompt names holds `attachments/plan`, read that plan there
+with its `## Touches` section. Rate the impact risk of the change the story asks for:
 
 - **high** when the change can break something many stories or users rely on:
   the kernel's state, ledger or gate behaviour, the edit gate or hooks, a

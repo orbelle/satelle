@@ -15,7 +15,8 @@ unchanged), the changed paths and the diff over the binary's sources (`cmd/`,
 released tag, or main after a binary-unchanged release), which is the work
 tree you read. A release that edits only the constitution or
 a principle reaches you too: that is how a constitution finding gets fixed.
-The record folder in your prompt holds the run's `drift-report`.
+The record folder your prompt names holds the run's report: read
+`attachments/drift-report` there.
 
 ## What to read
 
@@ -23,7 +24,7 @@ The record folder in your prompt holds the run's `drift-report`.
   them yourself, in full, before judging.
 - Any file at a path in the diff, in the work tree, when a hunk needs its
   context.
-- The run's `drift-report` (its path is in the record section): the findings
+- The run's report, `attachments/drift-report` in that record folder: the findings
   already raised, the release's fix item and its keys under `## Fix item`,
   every other open drift item with its drift-key under `## Open drift items`,
   and the `RESOLVED` lines already carried under `## Resolved by the judges`.

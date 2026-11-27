@@ -1,7 +1,7 @@
 ---
 name: satelle-integration-check
 type: check
-description: The full local suite, once, on the edge to in_review (integration → in_review, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no Linux tests (macOS and Windows run there on demand, os-test.yml); each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
+description: The full local suite, once, on the edge to in_review (integration → in_review, for a story and a chore alike): cross-builds each package release.yml publishes for each of its targets (`scripts/release-targets.sh build`), runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no Linux tests (macOS and Windows run there on demand, os-test.yml); each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
 ---
 
 # Integration check (the full suite, once, before in_review)
@@ -14,6 +14,13 @@ items (fast-forwarding or merging their heads in queue order) and runs
 to a tree the release tested (operator, 2026-11-06; sto_4d68812e). It asserts
 the installed binary and the live service are unchanged before and after.
 Verifies; installs and restarts nothing.
+
+Before the suite it cross-builds every package of the matrix in
+`.github/workflows/release.yml` for every GOOS/GOARCH there, with that
+file's CGO_ENABLED (`scripts/release-targets.sh build .`), and rejects
+naming each target that does not build and its compiler error: the suite
+runs on linux only, and a head that never compiled on darwin or windows
+would otherwise reach publish (sto_8094569e; release exe_d26ff28f).
 
 The download runs before the hermetic wrapper, with the check's own
 environment, so on a node whose only route out is its egress proxy the
@@ -41,6 +48,10 @@ if [ -f /.dockerenv ] && ! bwrap --dev-bind / / true >/dev/null 2>&1; then
 fi
 if ! go mod download; then
   echo "OBJECTIVE 2 FAILED (module download): go mod download exited non-zero before make test"
+  exit 1
+fi
+if ! bash scripts/release-targets.sh build .; then
+  echo "OBJECTIVE 2 FAILED (release targets): a binary release.yml publishes does not build for a target above"
   exit 1
 fi
 make test

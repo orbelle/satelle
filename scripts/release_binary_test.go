@@ -84,6 +84,7 @@ func fixtureFiles(t *testing.T) map[string]string {
 		".version":                       "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n",
 		"scripts/release-binary.sh":      readText(t, "release-binary.sh"),
 		"scripts/check-serve-version.sh": readText(t, "check-serve-version.sh"),
+		"scripts/release-targets.sh":     readText(t, "release-targets.sh"),
 	}
 	return files
 }

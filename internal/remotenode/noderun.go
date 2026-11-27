@@ -56,6 +56,8 @@ func MarkNodeRun(runDir, nodeID, substrate, tree string, withhold []string) (*No
 	return nr, nil
 }
 
+func (nr *NodeRun) Digest() string { return nr.stamp.Digest }
+
 func (nr *NodeRun) Restore() {
 	if nr == nil {
 		return
