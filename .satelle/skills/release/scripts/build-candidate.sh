@@ -21,6 +21,7 @@ for id in $(satelle ledger list "$exe" --kind task.run --json --session "$sessio
   st=$(satelle story get "$id" --json --session "$session" | jq -r .status)
   if [ "$st" != approved ]; then echo "$id: skipped: $st, not approved"; continue; fi
   if cut -f1 "$rd/sendback" | grep -qx "$id"; then echo "$id: sent back: its changelog"; continue; fi
+  if [ -f "$rd.isolate/out" ] && grep -qx "$id" "$rd.isolate/out"; then echo "$id: left out: isolating the failed suite (trial $(cat "$rd.isolate/trial"))"; continue; fi
   head=$(printf '%s' "$prs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
   if [ -z "$head" ]; then
     mhead=$(printf '%s' "$mprs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
