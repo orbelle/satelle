@@ -117,6 +117,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 		doctorCheck{substrate.VolatileField, checkVolatile},
 		doctorCheck{"init", checkInit},
 		doctorCheck{"agents", checkAgents},
+		doctorCheck{checkReposName, checkRepos},
 		doctorCheck{checkHarnessName, checkHarness},
 	)
 	if !in.sessionStart {
@@ -215,8 +216,8 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	for _, err := range kernel.Validate(in.r.DataDir) {
 		for _, line := range strings.Split(err.Error(), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
-				if strings.HasPrefix(line, kernel.AgentsLocalFile+": ") {
-					out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "edit .satelle/" + kernel.AgentsLocalFile + " (this machine's file)"})
+				if local := machineFile(line); local != "" {
+					out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "edit .satelle/" + local + " (this machine's file)"})
 					continue
 				}
 				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate", Resolve: resolveFixItem})
@@ -224,6 +225,15 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 		}
 	}
 	return out, nil
+}
+
+func machineFile(line string) string {
+	for _, f := range []string{kernel.AgentsLocalFile, kernel.ReposLocalFile} {
+		if strings.HasPrefix(line, f+": ") {
+			return f
+		}
+	}
+	return ""
 }
 
 const (
@@ -258,24 +268,7 @@ func checkAgents(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 			notes = append(notes, fmt.Sprintf("agents: %s overridden by .satelle/%s: %s", o.Name, kernel.AgentsLocalFile, strings.Join(parts, ", ")))
 		}
 	}
-	rel, err := filepath.Rel(in.r.Tree, filepath.Join(in.r.DataDir, kernel.AgentsLocalFile))
-	if err != nil {
-		return nil, notes
-	}
-	rel = filepath.ToSlash(rel)
-	g := gitfacts.Repo{Dir: in.r.Tree}
-	var out []doctorIssue
-	if ignored, err := g.IgnoredBy(rel); err == nil && ignored[rel] == "" {
-		out = append(out, doctorIssue{Check: "agents",
-			Problem: "no ignore rule covers " + rel + ", so a machine's overrides would show as a change in git",
-			Fix:     "add the line " + kernel.AgentsLocalFile + " to .satelle/.gitignore and commit it through this repo's workflow", Resolve: resolveFixItem})
-	}
-	if tracked, err := g.Tracks(rel); err == nil && tracked {
-		out = append(out, doctorIssue{Check: "agents",
-			Problem: rel + " is this machine's file but git tracks it",
-			Fix:     "git rm --cached " + rel + " and commit, through this repo's workflow", Resolve: resolveFixItem})
-	}
-	return out, notes
+	return machineFileIssues(in, "agents", kernel.AgentsLocalFile, "a machine's overrides"), notes
 }
 
 func bindingField(b agent.Binding, field string) string {

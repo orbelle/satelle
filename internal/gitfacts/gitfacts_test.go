@@ -401,3 +401,39 @@ func TestLinkedFrom(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteURL(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	r := Repo{Dir: dir}
+	if got, err := r.RemoteURL("origin"); got != "" || err != ErrNoRemote {
+		t.Fatalf("no origin: %q, %v; want ErrNoRemote", got, err)
+	}
+	gittest.Git(t, dir, "remote", "add", "origin", "git@github.com:o/r.git")
+	if got, err := r.RemoteURL("origin"); err != nil || got != "git@github.com:o/r.git" {
+		t.Fatalf("origin: %q, %v", got, err)
+	}
+}
+
+func TestIgnoredByHonoursEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	excludes := filepath.Join(t.TempDir(), "excludes")
+	if err := os.WriteFile(excludes, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0="+excludes)
+	got, err := Repo{Dir: dir, Env: env}.IgnoredBy("x")
+	if err != nil || !strings.Contains(got["x"], "excludes") {
+		t.Fatalf("IgnoredBy with the given env = %v, %v; want the excludes rule", got, err)
+	}
+	if got, err := (Repo{Dir: dir, Env: append(os.Environ(), "GIT_CONFIG_VALUE_0="+os.DevNull)}).IgnoredBy("x"); err != nil || got["x"] != "" {
+		t.Fatalf("IgnoredBy without the rule = %v, %v", got, err)
+	}
+}

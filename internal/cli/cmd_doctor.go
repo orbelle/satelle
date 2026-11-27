@@ -48,6 +48,18 @@ Its checks:
              local file not covered by an ignore rule, or tracked by git, is
              an issue (add agents.local.toml to .satelle/.gitignore, or
              git rm --cached it, through the repo's workflow)
+  repos      with a .satelle/repos.toml or .satelle/repos.local.toml present
+             (none: no finding and no git call): each registered repository
+             with no checkout mapped here, a mapped checkout that does not
+             exist, has no origin remote, or whose origin names another
+             repository than repos.toml (both URLs named, never with
+             credentials, query or fragment); a checkout that another control
+             repository of this machine ([projects] paths) also maps, or that
+             is either one's own root, naming both; more repositories than
+             .satelle/doctor.toml [repos] max_count; and repos.local.toml not
+             covered by an ignore rule or tracked by git. Its only git command
+             is a read of each existing checkout's origin URL; it never runs
+             a repository's fetch command (satelle repo add, satelle repo list)
   harness    a harness in use (agents.toml runs it, or the repo has its
              .claude, .cursor, .grok or .pi directory) whose hook file differs
              from satelle's current hooks: absent, holding none, running a

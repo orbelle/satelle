@@ -18,6 +18,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -81,6 +82,7 @@ type Config struct {
 	UI          UISettings
 	Init        InitSettings
 	Harness     map[string]HarnessSettings
+	Repos       reporeg.Registry
 	UnknownKeys []workflow.UnknownKey
 }
 
@@ -96,6 +98,11 @@ type DoctorSettings struct {
 	Checks  []DoctorCheck `toml:"check"`
 	Open    []DoctorOpen  `toml:"items"`
 	Resolve DoctorResolve `toml:"resolve"`
+	Repos   DoctorRepos   `toml:"repos"`
+}
+
+type DoctorRepos struct {
+	MaxCount *int `toml:"max_count"`
 }
 
 type DoctorResolve struct {
@@ -147,6 +154,8 @@ const (
 	HarnessFile     = "harness.toml"
 	AgentsFile      = "agents.toml"
 	AgentsLocalFile = "agents.local.toml"
+	ReposFile       = reporeg.TrackedFile
+	ReposLocalFile  = reporeg.LocalFile
 	SessionFile     = "session.md"
 	AutoModeFile    = "auto-mode.md"
 	WorkflowsDir    = "workflows"
@@ -365,6 +374,11 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 	} else {
 		c.Agents, c.Overrides = cat, ovs
 	}
+	reg, err := reporeg.Load(root)
+	c.Repos = reg
+	if err != nil {
+		errs = append(errs, err)
+	}
 	if wfs, err := workflow.Load(filepath.Join(root, WorkflowsDir)); err != nil {
 		errs = append(errs, err)
 		if wfs != nil {
@@ -464,6 +478,7 @@ func (c *Config) Problems() []error {
 	shipped, _ := ShippedFiles()
 	errs = append(errs, c.Init.problems(shipped)...)
 	errs = append(errs, c.harnessProblems()...)
+	errs = append(errs, c.Repos.Problems()...)
 	return append(errs, c.UI.problems()...)
 }
 
@@ -531,6 +546,9 @@ func (c *Config) doctorProblems() []error {
 		if strings.TrimSpace(o.Fix) == "" {
 			errs = append(errs, fmt.Errorf("%s: items %q has no fix", DoctorFile, o.Name))
 		}
+	}
+	if m := c.Doctor.Repos.MaxCount; m != nil && *m <= 0 {
+		errs = append(errs, fmt.Errorf("%s: [repos] max_count must be a positive integer", DoctorFile))
 	}
 	return errs
 }
