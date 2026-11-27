@@ -3,6 +3,7 @@ package ledgerrepl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -48,11 +49,11 @@ func (d *Dev) Chains(ctx context.Context, items []string) (Listing, error) {
 	l := Listing{Chains: map[string]Chain{}}
 	if items != nil {
 		for _, item := range items {
-			events, err := d.read(ctx, item)
+			events, ok, err := d.listRead(ctx, &l, item)
 			if err != nil {
 				return l, err
 			}
-			if len(events) > 0 {
+			if ok && len(events) > 0 {
 				l.Chains[item] = Chain{Len: len(events), Head: events[len(events)-1].Hash, Hole: -1}
 			}
 		}
@@ -72,9 +73,12 @@ func (d *Dev) Chains(ctx context.Context, items []string) (Listing, error) {
 			}
 			c := Chain{Len: int(h.GetSeq()), Head: h.GetHeadHash(), Hole: -1}
 			if c.Len == 0 && c.Head != "" {
-				events, err := d.read(ctx, id)
+				events, ok, err := d.listRead(ctx, &l, id)
 				if err != nil {
 					return l, err
+				}
+				if !ok {
+					continue
 				}
 				c.Len = len(events)
 			}
@@ -88,6 +92,19 @@ func (d *Dev) Chains(ctx context.Context, items []string) (Listing, error) {
 	}
 }
 
+func (d *Dev) listRead(ctx context.Context, l *Listing, item string) ([]ledger.Event, bool, error) {
+	events, err := d.read(ctx, item)
+	var ref *refusal
+	if errors.As(err, &ref) {
+		if l.Refused == nil {
+			l.Refused = map[string]string{}
+		}
+		l.Refused[item] = ref.line
+		return nil, false, nil
+	}
+	return events, err == nil, err
+}
+
 func (d *Dev) read(ctx context.Context, item string) ([]ledger.Event, error) {
 	resp, err := d.Client.Chain.Read(ctx, &chainpb.ReadRequest{Project: d.Project, ItemId: item})
 	var events []ledger.Event
@@ -96,7 +113,7 @@ func (d *Dev) read(ctx context.Context, item string) ([]ledger.Event, error) {
 		events = wire.FromProtos(resp.GetEvents())
 	case hosted.IsNotFound(err):
 	default:
-		return nil, hosted.Describe("Chain.Read "+item, err)
+		return nil, itemRefusal("Chain.Read", item, err, "left untouched")
 	}
 	if d.chains == nil {
 		d.chains = map[string][]ledger.Event{}
@@ -148,7 +165,7 @@ func (d *Dev) Offer(ctx context.Context, item string, seq int, events []ledger.E
 		return len(events), "", nil
 	}
 	if !staleHead(err) {
-		return 0, "", hosted.Describe("Chain.Append "+item, err)
+		return 0, "", itemRefusal("Chain.Append", item, err, fmt.Sprintf("not pushed past event %d", seq))
 	}
 	remote, err := d.read(ctx, item)
 	if err != nil {
@@ -157,7 +174,19 @@ func (d *Dev) Offer(ctx context.Context, item string, seq int, events []ledger.E
 	if len(remote) > seq {
 		return 0, remote[seq].Hash, nil
 	}
-	return 0, "", fmt.Errorf("the server's chain %s has %d event(s) and does not end at event %d", item, len(remote), seq-1)
+	return 0, "", &refusal{fmt.Sprintf("%s: the server's chain has %d event(s) and does not end at event %d; not pushed", item, len(remote), seq-1)}
+}
+
+func itemRefusal(op, item string, err error, tail string) error {
+	st, ok := status.FromError(err)
+	if !ok {
+		return hosted.Describe(op+" "+item, err)
+	}
+	switch st.Code() {
+	case codes.InvalidArgument, codes.FailedPrecondition, codes.OutOfRange, codes.AlreadyExists, codes.DataLoss:
+		return &refusal{fmt.Sprintf("%s: %s refused by the store: %s (%s); %s", item, op, st.Message(), st.Code(), tail)}
+	}
+	return hosted.Describe(op+" "+item, err)
 }
 
 func staleHead(err error) bool {
@@ -210,7 +239,7 @@ func (d *Dev) PutBlob(ctx context.Context, item string, ref ledger.BlobRef, body
 		Project: d.Project, ItemId: item, Name: name, Sha256: ref.SHA256, Size: int64(len(body)), MediaType: media, Body: body,
 	}})
 	if err != nil {
-		return false, hosted.Describe("AttachmentService.PutAttachment "+item+"/"+name, err)
+		return false, itemRefusal("AttachmentService.PutAttachment", item, err, name+" not pushed")
 	}
 	if d.atts != nil {
 		d.atts[attKey(item, name, ref.SHA256)] = true
@@ -225,7 +254,7 @@ func (d *Dev) GetBlob(ctx context.Context, item string, ref ledger.BlobRef) ([]b
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, hosted.Describe("AttachmentService.GetAttachment "+item+"/"+name, err)
+		return nil, false, itemRefusal("AttachmentService.GetAttachment", item, err, name+" not stored")
 	}
 	return a.GetBody(), true, nil
 }

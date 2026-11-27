@@ -52,12 +52,16 @@ func (r *Replicator) Push(ctx context.Context, items ...string) (Result, error) 
 		if len(local) == 0 {
 			continue
 		}
+		if line, ok := lst.Refused[item]; ok {
+			r.refuse(&res, line)
+			continue
+		}
 		c, ok := lst.Chains[item]
 		if ok && c.Hole >= 0 {
 			r.refuse(&res, holeLine(item, c.Hole))
 			continue
 		}
-		if err := r.pushItem(ctx, &res, item, local, c); err != nil {
+		if err := r.absorb(&res, r.pushItem(ctx, &res, item, local, c)); err != nil {
 			return res, err
 		}
 	}
