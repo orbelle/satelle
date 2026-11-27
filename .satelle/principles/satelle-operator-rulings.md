@@ -385,3 +385,13 @@ are reviewed*).
   or more industry aligned name is satelle-factory" (operator, 2026-11-27): it
   replaces satelle-substrate in the ruling above; the stories of epics
   sto_5afbd604 and sto_540e3431 name it so.
+- **The edit gate is a level-1 guard against honest mistakes.** It reads git as
+  the command word of a segment, after an optional literal cd, in a line of
+  plain literal words and the operators &&, ||, ; and |; any other token makes
+  the line unread, and an unread line that would change a tree or push is
+  refused. Git run by another program, git options or configuration that run
+  programs, files a git command writes and a later command runs, and glob
+  spellings of git are out of its scope: deliberate evasion is answered at
+  level 0 ([[satelle-control-plane-architecture]]), and the security judges
+  judge sto_1efcc7eb and sto_da6dddb9 against this scope (operator,
+  2026-11-27).
