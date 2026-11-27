@@ -617,7 +617,8 @@ func firstTaskRun(events []ledger.Event) (TaskRunRecord, bool, error) {
 	var rec TaskRunRecord
 	for _, e := range events {
 		if e.Kind == KindTaskRun {
-			return rec, true, e.Decode(&rec)
+			err := e.Decode(&rec)
+			return rec, true, err
 		}
 	}
 	return rec, false, nil
