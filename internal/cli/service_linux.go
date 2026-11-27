@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"testing"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
@@ -24,6 +25,9 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 }
 
 func systemctl(args ...string) (string, error) {
+	if testing.Testing() && (os.Getenv("XDG_RUNTIME_DIR") != "" || os.Getenv("DBUS_SESSION_BUS_ADDRESS") != "") {
+		panic("satelle: a test reached systemctl --user with the user manager reachable; unset XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS (internal/cli TestMain) and put a fake systemctl on PATH")
+	}
 	out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
