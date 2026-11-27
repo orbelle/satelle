@@ -49,7 +49,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   newer events neither claimed nor kept. The re-based events keep their ids and
   content, and the same pass pushes them. Any other fork is a conflict: nothing
   is written, the item is reported naming both events, and the local events
-  stay for `satelle ledger adopt`. Events commute, except **status
+  stay for `satelle ledger adopt --session <session>`. Events commute, except **status
   transitions**: a transition must match the story's fold at its position (its
   `from` is the folded status), or it is a chain break, always reported. A
   transition is never re-based, so one whose `from` no longer matches the
@@ -79,13 +79,13 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
   item's status and the workflow. Server-side location holds are removed.
-- Other online locations see a change within seconds: `satelle ledger follow`
-  (the `satelle-follow` service) holds the store's `Chain.Subscribe` open and
+- Other online locations see a change within seconds: `satelle ledger follow
+  --session <session>` (the `satelle-follow` service) holds the store's `Chain.Subscribe` open and
   runs the same sync pass on each local write and each streamed event it does
   not hold, never applying a streamed event directly (sto_e4a6f77f).
   `satelle-sync.timer` stays the fallback: its pass pushes and pulls whatever
-  the subscription missed. `satelle ledger follow --help` names the reconnect
-  and retry intervals.
+  the subscription missed. `satelle ledger follow --help --session <session>`
+  names the reconnect and retry intervals.
 
 ## 3. Scope is the project binding
 
