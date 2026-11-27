@@ -130,9 +130,12 @@ before printed:
    If main moved again after step 1, git refuses the push: start again from
    step 1.
 
-The rule is interim. It bridges until the substrate lives in satelle-factory,
-apart from the product repositories ([[satelle-control-plane-architecture]]
-§1), and retires with that move.
+The operator ruled this landing interim on 2026-11-28
+([[satelle-operator-rulings]]): it retires when the substrate moves to
+satelle-factory, apart from the product repositories
+([[satelle-control-plane-architecture]] §1). Whether that move has happened
+is the state of the epic's stories
+(`satelle story list --parent sto_5afbd604 --session <session>`).
 
 Then bring the main checkout to `origin/main` (`git merge --ff-only origin/main`,
 run in the main checkout) and remove the item's worktree
