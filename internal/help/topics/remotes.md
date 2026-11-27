@@ -90,7 +90,7 @@ the detached record for a detached one; a public key checks a seal and cannot
 make one, and it is not a secret value. At bring-back an outcome with no
 seal, a seal that does not verify, or a ledger whose heads differ from the
 sealed ones is concluded reject with nothing of the run imported, whatever a
-task wrote under `out/`. Starter and node agree on this as node layout 2; a
+task wrote under `out/`. Starter and node agree on this as node layout 3; a
 run file of another layout is refused before setup.
 
 `remote fire <remote> <item> --detach` does not hold the session: it returns
