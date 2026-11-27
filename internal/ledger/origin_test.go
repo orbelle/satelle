@@ -192,9 +192,6 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 		"remotenode/fetch.go":    true,
 		"uipush/client.go":       true,
 	}
-	// The target-repository registry names a git remote and the repos.toml key
-	// "origin" (a repository URL), never the ledger's provenance origin; only
-	// that literal is exempt there, every other needle still applies.
 	gitRemote := map[string]bool{
 		"reporeg/reporeg.go":  true,
 		"cli/cmd_repo.go":     true,

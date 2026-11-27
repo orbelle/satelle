@@ -170,9 +170,6 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
-// treeEditCheck resolves the repo and builds the edit gate a satelle command
-// that writes tracked files passes for each path: resolveInTree, then
-// hook.Gate.Edit (seat, locked paths, other repositories).
 func treeEditCheck(verb string, prospective bool) (repo, func(string) error, func(), error) {
 	r, err := findRepo("")
 	if err != nil {

@@ -267,7 +267,6 @@ func CanonicalRepoRoot(repoRoot string) string {
 	return mainCheckoutRoot(root, common)
 }
 
-// CanonicalRepoRootEnv is CanonicalRepoRoot with git run under env.
 func CanonicalRepoRootEnv(repoRoot string, env []string) string {
 	root := strings.TrimSpace(repoRoot)
 	if root == "" {

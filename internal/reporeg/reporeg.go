@@ -1,9 +1,3 @@
-// Package reporeg owns the control repository's registry of onboarded target
-// repositories: the tracked .satelle/repos.toml (name, canonical origin, base,
-// fetch, tier) and the machine's git-ignored .satelle/repos.local.toml (name to
-// local checkout path). It owns the name and tier rules, origin normalisation
-// and the one redacted form in which satelle prints any origin. No error or
-// problem it returns carries a value read from either file.
 package reporeg
 
 import (
@@ -71,12 +65,8 @@ func unsafeRune(r rune) bool {
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' '
 }
 
-// HasUnsafe reports a control rune, a Unicode format rune (bidi overrides,
-// zero-width marks) or a line or paragraph separator: the one predicate for
-// every value satelle quotes before printing.
 func HasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
 
-// CheckName is the name rule a declared or mapped repository must meet.
 func CheckName(name string) error {
 	switch {
 	case name == Self:
@@ -87,7 +77,6 @@ func CheckName(name string) error {
 	return nil
 }
 
-// CheckTier refuses a tier other than empty, standard or protected.
 func CheckTier(name, tier string) error {
 	if tier == "" || tier == TierStandard || tier == TierProtected {
 		return nil
@@ -95,8 +84,6 @@ func CheckTier(name, tier string) error {
 	return fmt.Errorf("%s: %s: tier is not %s or %s", TrackedFile, entryRef(name), TierStandard, TierProtected)
 }
 
-// CheckOrigin refuses an origin that is empty, unparseable, or carries
-// credentials, a query or a fragment. Its text never holds the origin.
 func CheckOrigin(name, origin string) error {
 	ref := entryRef(name)
 	switch {
@@ -114,8 +101,6 @@ func CheckOrigin(name, origin string) error {
 	return nil
 }
 
-// CheckEntry is every problem of one tracked entry, the same text satelle
-// validate and satelle repo add print.
 func CheckEntry(name string, e Entry) []error {
 	if err := CheckName(name); err != nil {
 		return []error{err}
@@ -165,14 +150,11 @@ func (r Registry) Problems() []error {
 	return errs
 }
 
-// EntryOK holds when the tracked entry exists and has no problem.
 func (r Registry) EntryOK(name string) bool {
 	e, ok := r.Tracked[name]
 	return ok && len(CheckEntry(name, e)) == 0
 }
 
-// LocalPath is the mapped checkout path; mapped is false when the machine maps
-// none, and ok is false when the mapping has a problem.
 func (r Registry) LocalPath(name string) (path string, mapped, ok bool) {
 	l, mapped := r.Local[name]
 	if !mapped {
@@ -181,7 +163,6 @@ func (r Registry) LocalPath(name string) (path string, mapped, ok bool) {
 	return l.Path, true, len(r.localProblems(name, l)) == 0
 }
 
-// Targets is self first, then the declared names sorted.
 func (r Registry) Targets() []string {
 	out := []string{Self}
 	for _, n := range sortedKeys(r.Tracked) {
@@ -192,7 +173,6 @@ func (r Registry) Targets() []string {
 	return out
 }
 
-// Declared counts the declared repositories, self excluded.
 func (r Registry) Declared() int {
 	n := len(r.Tracked)
 	if _, ok := r.Tracked[Self]; ok {
@@ -210,7 +190,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// Exists reports whether either registry file is present in dataDir.
 func Exists(dataDir string) bool {
 	for _, f := range []string{TrackedFile, LocalFile} {
 		if _, err := os.Lstat(filepath.Join(dataDir, f)); err == nil {
@@ -220,8 +199,6 @@ func Exists(dataDir string) bool {
 	return false
 }
 
-// Load reads both files of dataDir. A missing file is empty, so with neither
-// the only target is self.
 func Load(dataDir string) (Registry, error) {
 	reg := Registry{Tracked: map[string]Entry{}, Local: map[string]Local{}}
 	var errs []error
@@ -244,9 +221,6 @@ func Load(dataDir string) (Registry, error) {
 	return reg, errors.Join(errs...)
 }
 
-// LoadLocalQuiet reads another control repository's repos.local.toml and keeps
-// only the entries whose name meets the name rule and whose path is absolute
-// and printable. Any failure is ok=false and carries no text from the file.
 func LoadLocalQuiet(dataDir string) (map[string]string, bool) {
 	var local struct {
 		Repos map[string]Local `toml:"repos"`
@@ -320,8 +294,6 @@ func readRegular(path string) ([]byte, error) {
 	return b, nil
 }
 
-// Write replaces path through a temporary file in its directory and a rename,
-// so it never writes through a symlink.
 func Write(path string, body []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
@@ -353,8 +325,6 @@ func render(v any) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// RenderTracked renders repos.toml: names sorted, keys in fixed order, empty
-// optional keys omitted.
 func RenderTracked(m map[string]Entry) ([]byte, error) {
 	return render(struct {
 		Repos map[string]Entry `toml:"repos"`
@@ -423,9 +393,6 @@ func (o origin) hostPath() (string, string) {
 	return o.scpHost, o.scpPath
 }
 
-// NormaliseOrigin maps the scp, ssh:// and http(s):// forms of a repository
-// URL to host/owner/repo: the host lowercased, and userinfo, port, query,
-// fragment, a trailing slash and .git dropped.
 func NormaliseOrigin(s string) (string, error) {
 	o, ok := parseOrigin(s)
 	if !ok {
@@ -463,10 +430,6 @@ func carriesSecrets(s string) bool {
 	return o.scpPass || o.scpExtra
 }
 
-// DisplayOrigin is the only form in which satelle prints an origin: http(s)
-// userinfo, an ssh or scp password, and every query and fragment are dropped;
-// a value it cannot parse prints as <unparseable origin>. A plain origin is
-// returned unchanged.
 func DisplayOrigin(s string) string {
 	o, ok := parseOrigin(s)
 	if !ok {

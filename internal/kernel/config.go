@@ -101,7 +101,6 @@ type DoctorSettings struct {
 	Repos   DoctorRepos   `toml:"repos"`
 }
 
-// DoctorRepos holds the repo-count policy; a nil MaxCount sets no threshold.
 type DoctorRepos struct {
 	MaxCount *int `toml:"max_count"`
 }

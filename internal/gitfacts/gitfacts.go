@@ -176,11 +176,8 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 	return out, nil
 }
 
-// ErrNoRemote is RemoteURL's answer when the remote has no url configured.
 var ErrNoRemote = errors.New("no such remote")
 
-// RemoteURL reads remote.<name>.url from the repository's config: no network,
-// no fetch, no write.
 func (r Repo) RemoteURL(name string) (string, error) {
 	out, err := r.git("config", "--get", "remote."+name+".url")
 	if err != nil {

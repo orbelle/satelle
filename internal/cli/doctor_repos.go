@@ -16,9 +16,6 @@ import (
 
 const checkReposName = "repos"
 
-// showOrigin and show are the one display path for every value satelle repo
-// and the repos check print: an origin without credentials, query or
-// fragment, and any value with a control or format rune quoted.
 func showOrigin(v string) string { return quoteControl(reporeg.DisplayOrigin(v)) }
 
 func show(v string) string { return quoteControl(v) }
@@ -38,8 +35,6 @@ type checkout struct {
 	actual string
 }
 
-// checkoutOf reads one declared repository's local checkout. Its only git
-// command is a read of remote.origin.url, under env, in a path that exists.
 func checkoutOf(reg reporeg.Registry, name string, env []string) checkout {
 	if !reg.EntryOK(name) {
 		return checkout{state: repoInvalid}
@@ -107,10 +102,6 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	return out, notes
 }
 
-// onboardingIssues reports a checkout this control repository maps that
-// another of this machine's control repositories also maps, or that is
-// either one's own root (self). Another repository's file is read through
-// LoadLocalQuiet, so none of its text but the compared paths is used.
 func onboardingIssues(in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []string) {
 	gc, err := config.LoadGlobal()
 	if err != nil || len(gc.Projects.Paths) == 0 {
@@ -158,8 +149,6 @@ func onboardingIssues(in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []s
 	return out, notes
 }
 
-// machineFileIssues reports a machine's own .satelle file that no ignore
-// rule covers, or that git tracks.
 func machineFileIssues(in *doctorInput, check, file, what string) []doctorIssue {
 	rel, err := filepath.Rel(in.r.Tree, filepath.Join(in.r.DataDir, file))
 	if err != nil {

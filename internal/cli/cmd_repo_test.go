@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
-// repoControl inits a control repository at dir (the working directory when
-// dir is empty) and seats session on a story at a tree-editing state there.
 func repoControl(t *testing.T, dir, session string) string {
 	t.Helper()
 	at := []string{}
@@ -296,9 +294,6 @@ func TestRepoGitCallsGetNoCredentials(t *testing.T) {
 	}
 }
 
-// repoGitCall is a git call the registry makes: a checkout's origin read, the
-// repos.local.toml ignore and tracked reads, and another control repository's
-// root lookup.
 func repoGitCall(args, other string) bool {
 	for _, c := range []string{"remote.origin.url", "repos.local.toml", "-C " + other + " "} {
 		if strings.Contains(args, c) {
