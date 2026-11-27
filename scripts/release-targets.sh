@@ -28,6 +28,10 @@ list() {
       echo "a release.yml include entry lacks pkg, goos or goarch: $(printf '%s' "$e" | sed 's/^[[:space:]]*//')" >&2
       exit 1
     fi
+    if ! [[ $p =~ ^\./[A-Za-z0-9_./-]*$ ]] || [[ /$p/ == */../* ]] || ! [[ $o =~ ^[a-z0-9]+$ ]] || ! [[ $a =~ ^[a-z0-9]+$ ]]; then
+      echo "a release.yml include entry names a pkg that is not a ./ package path in the module, or a goos or goarch that is not lower-case letters and digits: pkg $p goos $o goarch $a" >&2
+      exit 1
+    fi
     printf '%s %s %s\n' "$p" "$o" "$a"
   done <<<"$entries" | awk '!seen[$0]++'
 }

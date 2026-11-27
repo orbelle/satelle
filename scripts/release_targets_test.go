@@ -148,3 +148,34 @@ func TestReleaseTargetsListRefusesAnEntryWithoutATarget(t *testing.T) {
 		t.Fatalf("list on an entry with no goarch: exit %d: %s", code, errb)
 	}
 }
+
+func TestReleaseTargetsRefusesAnEntryThatIsNotAModulePackage(t *testing.T) {
+	for _, entry := range []string{
+		"pkg: -toolexec=/bin/true, goos: linux, goarch: amd64",
+		"pkg: -o=/tmp/x, goos: linux, goarch: amd64",
+		"pkg: /abs/pkg, goos: linux, goarch: amd64",
+		"pkg: ../x, goos: linux, goarch: amd64",
+		"pkg: ./cmd/../../x, goos: linux, goarch: amd64",
+		"pkg: ./cmd/satelle, goos: -toolexec=/bin/true, goarch: amd64",
+		"pkg: ./cmd/satelle, goos: linux, goarch: AMD64",
+	} {
+		dir := t.TempDir()
+		yml := filepath.Join(dir, ".github", "workflows", "release.yml")
+		if err := os.MkdirAll(filepath.Dir(yml), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "    env:\n      CGO_ENABLED: \"0\"\n        include:\n          - { artifact: satelle, " + entry + " }\n"
+		if err := os.WriteFile(yml, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		want := "a release.yml include entry names a pkg that is not a ./ package path in the module"
+		out, errb, code := runBashScript(t, "release-targets.sh", "", "list", yml)
+		if code != 1 || !strings.Contains(errb, want) || out != "" {
+			t.Errorf("list on %q: exit %d, stdout %q: %s", entry, code, out, errb)
+		}
+		out, errb, code = runBashScript(t, "release-targets.sh", "", "build", dir)
+		if code != 1 || !strings.Contains(errb, want) || strings.Contains(out, "release target") {
+			t.Errorf("build on %q: exit %d, stdout %q: %s", entry, code, out, errb)
+		}
+	}
+}
