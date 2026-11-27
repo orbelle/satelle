@@ -45,7 +45,9 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	if why != "" && namesGit(command) {
 		t.Unreadable = why
 	}
-	t.Pushes = readPushes(command)
+	if why == "" {
+		t.Pushes = readPushes(segs)
+	}
 	return t
 }
 

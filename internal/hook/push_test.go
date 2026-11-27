@@ -66,86 +66,21 @@ func TestGateJudgesPushes(t *testing.T) {
 	}
 }
 
-func wordsOf(t *testing.T, line string) []pushArg {
-	t.Helper()
-	segs := splitSegments(tokenizeBash(line))
-	if len(segs) != 1 {
-		t.Fatalf("%q: %d segments", line, len(segs))
-	}
-	return plainWords(segs[0].Toks)
-}
-
-func TestPlainWords(t *testing.T) {
-	for _, c := range []struct {
-		in, text string
-		quoted   bool
-		lead     string
-	}{
-		{`A="1"`, "A=1", true, "A="},
-		{`A+='1'`, "A+=1", true, "A+="},
-		{`"A"=1`, "A=1", true, ""},
-		{`A"="1`, "A=1", true, "A"},
-		{`"git"`, "git", true, ""},
-		{`g"i"t`, "git", true, "g"},
-		{`git`, "git", false, "git"},
-	} {
-		w := wordsOf(t, c.in)
-		if len(w) != 1 || w[0] != (pushArg{Text: c.text, Quoted: c.quoted, Lead: c.lead}) {
-			t.Errorf("%q: %+v, want {%q %v %q}", c.in, w, c.text, c.quoted, c.lead)
-		}
-	}
-	for line, want := range map[string]int{`A="1" B+='x' "git" push`: 2, `"A"=1 git push`: 0, `A"="1 git push`: 0} {
-		var leads []string
-		for _, w := range wordsOf(t, line) {
-			leads = append(leads, w.Lead)
-		}
-		if got := pushAssignments(leads); got != want {
-			t.Errorf("%q: %d assignments, want %d", line, got, want)
-		}
-	}
-}
-
-func TestPushReservedWord(t *testing.T) {
-	for _, w := range []string{"time", "if", "then", "do", "while", "coproc", "!"} {
-		if !pushReservedWord(w) {
-			t.Errorf("%q is not reserved", w)
-		}
-	}
-	for _, w := range []string{"git", "cd", "timeout", "in"} {
-		if pushReservedWord(w) {
-			t.Errorf("%q is reserved", w)
-		}
-	}
-	if shellCompoundWords["time"] {
-		t.Error("shellCompoundWords lists time; the record rule's compound test must stay unchanged")
-	}
-}
-
 var pushBranchRows = map[string][]string{
 	"git push origin HEAD:B":                  {"B"},
 	"git push origin HEAD:refs/heads/B":       {"B"},
 	"git push origin x:heads/B":               {"B"},
 	"git push origin +x:B":                    {"B"},
+	"git push origin HEAD~1:B":                {"B"},
 	`git push origin "HEAD:refs/heads/B"`:     {"B"},
 	`git push origin 'HEAD:B'`:                {"B"},
 	`git push origin HEAD:'B'`:                {"B"},
 	"git --no-pager push origin HEAD:B":       {"B"},
 	"git -C ../b push origin HEAD:B":          {"B"},
 	"/usr/bin/git push origin HEAD:B":         {"B"},
-	"A=1 git push origin HEAD:B":              {"B"},
-	"A+=1 git push origin HEAD:B":             {"B"},
-	"FOO+=1 git push origin HEAD:B":           {"B"},
-	`A="1" git push origin HEAD:B`:            {"B"},
-	`A='1' git push origin HEAD:B`:            {"B"},
-	`A+="1" git push origin HEAD:B`:           {"B"},
 	`"git" push origin HEAD:B`:                {"B"},
 	`'git' push origin HEAD:B`:                {"B"},
 	`"/usr/bin/git" push origin HEAD:B`:       {"B"},
-	`A="1" "git" push origin HEAD:B`:          {"B"},
-	`A='1' 'git' push origin HEAD:B`:          {"B"},
-	`A+="1" "git" push origin HEAD:B`:         {"B"},
-	"A=1; git push origin HEAD:B":             {"B"},
-	"A=1 && git push origin HEAD:B":           {"B"},
 	"git push -u -q origin HEAD:refs/heads/B": {"B"},
 	"git push origin HEAD:B --force":          {"B"},
 	"git push origin -- HEAD:B":               {"B"},
@@ -157,8 +92,8 @@ var pushBranchRows = map[string][]string{
 	"git status && git push origin HEAD:B":    {"B"},
 	"cd ../x && git push origin HEAD:B":       {"B"},
 	"go test ./... ; git push origin HEAD:B":  {"B"},
-	"false || git push origin HEAD:B":         {"B"},
-	"echo y | git push origin HEAD:B":         {"B"},
+	"ls || git push origin HEAD:B":            {"B"},
+	"ls | git push origin HEAD:B":             {"B"},
 	"git push origin HEAD:A HEAD:B":           {"A", "B"},
 }
 
@@ -166,6 +101,7 @@ var pushNothingRows = []string{
 	"git status", "git log --oneline | grep push | wc -l", `grep -r "git push" docs`, "git commit -m 'git push origin HEAD:B'",
 	"git --attr-source HEAD log", "time go test ./...", "A=1", `A="1"`,
 	"git status 2>&1", `cd "$d" && git log`, "go test ./... 2>&1 | tail -5",
+	"1A=x git push origin HEAD:B", `"A"=1 git push origin HEAD:B`, `A"="1 git push origin HEAD:B`, `"A=1" git push origin HEAD:B`,
 }
 
 var pushUnreadRows = map[string]string{
@@ -201,8 +137,12 @@ var pushUnreadRows = map[string]string{
 	`"git" -c x.y=z push origin HEAD:B`:                   "git option -c before the subcommand is not read",
 }
 
+func scanLine(c string) BashTargets {
+	return ScanBash(c, "/w", "/w", func(string) bool { return false })
+}
+
 func scanPushes(c string) []PushDest {
-	return ScanBash(c, "/w", "/w", func(string) bool { return false }).Pushes
+	return scanLine(c).Pushes
 }
 
 func TestReadPushes(t *testing.T) {
@@ -225,7 +165,7 @@ func TestReadPushes(t *testing.T) {
 	}
 	for c, want := range pushUnreadRows {
 		got := scanPushes(c)
-		if len(got) != 1 || got[0].FailClosed || got[0].Unread != want {
+		if len(got) != 1 || got[0].Unread != want {
 			t.Errorf("%q: %+v, want Unread %q", c, got, want)
 		}
 	}
@@ -234,79 +174,43 @@ func TestReadPushes(t *testing.T) {
 func TestReadPushesRecoversToRefuse(t *testing.T) {
 	readPushesFault = func() { panic("fault") }
 	t.Cleanup(func() { readPushesFault = nil })
-	got := readPushes("git push origin HEAD:sto_a")
-	if len(got) != 1 || !got[0].FailClosed || got[0].First != pushReaderFault {
+	segs, why := readPlainLine("git push origin HEAD:sto_a")
+	if why != "" {
+		t.Fatalf("not a plain line: %s", why)
+	}
+	got := readPushes(segs)
+	if len(got) != 1 || got[0].Unread != pushReaderFault {
 		t.Fatalf("a fault in the reader gave %+v", got)
 	}
 	root := t.TempDir()
 	g := Gate{Root: root, TempRoots: []string{}, Grant: func(string) Grant { return Grant{Tree: true} }, Push: func(string) Verdict { return allow }}
-	if v := g.Bash("git push origin HEAD:sto_a", root); v.Allow || !strings.Contains(v.Reason, "fail-closed rule") {
+	if v := g.Bash("git push origin HEAD:sto_a", root); v.Allow || !strings.Contains(v.Reason, pushReaderFault) {
 		t.Errorf("a fault in the reader: %+v, want a refusal", v)
-	}
-}
-
-func TestPlainLine(t *testing.T) {
-	for _, c := range []string{
-		"git push origin HEAD:B", "git -C ../x push origin 'HEAD:B'", `git push origin "HEAD:B"`,
-		"cd ../x && git push origin HEAD:B", "git status | head -5",
-		"A+=1 git push origin HEAD:B", `A="1" "git" push origin HEAD:B`,
-		"git commit -m 'a $x > y'", "git push origin 'refs/heads/*'",
-	} {
-		if ok, first := plainLine(c); !ok {
-			t.Errorf("%q: not plain (%s)", c, first)
-		}
-	}
-	for c, want := range map[string]string{
-		"git push origin $x":       "`$x`",
-		"git push origin `x`":      "``x``",
-		`git push origin HEAD:\B`:  "`\\B`",
-		"git push origin HEAD:B #": "`#`",
-		"git push origin ~":        "`~`",
-		"git push origin HEAD:B*":  "`*`",
-		"git push origin HEAD:B?":  "`?`",
-		"git push origin [B]":      "`[B]`",
-		"git push origin HEAD:B]":  "`]`",
-		"git push origin {B}":      "`{B}`",
-		"(git push origin HEAD:B)": "`(git`",
-		"git push origin <x":       "`<x`",
-		"git push origin >x":       "`>x`",
-		"! git push origin HEAD:B": "`!`",
-		"git push origin ^B":       "`^B`",
-		"true & git push":          "`&`",
-		"true |& git push":         "`|&`",
-		"true ;; git push":         "`;;`",
-		"git push\nls":             "a newline",
-		"git push\rls":             "a carriage return",
-		"git push origin é":        "a non-ASCII byte",
-		"git push origin 'B":       "an unterminated ' quote",
-		`git push origin "B`:       `an unterminated " quote`,
-		`git push origin "$x"`:     "`$x\"`",
-	} {
-		if ok, first := plainLine(c); ok || first != want {
-			t.Errorf("%q: plain %v, first %q; want not plain, first %q", c, ok, first, want)
-		}
 	}
 }
 
 var pushFailClosedRows = []string{
 	"git push origin $DEST", `cd "$D" && git push origin HEAD:B`, "git push origin $(echo HEAD:B)", "git push origin `echo HEAD:B`", "git push origin $'HEAD:B'",
 	`git push origin HEAD:\B`, `g\it push origin HEAD:B`,
-	"(git push origin HEAD:B)", "{ git push origin HEAD:B; }", "git push origin HEAD:{B,C}", "git push origin HEAD:B*", "git push origin HEAD~1:B",
+	"(git push origin HEAD:B)", "{ git push origin HEAD:B; }", "git push origin HEAD:{B,C}", "git push origin HEAD:B*",
 	"git push origin HEAD:B 2>&1", "git push origin HEAD:B > /dev/null", "git push origin HEAD:B <<<x",
 	"true & git push origin HEAD:B", "git push origin HEAD:B # x", "! git push origin HEAD:B", "[[ -n x ]] && git push origin HEAD:B", "[[ -n x ]]; git push origin HEAD:B", "git push origin HEAD:B\nls",
 	"if true; then git push origin HEAD:B; fi", "time git push origin HEAD:B", "time -p git push origin HEAD:B", "for x in 1; do git push origin HEAD:B; done",
 	"while true; do git push origin HEAD:B; done", "until false; do git push origin HEAD:B; done", "if git push origin HEAD:B; then true; fi",
 	"A=1 time git push origin HEAD:B", `A="1" time git push origin HEAD:B`, "coproc git push origin HEAD:B", "select x in a; do git push origin HEAD:B; done",
-	"1A=x git push origin HEAD:B", `"A"=1 git push origin HEAD:B`, `A"="1 git push origin HEAD:B`, `"A=1" git push origin HEAD:B`,
-	"nohup git push origin HEAD:B", `nohup "git" push origin HEAD:B`, `"time" git push origin HEAD:B`, "echo HEAD:B | xargs git push origin",
+	`"time" git push origin HEAD:B`,
+	"A=1 git push origin HEAD:B", "A+=1 git push origin HEAD:B", "FOO+=1 git push origin HEAD:B", `A="1" git push origin HEAD:B`, `A='1' git push origin HEAD:B`,
+	`A+="1" git push origin HEAD:B`, `A="1" "git" push origin HEAD:B`, `A='1' 'git' push origin HEAD:B`, `A+="1" "git" push origin HEAD:B`,
+	"A=1; git push origin HEAD:B", "A=1 && git push origin HEAD:B",
+	"false || git push origin HEAD:B", "echo y | git push origin HEAD:B",
 }
 
 func TestPushReaderFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	g := Gate{Root: root, TempRoots: []string{}, Grant: func(string) Grant { return Grant{Tree: true} }, Push: func(string) Verdict { return allow }}
 	for _, c := range pushFailClosedRows {
-		if got := scanPushes(c); len(got) != 1 || !got[0].FailClosed {
-			t.Errorf("%q: %+v, want one fail-closed refusal", c, got)
+		if got := scanLine(c); got.Unreadable == "" || len(got.Pushes) != 0 {
+			t.Errorf("%q: %+v, want an unread line with no push read", c, got)
 		}
 		if v := g.Bash(c, root); v.Allow || !strings.Contains(v.Reason, "fail-closed rule") || !strings.Contains(v.Reason, "git -C <dir>") {
 			t.Errorf("%q: %+v, want the fail-closed refusal", c, v)
@@ -366,9 +270,10 @@ func TestPushReaderReadsWhatGitReceives(t *testing.T) {
 			}
 			fromBash = append(fromBash, args)
 		}
-		read, refused := pushSegments(c)
-		if refused != nil || len(read) != len(fromBash) || len(read) == 0 {
-			t.Errorf("%q: reader %q (%+v), bash %q", c, read, refused, fromBash)
+		segs, why := readPlainLine(c)
+		read, unread := pushInvocations(segs)
+		if why != "" || unread != "" || len(read) != len(fromBash) || len(read) == 0 {
+			t.Errorf("%q: reader %q (%s%s), bash %q", c, read, why, unread, fromBash)
 			continue
 		}
 		for i := range read {
@@ -393,14 +298,15 @@ func TestPushReaderRefusesWhatBashWouldRun(t *testing.T) {
 		rows = append(rows, c)
 	}
 	rows = append(rows, pushFailClosedRows...)
+	rows = append(rows, pushNothingRows...)
 	hits := 0
 	for _, c := range rows {
 		if !strings.Contains(runUnderBash(t, hit, c), "HIT") {
 			continue
 		}
 		hits++
-		if len(scanPushes(c)) == 0 {
-			t.Errorf("%q: bash runs git push, the reader gives no push", c)
+		if got := scanLine(c); len(got.Pushes) == 0 && got.Unreadable == "" {
+			t.Errorf("%q: bash runs git push, the gate reads no push and does not refuse the line as unread", c)
 		}
 	}
 	if hits < len(pushBranchRows) {

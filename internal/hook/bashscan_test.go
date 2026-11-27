@@ -348,22 +348,6 @@ func TestOperatorRecordCompoundWordsUnchanged(t *testing.T) {
 	}
 }
 
-func TestPushAssignmentWords(t *testing.T) {
-	for _, w := range []string{"A=1", "A+=1", "_x+=", "A=", "A+="} {
-		if pushAssignments([]string{w}) != 1 {
-			t.Errorf("%q is not read as an assignment", w)
-		}
-	}
-	for _, w := range []string{"A+", "+=1", "A++=1", "1A=x", "-A=1"} {
-		if pushAssignments([]string{w}) != 0 {
-			t.Errorf("%q is read as an assignment", w)
-		}
-	}
-	if isAssignmentWord("A+=1") {
-		t.Error("isAssignmentWord reads A+=1 as an assignment; the legacy scans must keep it a command word")
-	}
-}
-
 func TestOperatorRecordRefusesWhatBashWouldRun(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bash oracle runs on unix")

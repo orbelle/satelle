@@ -1,240 +1,73 @@
 package hook
 
 import (
-	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 )
 
 type PushDest struct {
-	Branch     string
-	Unread     string
-	FailClosed bool
-	First      string
+	Branch string
+	Unread string
 }
 
 var readPushesFault func()
 
 const pushReaderFault = "an internal error in the push reader"
 
-func plainLine(command string) (bool, string) {
-	n := len(command)
-	for i := 0; i < n; {
-		c := command[i]
-		switch {
-		case plainByte(c):
-			i++
-		case c == '\'':
-			j := strings.IndexByte(command[i+1:], '\'')
-			if j < 0 {
-				return false, "an unterminated ' quote"
-			}
-			i += j + 2
-		case c == '"':
-			j := i + 1
-			for ; j < n && command[j] != '"'; j++ {
-				if b := command[j]; b == '$' || b == '`' || b == '\\' || b == '!' {
-					return false, unreadRun(command, j)
-				}
-			}
-			if j >= n {
-				return false, `an unterminated " quote`
-			}
-			i = j + 1
-		case (c == '&' || c == '|') && i+1 < n && command[i+1] == c:
-			i += 2
-		case c == ';' && !(i+1 < n && (command[i+1] == ';' || command[i+1] == '&')):
-			i++
-		case c == '|' && !(i+1 < n && command[i+1] == '&'):
-			i++
-		default:
-			return false, unreadRun(command, i)
-		}
-	}
-	return true, ""
-}
-
-func plainByte(c byte) bool {
-	switch {
-	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		return true
-	}
-	return strings.IndexByte(" \t_-./:,+=@%", c) >= 0
-}
-
-func unreadRun(s string, i int) string {
-	switch c := s[i]; {
-	case c == '\n':
-		return "a newline"
-	case c == '\r':
-		return "a carriage return"
-	case c >= 0x80:
-		return "a non-ASCII byte"
-	case c < 0x20 || c == 0x7f:
-		return "a control byte"
-	}
-	j := i + 1
-	for j < len(s) && j-i < 32 && s[j] > ' ' && s[j] < 0x7f {
-		j++
-	}
-	return "`" + s[i:j] + "`"
-}
-
-var (
-	gitWord  = regexp.MustCompile(`\bgit\b`)
-	pushWord = regexp.MustCompile(`\bpush\b`)
-)
-
-func namesGitPush(command string) bool {
-	s := strings.ReplaceAll(command, "\\\n", "")
-	s = strings.NewReplacer("\\", "", "'", "", `"`, "").Replace(s)
-	s = strings.ToLower(s)
-	return gitWord.MatchString(s) && pushWord.MatchString(s)
-}
-
-type pushArg struct {
-	Text   string
-	Quoted bool
-	Lead   string
-}
-
-func plainWords(seg []bashTok) []pushArg {
-	var out []pushArg
-	var cur *pushArg
-	leadOpen := false
-	for i, t := range seg {
-		if i == 0 || seg[i-1].End != t.Start {
-			out = append(out, pushArg{})
-			cur = &out[len(out)-1]
-			leadOpen = true
-		}
-		if t.Kind == "string" {
-			cur.Text += unquoteTok(t.Value)
-			cur.Quoted = true
-			leadOpen = false
-			continue
-		}
-		cur.Text += t.Value
-		if leadOpen {
-			cur.Lead += t.Value
-		}
-	}
-	return out
-}
-
-func pushAssignments(leads []string) int {
-	n := 0
-	for n < len(leads) && isAssignmentPrefix(leads[n]) {
-		n++
-	}
-	return n
-}
-
-func pushReservedWord(t string) bool {
-	return shellCompoundWords[t] || t == "time"
-}
-
-func failClosed(first string) []PushDest {
-	return []PushDest{{FailClosed: true, First: first}}
-}
-
-func readPushes(command string) (out []PushDest) {
+func readPushes(segs []plainSegment) (out []PushDest) {
 	defer func() {
 		if recover() != nil {
-			out = failClosed(pushReaderFault)
+			out = []PushDest{{Unread: pushReaderFault}}
 		}
 	}()
 	if readPushesFault != nil {
 		readPushesFault()
 	}
-	args, refused := pushSegments(command)
-	if refused != nil {
-		return []PushDest{*refused}
+	invs, unread := pushInvocations(segs)
+	if unread != "" {
+		return []PushDest{{Unread: unread}}
 	}
-	for _, a := range args {
-		out = append(out, pushDests(a)...)
+	for _, args := range invs {
+		out = append(out, pushDests(args)...)
 	}
 	return out
 }
 
-func pushSegments(command string) ([][]string, *PushDest) {
-	if !namesGitPush(command) {
-		return nil, nil
-	}
-	if ok, first := plainLine(command); !ok {
-		return nil, &failClosed(first)[0]
-	}
-	type segment struct {
-		texts []string
-		n     int
-	}
-	var segs []segment
-	for _, ps := range splitSegments(tokenizeBash(command)) {
-		words := plainWords(ps.Toks)
-		leads := make([]string, len(words))
-		texts := make([]string, len(words))
-		for i, w := range words {
-			leads[i], texts[i] = w.Lead, w.Text
-		}
-		n := pushAssignments(leads)
-		if n >= len(words) {
-			continue
-		}
-		if d := segmentUnread(words, texts, n); d != nil {
-			return nil, d
-		}
-		segs = append(segs, segment{texts, n})
-	}
+func pushInvocations(segs []plainSegment) ([][]string, string) {
 	var out [][]string
 	for _, s := range segs {
-		if filepath.Base(s.texts[s.n]) != "git" {
+		values := make([]string, len(s.Words))
+		for i, w := range s.Words {
+			values[i] = w.Value
+		}
+		sub, _, args, ok := gitInvocationArgs(values)
+		if !ok {
 			continue
 		}
-		if sub, _, args, ok := gitInvocationArgs(s.texts[s.n:]); ok && sub == "push" {
+		if unread := pushGlobalsUnread(values[1 : len(values)-len(args)-1]); unread != "" {
+			if slices.Contains(values[1:], "push") {
+				return nil, unread
+			}
+			continue
+		}
+		if sub == "push" {
 			out = append(out, args)
 		}
 	}
-	return out, nil
+	return out, ""
 }
 
-func segmentUnread(words []pushArg, texts []string, n int) *PushDest {
-	for _, w := range []pushArg{words[0], words[n]} {
-		if !w.Quoted && pushReservedWord(w.Text) {
-			return &failClosed("`" + w.Text + "`")[0]
-		}
-	}
-	cmd := texts[n]
-	if strings.Contains(cmd, "=") {
-		return &failClosed("`" + cmd + "`")[0]
-	}
-	if filepath.Base(cmd) != "git" {
-		for i := n + 1; i < len(texts); i++ {
-			if filepath.Base(texts[i]) != "git" {
-				continue
-			}
-			for _, w := range texts[i+1:] {
-				if w == "push" {
-					return &failClosed("`" + cmd + "`")[0]
-				}
-			}
-		}
-		return nil
-	}
-	_, _, args, ok := gitInvocationArgs(texts[n:])
-	if !ok {
-		return nil
-	}
-	globals := texts[n+1 : len(texts)-len(args)-1]
+func pushGlobalsUnread(globals []string) string {
 	for i := 0; i < len(globals); i++ {
 		switch w := globals[i]; {
 		case w == "-C" && i+1 < len(globals):
 			i++
 		case gitPlainGlobals[w]:
 		default:
-			return &PushDest{Unread: "git option " + w + " before the subcommand is not read"}
+			return "git option " + w + " before the subcommand is not read"
 		}
 	}
-	return nil
+	return ""
 }
 
 var gitPlainGlobals = map[string]bool{

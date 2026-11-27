@@ -80,15 +80,9 @@ Always and never:
   pushes are refused with that form: no refspec, `HEAD` alone, a `*` pattern, a
   destination under `refs/` that is not `refs/heads/<name>`, `--all`,
   `--mirror` or `--tags`, and a git option before `push` other than `-C <dir>`
-  and the globals that take no value.
-- Fail-closed rule. A command that names git push is read only when it is
-  plain literal words, with literal text in plain `'…'` or `"…"` quotes
-  included, joined by `&&`, `||`, `;` or `|`; git is a segment's command word,
-  quoted or not, after an optional literal `cd` segment and plain `NAME=` or
-  `NAME+=` assignments whose values may be quoted; and it holds no shell keyword
-  (`if`, `for`, `while`, `time`, `[[` and the like). Any other such command is
-  refused, naming this rule. Rewrite it in plain form: `git -C <dir> push …` in
-  place of `cd "$dir" && git push …`, without redirections or keywords.
+  and the globals that take no value. A push is read only on a line the gate
+  reads (see the fail-closed rule below); any other line naming git is refused
+  under that rule.
 - Scope. The push rule catches an agent's mistake, not shell crafted to evade
   it. It does not judge git run by a program or script, git configuration
   (aliases, `remote.*.push`), files written and run later, or other indirect
