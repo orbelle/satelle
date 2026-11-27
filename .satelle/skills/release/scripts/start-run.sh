@@ -9,8 +9,20 @@ fired=$(fire)
 rc=$?
 if [ "$rc" -eq 2 ]; then
   # this machine's sync pass may have woken the queue ([[wake]] in ~/.satelle/config.toml): take that run
-  woken=$(satelle queue show "$que" --json --session "$session" | jq -r 'select(.last_fire.cause == "wake" and .last_run_status == "backlog") | .last_fire.run')
+  shown=$(satelle queue show "$que" --json --session "$session") || exit 2
+  woken=$(printf '%s\n' "$shown" | jq -r 'select(.last_fire.cause == "wake" and .last_run_status == "backlog") | .last_fire.run // empty')
   [ -n "$woken" ] || exit 2
+  # a queue.fired payload is appendable by any session; take the run only on what no session can write:
+  # its item.created and task.run carry origin role sync (set only by the sync pass, never by a payload),
+  # under the release task, for this queue, over members the queue still holds
+  members=$(printf '%s\n' "$shown" | jq -c '[.members[].id]')
+  qid=$(printf '%s\n' "$shown" | jq -r '.id')
+  satelle ledger list "$woken" --json --session "$session" | jq -e --arg t "$task" --arg q "$qid" --argjson m "$members" '
+    ([.[] | select(.kind == "item.created")] | length == 1 and all(.[]; .actor == "satelle-sync.service" and .payload.origin.role == "sync" and .payload.parent == $t))
+    and ([.[] | select(.kind == "task.run")] | length == 1 and all(.[]; .actor == "satelle-sync.service" and .payload.origin.role == "sync" and .payload.task == $t and .payload.queue == $q and (.payload.inputs | length > 0) and (.payload.inputs - $m == [])))' >/dev/null || {
+    echo "the queue's last fire names $woken as woken, but its ledger does not prove this queue's sync pass started it: neither adopting nor cancelling it; inspect it (satelle ledger list $woken --session <session>) and cancel it by hand if it is not yours" >&2
+    exit 2
+  }
   if [ "$(satelle execution get "$woken" --json --session "$session" | jq -r '.base')" = "$(git rev-parse origin/main)" ]; then
     fired=$(jq -n --arg run "$woken" '{run: $run}')
   else

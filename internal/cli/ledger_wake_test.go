@@ -10,6 +10,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
@@ -113,6 +114,21 @@ func wokenRun(t *testing.T, e ledger.Event, task string, want []string) string {
 	for _, id := range want {
 		if !strings.Contains(rec, id) {
 			t.Fatalf("run %s's task.run lacks %s:\n%s", f.Run, id, rec)
+		}
+	}
+	_, evs := readChain(t, f.Run)
+	for _, ev := range evs {
+		if ev.Kind != item.KindCreated && ev.Kind != kernel.KindTaskRun {
+			continue
+		}
+		var o struct {
+			Origin ledger.Origin `json:"origin"`
+		}
+		if err := json.Unmarshal(ev.Payload, &o); err != nil {
+			t.Fatal(err)
+		}
+		if ev.Actor != syncServiceName || o.Origin.Role != ledger.RoleSync {
+			t.Fatalf("run %s's %s by %s with role %q, want %s with role %s: release step 0 proves a woken run by it", f.Run, ev.Kind, ev.Actor, o.Origin.Role, syncServiceName, ledger.RoleSync)
 		}
 	}
 	return f.Run

@@ -110,7 +110,12 @@ fire, run by the session whose items are approved, at any time, and the file's
 (`[[wake]]` in `~/.satelle/config.toml`, off unless listed; `satelle help queues --session <session>`):
 then this step takes the run the wake started, while it is still at backlog,
 cancels and refires it when its base is not the fetched `origin/main`, and
-otherwise proceeds the same. `satelle queue show release --session <session>`
+otherwise proceeds the same. It takes or cancels that run only when the run's
+own `item.created` and `task.run` show the sync pass wrote them (actor
+`satelle-sync.service`, origin role `sync`) under the release task, for this
+queue, over members the queue still holds: a `queue.fired` payload is
+appendable by any session, those origins are not. A run it cannot prove that of
+exits 2 naming it, untouched. `satelle queue show release --session <session>`
 shows its members and last fire. A fire refused because the last run is still
 open exits 2 naming that run: finish or cancel it first.
 
