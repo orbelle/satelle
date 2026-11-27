@@ -33,11 +33,11 @@ func TestRunLocalMarksTheNodeRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := kernel.SubstrateDigest(filepath.Join(dir, "work", ".satelle"))
+	digest, err := kernel.SubstrateDigest(filepath.Join(dir, "substrate"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Kind != config.RuntimeNode || s.Node != "nod_mark" || s.Substrate != filepath.Join(dir, "work", ".satelle") ||
+	if s.Kind != config.RuntimeNode || s.Node != "nod_mark" || s.Substrate != filepath.Join(dir, "substrate") ||
 		s.Tree != filepath.Join(dir, "work") || s.Digest != digest || s.Process != procgroup.Self() {
 		t.Fatalf("stamp = %+v, want a node stamp of this process with digest %s", s, digest)
 	}

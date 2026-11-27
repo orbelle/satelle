@@ -250,8 +250,8 @@ func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView) (R
 }
 
 func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string) (string, error) {
-	parent := filepath.Join(k.Root, runsDir)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+	parent, err := k.recordsParent()
+	if err != nil {
 		return "", err
 	}
 	sweepRuns(parent)
@@ -297,6 +297,29 @@ func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]by
 		}
 	}
 	return dir, nil
+}
+
+func (k *Kernel) recordsParent() (string, error) {
+	if k.RecordsDir == "" {
+		parent := filepath.Join(k.Root, runsDir)
+		return parent, os.MkdirAll(parent, 0o755)
+	}
+	check := []string{k.RecordsDir}
+	if rel, err := filepath.Rel(k.Dir, k.RecordsDir); err == nil && k.Dir != "" && rel != "." && !strings.HasPrefix(rel, "..") {
+		check = append(check, k.Dir)
+		p := k.Dir
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			p = filepath.Join(p, part)
+			check = append(check, p)
+		}
+	}
+	for _, p := range check {
+		fi, err := os.Lstat(p)
+		if err != nil || !fi.IsDir() {
+			return "", fmt.Errorf("record folders: %s is not a directory", p)
+		}
+	}
+	return k.RecordsDir, nil
 }
 
 func clip(s string, max int) (string, int) {

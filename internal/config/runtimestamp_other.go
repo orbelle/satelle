@@ -4,4 +4,4 @@ package config
 
 import "io/fs"
 
-func extraLinks(fs.FileInfo) bool { return false }
+func FileIdentity(fs.FileInfo) (FileID, bool) { return FileID{}, false }
