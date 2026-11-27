@@ -19,6 +19,7 @@ type Gate struct {
 	TempRoots []string
 	SameRepo  func(root, tree string) bool
 	IsFile    func(string) bool
+	Push      func(branch string) Verdict
 }
 
 type Grant struct {
