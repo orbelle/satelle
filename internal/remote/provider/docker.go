@@ -260,11 +260,6 @@ func (c *container) ExecStdin(ctx context.Context, stdin io.Reader, argv ...stri
 	return c.d.dockerIn(ctx, stdin, append([]string{"exec", "-i", c.name}, argv...)...)
 }
 
-func (c *container) ExecDetached(ctx context.Context, argv ...string) error {
-	_, err := c.d.docker(ctx, nil, append([]string{"exec", "-d", c.name}, argv...)...)
-	return err
-}
-
 func (c *container) CopyIn(ctx context.Context, host, machine string) error {
 	_, err := c.d.docker(ctx, nil, "cp", host, c.name+":"+machine)
 	return err
