@@ -1,0 +1,8 @@
+dispatch inside written
+dispatch sibling written
+dispatch tmp written
+dispatch shell written
+sandbox-workspace inside written
+sandbox-workspace sibling absent
+sandbox-workspace tmp written
+sandbox-workspace shell absent

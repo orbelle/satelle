@@ -1,0 +1,16 @@
+dispatch inside written
+dispatch sibling written
+dispatch tmp written
+dispatch shell written
+settings-hook inside written
+settings-hook sibling absent
+settings-hook tmp absent
+settings-hook shell written
+restricted inside written
+restricted sibling absent
+restricted tmp absent
+restricted shell written
+settings-sandbox inside written
+settings-sandbox sibling written
+settings-sandbox tmp written
+settings-sandbox shell absent
