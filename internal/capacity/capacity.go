@@ -1,6 +1,3 @@
-// Package capacity samples this machine's capacity and load once, when asked:
-// cores, memory, load average and the coding-agent sessions running on it.
-// It stores nothing and starts no process.
 package capacity
 
 import (
@@ -12,11 +9,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// Known maps an executable basename (lower case, no .exe) to a harness label.
 type Known map[string]string
 
-// Sample is one reading of every figure. A figure that could not be read has
-// its error under Errs, keyed memory, load or agents.
 type Sample struct {
 	Cores        int
 	MemTotal     uint64
@@ -32,7 +26,6 @@ const (
 	FigAgents = "agents"
 )
 
-// Take reads each figure once.
 func Take(known Known) Sample {
 	s := Sample{Cores: runtime.NumCPU(), Errs: map[string]error{}}
 	var err error
@@ -76,9 +69,6 @@ func label(e procgroup.Entry, known Known) (string, bool) {
 	return "", false
 }
 
-// CountAgents counts the sessions of each known harness in the table: a
-// matching process whose parent matches the same label is a helper of that
-// session and is not counted again. Every label of known is in the result.
 func CountAgents(tab []procgroup.Entry, known Known) map[string]int {
 	out := map[string]int{}
 	for _, l := range known {

@@ -8,16 +8,12 @@ import (
 	"strings"
 )
 
-// Entry is one live process of the process table: its pid, its parent, its
-// argv and its kernel command name.
 type Entry struct {
 	PID, PPID int
 	Argv      []string
 	Comm      string
 }
 
-// Table reads every live process once from /proc. A process that exits
-// mid-read, or is a zombie, is left out.
 func Table() ([]Entry, error) {
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
