@@ -338,8 +338,8 @@ func TestUpdateInstallsTheServiceAndTimer(t *testing.T) {
 				if got := unitDaemon(readString(t, filepath.Join(userUnitDir(), serviceUnitName))); got != daemon {
 					t.Errorf("unit runs %q, want %q", got, daemon)
 				}
-				if strings.Count(out, "(missing)") != 3 {
-					t.Errorf("want three units written as missing:\n%s", out)
+				if strings.Count(out, "(missing)") != 4 {
+					t.Errorf("want four units written as missing:\n%s", out)
 				}
 			}},
 		{name: "no systemd user manager", unit: func(string) string { return "" }, failOn: "show-environment", noUnits: true},

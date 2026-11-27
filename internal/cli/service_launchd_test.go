@@ -22,7 +22,19 @@ func TestLaunchdPlists(t *testing.T) {
 	if !strings.Contains(s, "<key>StartInterval</key>\n\t<integer>30</integer>") || !strings.Contains(s, "<string>dev.satelle.sync</string>") {
 		t.Errorf("sync plist:\n%s", s)
 	}
-	for _, p := range []string{d, s} {
+	f := renderFollowPlist("/x/satelle")
+	if !inOrder(f, "<key>ProgramArguments</key>", "<string>/x/satelle</string>", "<string>ledger</string>", "<string>follow</string>", "</array>") {
+		t.Errorf("follow ProgramArguments out of order:\n%s", f)
+	}
+	for _, want := range []string{"<key>RunAtLoad</key>\n\t<true/>", "<key>KeepAlive</key>\n\t<true/>", "<string>dev.satelle.follow</string>"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("follow plist lacks %q:\n%s", want, f)
+		}
+	}
+	if got := plistProgram(f); got != "/x/satelle" {
+		t.Errorf("plistProgram(follow) = %q", got)
+	}
+	for _, p := range []string{d, s, f} {
 		if !strings.HasPrefix(p, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"") {
 			t.Errorf("no plist header:\n%s", p)
 		}

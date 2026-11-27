@@ -60,7 +60,7 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 	if s.Daemon != "" {
 		agents = append(agents, agent{daemonLabel, renderDaemonPlist(s.Daemon, s.Addr, s.Port)})
 	}
-	agents = append(agents, agent{syncLabel, renderSyncPlist(s.CLI)})
+	agents = append(agents, agent{syncLabel, renderSyncPlist(s.CLI)}, agent{followLabel, renderFollowPlist(s.CLI)})
 	written := map[string]bool{}
 	for _, a := range agents {
 		wrote, err := writeDefinition(w, launchAgentPath(a.label), a.body, force, plistProgram)
@@ -70,7 +70,7 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 		written[a.label] = wrote
 	}
 	_, daemonErr := os.Stat(launchAgentPath(daemonLabel))
-	for _, label := range []string{daemonLabel, syncLabel} {
+	for _, label := range []string{daemonLabel, syncLabel, followLabel} {
 		path := launchAgentPath(label)
 		if _, err := os.Stat(path); err != nil {
 			continue
@@ -92,7 +92,7 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 			if err := launchctlStep("bootstrap", domain(), path); err != nil {
 				return err
 			}
-		case label == daemonLabel:
+		case label == daemonLabel || label == followLabel:
 			if err := launchctlStep("kickstart", "-k", agentTarget(label)); err != nil {
 				return err
 			}
@@ -102,6 +102,7 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 		fmt.Fprintf(w, "%s loaded and (re)started\n", daemonLabel)
 	}
 	fmt.Fprintf(w, "%s loaded: each project on this machine syncs every %s\n", syncLabel, mirror.SyncPeriod)
+	fmt.Fprintf(w, "%s loaded and (re)started: writes push and other locations' changes pull within seconds\n", followLabel)
 	return nil
 }
 
@@ -129,7 +130,7 @@ func unload(label string) error {
 }
 
 func uninstallUnit(w io.Writer) error {
-	labels := []string{syncLabel, daemonLabel}
+	labels := []string{syncLabel, daemonLabel, followLabel}
 	for _, label := range labels {
 		loaded, err := agentLoaded(label)
 		if err != nil {
@@ -183,6 +184,7 @@ func agentState(label string) string {
 func printManagerStatus(w io.Writer) {
 	fmt.Fprintf(w, "agent     %s (%s)\n", launchAgentPath(daemonLabel), agentState(daemonLabel))
 	fmt.Fprintf(w, "sync      %s (%s)\n", launchAgentPath(syncLabel), agentState(syncLabel))
+	fmt.Fprintf(w, "follow    %s (%s)\n", launchAgentPath(followLabel), agentState(followLabel))
 }
 
 func daemonDefPath() string { return launchAgentPath(daemonLabel) }

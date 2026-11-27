@@ -23,12 +23,13 @@ import (
 const serviceUnitName = "satelle.service"
 
 const (
-	syncServiceName = "satelle-sync.service"
-	syncTimerName   = "satelle-sync.timer"
+	syncServiceName   = "satelle-sync.service"
+	syncTimerName     = "satelle-sync.timer"
+	followServiceName = "satelle-follow.service"
 )
 
 type serviceUnits struct {
-	Daemon, SyncService, SyncTimer string
+	Daemon, SyncService, SyncTimer, Follow string
 }
 
 type serviceSpec struct {
@@ -38,7 +39,7 @@ type serviceSpec struct {
 }
 
 func unitsFor(s serviceSpec) serviceUnits {
-	u := serviceUnits{SyncService: renderSyncService(s.CLI), SyncTimer: renderSyncTimer()}
+	u := serviceUnits{SyncService: renderSyncService(s.CLI), SyncTimer: renderSyncTimer(), Follow: renderFollowService(s.CLI)}
 	if s.Daemon != "" {
 		u.Daemon = renderUnit(s.Daemon, s.Addr, s.Port)
 	}
@@ -77,10 +78,13 @@ func serviceCmd() *cobra.Command {
 		Use:   "service",
 		Short: "Install, remove, inspect or restart the satelled background service",
 		Long: `service manages satelled, the local web UI, as a per-user systemd unit whose
-ExecStart runs satelled, and satelle-sync.timer, which runs
+ExecStart runs satelled, satelle-sync.timer, which runs
 'satelle ledger autosync' every 30 seconds: each of this machine's projects
 whose [ledger] store is not local pushes, then pulls, by the rules of
-'satelle ledger push' and 'pull'. See 'satelle help ledger-store'. Port and
+'satelle ledger push' and 'pull', and satelle-follow.service, which keeps
+'satelle ledger follow' running: each satelle.dev-bound project pushes a
+write as it is made and pulls other locations' changes within seconds, by
+the same pass, with the timer as the fallback. See 'satelle help ledger-store'. Port and
 address are machine settings in ~/.satelle/config.toml [service].
 
 Installing or updating satelle (scripts/install.sh, satelle update) installs
@@ -90,10 +94,11 @@ starts the sync timer and prints 'satelle service status'. --no-service or
 SATELLE_NO_SERVICE=1 skips every unit change. With no systemd user manager the
 units and the autosync command are printed instead.
 
-On macOS the same commands manage two launchd agents in the gui/<uid> domain,
+On macOS the same commands manage three launchd agents in the gui/<uid> domain,
 ~/Library/LaunchAgents/dev.satelle.satelled.plist (RunAtLoad, KeepAlive) and
-dev.satelle.sync.plist (satelle ledger autosync every 30 seconds), through
-launchctl.
+dev.satelle.sync.plist (satelle ledger autosync every 30 seconds) and
+dev.satelle.follow.plist (satelle ledger follow; RunAtLoad, KeepAlive),
+through launchctl.
 
 refresh does the same by hand. install writes every unit afresh and records
 [service] (port, addr, and this directory as the repo).`,
@@ -126,11 +131,12 @@ refresh does the same by hand. install writes every unit afresh and records
 			Long: `refresh is what installing or updating satelle runs: it writes each unit that
 is missing or whose ExecStart names another binary than this satelle (and the
 satelled beside it, else on PATH), keeps the rest, restarts satelled and
-enables and starts satelle-sync.timer, then prints 'satelle service status'.
+satelle-follow.service and enables and starts satelle-sync.timer, then prints
+'satelle service status'.
 It never changes ~/.satelle/config.toml; 'satelle service install' records
 [service]. With no systemd user manager it prints the units and the autosync
-command instead. On macOS it does the same with the dev.satelle.satelled and
-dev.satelle.sync launch agents.`,
+command instead. On macOS it does the same with the dev.satelle.satelled,
+dev.satelle.sync and dev.satelle.follow launch agents.`,
 			Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return refreshService(cmd.Context(), cmd.OutOrStdout(), resolveCLI(), resolveDaemon(""))
@@ -156,6 +162,7 @@ func printUnits(w io.Writer, u serviceUnits) {
 	}
 	fmt.Fprintf(w, "\nand run satelle ledger autosync every %d s. The sync units would be:\n\n%s\n%s",
 		int(mirror.SyncPeriod.Seconds()), u.SyncService, u.SyncTimer)
+	fmt.Fprintf(w, "\nand keep satelle ledger follow running. The follow unit would be:\n\n%s", u.Follow)
 }
 
 func sameBinary(a, b string) bool {
@@ -284,6 +291,22 @@ Type=oneshot
 ExecStart=%s ledger autosync
 TimeoutStartSec=%d
 `, cli, int(mirror.SyncPassTimeout/time.Second))
+}
+
+func renderFollowService(cli string) string {
+	return fmt.Sprintf(`[Unit]
+Description=satelle ledger follow (push this machine's writes and pull other locations' changes within seconds)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s ledger follow
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+`, cli)
 }
 
 func renderSyncTimer() string {

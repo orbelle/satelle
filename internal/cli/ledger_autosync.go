@@ -199,7 +199,6 @@ func syncPass(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncsta
 }
 
 func syncRepo(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncstate.Pass, string) {
-	const op = "ledger autosync"
 	if wake == nil {
 		wake = func(*kernel.Kernel, func(string) bool) []string { return nil }
 	}
@@ -212,6 +211,12 @@ func syncRepo(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncsta
 	if err := k.SetOrigin(k.Machine, ledger.RoleSync, hook.Caller()); err != nil {
 		return syncstate.Pass{Reason: err.Error()}, ""
 	}
+	unlock, err := k.Ledger.LockPass()
+	if err != nil {
+		return syncstate.Pass{Reason: err.Error()}, ""
+	}
+	defer unlock()
+	const op = "ledger autosync"
 	local := func() (syncstate.Pass, string) {
 		fix(k, "", allSynced)
 		wake(k, allSynced)
