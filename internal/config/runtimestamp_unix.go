@@ -12,5 +12,5 @@ func FileIdentity(info fs.FileInfo) (FileID, bool) {
 	if !ok {
 		return FileID{}, false
 	}
-	return FileID{Dev: uint64(st.Dev), Ino: uint64(st.Ino), Ctime: st.Ctim.Nano(), Nlink: uint64(st.Nlink)}, true
+	return FileID{Dev: uint64(st.Dev), Ino: uint64(st.Ino), Ctime: ctime(st), Nlink: uint64(st.Nlink)}, true
 }
