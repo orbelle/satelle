@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -36,33 +35,6 @@ type GlobalConfig struct {
 	UI       UIConfig           `toml:"ui"`
 	Hosted   GlobalHostedConfig `toml:"hosted"`
 	Herdr    HerdrConfig        `toml:"herdr"`
-	Wake     []WakeConfig       `toml:"wake"`
-}
-
-type WakeConfig struct {
-	Project string `toml:"project"`
-	Queue   string `toml:"queue"`
-}
-
-func (gc GlobalConfig) WakeQueues(repoRoot string) []string {
-	want := resolvedRoot(repoRoot)
-	var out []string
-	for _, w := range gc.Wake {
-		q := strings.TrimSpace(w.Queue)
-		if q == "" || strings.TrimSpace(w.Project) == "" || resolvedRoot(w.Project) != want || slices.Contains(out, q) {
-			continue
-		}
-		out = append(out, q)
-	}
-	return out
-}
-
-func resolvedRoot(p string) string {
-	root := filepath.Clean(CanonicalRepoRoot(p))
-	if r, err := filepath.EvalSymlinks(root); err == nil {
-		return r
-	}
-	return root
 }
 
 type HerdrConfig struct {
@@ -105,9 +77,16 @@ type UpgradeConfig struct {
 }
 
 func (gc GlobalConfig) StartCleanFor(repoRoot string) (bool, string) {
-	want := resolvedRoot(repoRoot)
+	resolved := func(p string) string {
+		root := filepath.Clean(CanonicalRepoRoot(p))
+		if r, err := filepath.EvalSymlinks(root); err == nil {
+			return r
+		}
+		return root
+	}
+	want := resolved(repoRoot)
 	for _, r := range gc.Upgrade.StartClean {
-		if resolvedRoot(r) == want {
+		if resolved(r) == want {
 			return true, "[upgrade] start_clean in " + GlobalConfigPath()
 		}
 	}
@@ -264,7 +243,6 @@ func SaveGlobal(gc GlobalConfig) error {
 		tomlStrings(gc.Projects.Paths), tomlStrings(gc.Upgrade.StartClean), gc.UI.Theme, gc.Hosted.ResolveServer())
 	body += renderHostedPush(gc.Hosted.Push)
 	body += renderHerdr(gc.Herdr)
-	body += renderWake(gc.Wake)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
@@ -309,18 +287,6 @@ func renderHerdr(h HerdrConfig) string {
 		return ""
 	}
 	return fmt.Sprintf("\n[herdr]\n# herdr-app's home when not its default (satelle herdr install)\nhome = %q\n", home)
-}
-
-func renderWake(ws []WakeConfig) string {
-	body := "\n# [[wake]] fires a queue from this machine's sync pass when it has members and\n" +
-		"# no open run. Off unless listed.\n"
-	if len(ws) == 0 {
-		return body + "# [[wake]]\n# project = \"/path/to/repo\"\n# queue = \"release\"\n"
-	}
-	for _, w := range ws {
-		body += fmt.Sprintf("[[wake]]\nproject = %q\nqueue = %q\n", w.Project, w.Queue)
-	}
-	return body
 }
 
 const globalTemplate = `# satelle global config (machine-wide, ~/.satelle/config.toml).
