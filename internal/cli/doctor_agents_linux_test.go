@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -131,9 +132,20 @@ func TestDoctorReportsAMissingBindingAndChangesNothing(t *testing.T) {
 	if !strings.Contains(judge.Fix, "agents.local.toml") || !strings.Contains(judge.Fix, "install "+missingAgent) {
 		t.Errorf("fix %q", judge.Fix)
 	}
-	if judge.Resolve != "" {
-		t.Errorf("a missing binding is resolvable: %+v", judge)
+	if judge.Resolve != resolveAgentSetup {
+		t.Errorf("resolve %q, want %q: %+v", judge.Resolve, resolveAgentSetup, judge)
 	}
+	out, _ := run(t, "", "doctor", "--resolve", "--json")
+	var res resolveReport
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("doctor --resolve --json: %v\n%s", jerr, out)
+	}
+	if !slices.ContainsFunc(res.Left, func(l resolveLeft) bool {
+		return l.Check == "agents" && strings.Contains(l.Problem, "probe-judge") && l.Why == leftAgent
+	}) || slices.ContainsFunc(res.Actions, func(a resolveAction) bool { return a.Check == "agents" }) {
+		t.Errorf("--resolve = %+v, want the missing binding left as %q and no agents action", res, leftAgent)
+	}
+	assertUnchanged(t, f.dir, before)
 	if !strings.Contains(text, "agents: binding probe-judge ") {
 		t.Errorf("text output lacks the issue:\n%s", text)
 	}

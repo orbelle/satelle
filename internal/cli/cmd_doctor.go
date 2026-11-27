@@ -120,6 +120,8 @@ when it finds nothing and 1 when it finds an issue.
   - a file this release ships that the repo lacks: it lists it with the
     command that raises the story for it, the user's decision, and opens no
     item for it;
+  - an agent binding missing on this machine or not answering its probe: it
+    lists it, since installing or signing in an agent is done by hand;
   - config, substrate, volatile, agents and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (the kind and tag .satelle/doctor.toml

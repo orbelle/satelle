@@ -58,6 +58,7 @@ const (
 	resolveAsk            = "ask"
 	resolveFixItem        = "fix-item"
 	resolveRemoveProject  = "remove-project"
+	resolveAgentSetup     = "agent-setup"
 )
 
 func unattended(is doctorIssue) bool {
@@ -320,7 +321,8 @@ func checkBindings(ctx context.Context, in *doctorInput) ([]doctorIssue, []strin
 			if !in.sessionStart {
 				out = append(out, doctorIssue{Check: "agents",
 					Problem: fmt.Sprintf("binding %s (command %q) is missing on this machine: %v; used by %s", name, b.Command, err, ub.uses),
-					Fix:     fmt.Sprintf("install %s on this machine's PATH (or create the path it names), or set agents.%s.command in .satelle/%s to a command this machine has; then satelle doctor", ub.bin, name, kernel.AgentsLocalFile)})
+					Fix:     fmt.Sprintf("install %s on this machine's PATH (or create the path it names), or set agents.%s.command in .satelle/%s to a command this machine has; then satelle doctor", ub.bin, name, kernel.AgentsLocalFile),
+					Resolve: resolveAgentSetup})
 			}
 			continue
 		}
@@ -335,7 +337,8 @@ func checkBindings(ctx context.Context, in *doctorInput) ([]doctorIssue, []strin
 			}
 			out = append(out, doctorIssue{Check: "agents",
 				Problem: "agent binding(s) missing on this machine: " + strings.Join(named, ", ") + "; satelle doctor names the states and gates that use each",
-				Fix:     "install " + strings.Join(fix, ", ") + " or set its command in .satelle/" + kernel.AgentsLocalFile})
+				Fix:     "install " + strings.Join(fix, ", ") + " or set its command in .satelle/" + kernel.AgentsLocalFile,
+				Resolve: resolveAgentSetup})
 		}
 		return out, notes
 	}
@@ -362,7 +365,8 @@ func checkBindings(ctx context.Context, in *doctorInput) ([]doctorIssue, []strin
 		if errs[i] != nil {
 			out = append(out, doctorIssue{Check: "agents",
 				Problem: fmt.Sprintf("binding %s (command %q) does not answer a probe: %v; used by %s", r.name, r.b.Command, errs[i], r.uses),
-				Fix:     fmt.Sprintf("run %s once by hand on this machine to sign it in or see why it fails, or set agents.%s.command in .satelle/%s; then satelle doctor", r.bin, r.name, kernel.AgentsLocalFile)})
+				Fix:     fmt.Sprintf("run %s once by hand on this machine to sign it in or see why it fails, or set agents.%s.command in .satelle/%s; then satelle doctor", r.bin, r.name, kernel.AgentsLocalFile),
+				Resolve: resolveAgentSetup})
 			continue
 		}
 		notes = append(notes, fmt.Sprintf("agents: %s ok (%s, answered in %s)", r.name, r.b.Command, took[i].Round(100*time.Millisecond)))
