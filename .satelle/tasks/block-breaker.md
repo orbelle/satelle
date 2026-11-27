@@ -92,6 +92,7 @@ exe=<the run>
 held=<held>
 satelle execution attachment "$exe" block-resolution --session "$session" | satelle story attach "$held" --name block-resolution --type text/markdown --file - --session "$session"
 satelle execution set "$exe" --status done --session "$session"
+satelle execution release "$exe" --session "$session"
 ```
 
 What the session does next with the held story is in `.satelle/session.md`.

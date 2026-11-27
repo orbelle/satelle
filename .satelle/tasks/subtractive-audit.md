@@ -55,6 +55,7 @@ session=<session>
 exe=<the run>
 satelle execution attach "$exe" --name audit-report --type text/markdown --file <the report> --session "$session"
 satelle execution set "$exe" --status done --session "$session"
+satelle execution release "$exe" --session "$session"
 ```
 
 ## After the run

@@ -223,3 +223,32 @@ func TestTerminalMoveReportsAFailedRelease(t *testing.T) {
 		t.Fatalf("got %d seats, want the 3 left for the backstop", n)
 	}
 }
+
+func TestPerformReleaseToleratesASeatTheTerminalMoveReleased(t *testing.T) {
+	k, _, id := terminalKernel(t)
+	if _, err := k.Seat(id, "p1", LocalLocation(k.Dir), "", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Transition(context.Background(), id, "cancelled", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.releaseBound(id, "p1", "p1"); err != nil {
+		t.Fatalf("releaseBound after the terminal move released the seat: %v", err)
+	}
+	if err := k.Release(id, "p1", "p1"); err == nil {
+		t.Fatal("Release of a seat the terminal move released succeeded")
+	}
+	_, events, err := k.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range events {
+		if e.Kind == item.KindSeatReleased {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d seat.released events, want 1", n)
+	}
+}
