@@ -140,7 +140,7 @@ func TestServiceInstallLoadsLaunchAgents(t *testing.T) {
 	if log := e.calls(t); !strings.Contains(log, "bootstrap "+e.gui()+" "+fp) {
 		t.Errorf("the follow agent was not loaded:\n%s", log)
 	}
-	if !strings.Contains(out, "dev.satelle.follow loaded and (re)started\n") {
+	if !strings.Contains(out, "dev.satelle.follow loaded and (re)started: writes push and other locations' changes pull within seconds\n") {
 		t.Errorf("install output:\n%s", out)
 	}
 }

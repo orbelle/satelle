@@ -94,7 +94,7 @@ starts the sync timer and prints 'satelle service status'. --no-service or
 SATELLE_NO_SERVICE=1 skips every unit change. With no systemd user manager the
 units and the autosync command are printed instead.
 
-On macOS the same commands manage two launchd agents in the gui/<uid> domain,
+On macOS the same commands manage three launchd agents in the gui/<uid> domain,
 ~/Library/LaunchAgents/dev.satelle.satelled.plist (RunAtLoad, KeepAlive) and
 dev.satelle.sync.plist (satelle ledger autosync every 30 seconds) and
 dev.satelle.follow.plist (satelle ledger follow; RunAtLoad, KeepAlive),
