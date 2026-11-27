@@ -37,9 +37,11 @@ func TestNormaliseAndDisplayOrigin(t *testing.T) {
 	}
 	for in, want := range map[string]string{
 		"https://u:tok3n@github.com/o/r.git?token=q7x#f": "https://github.com/o/r.git",
-		"ssh://git:pw9@h/o/r":                            "ssh://git@h/o/r",
-		"git:pw9@github.com:o/r.git":                     "git@github.com:o/r.git",
-		"git@github.com:o/r.git?token=q7x":               "git@github.com:o/r.git",
+		"ssh://git:pw9@h/o/r":                            "ssh://h/o/r",
+		"git:pw9@github.com:o/r.git":                     "github.com:o/r.git",
+		"git:tok3n/x@github.com:o/r.git":                 "github.com:o/r.git",
+		"https://u:tok3n/x@github.com/o/r.git":           Unparseable,
+		"git@github.com:o/r.git?token=q7x":               "github.com:o/r.git",
 		"ssh://git%3Atok3n@h/o/r":                        "ssh://h/o/r",
 		"git%3Atok3n@github.com:o/r.git":                 "github.com:o/r.git",
 		"not a url":                                      Unparseable,
@@ -68,6 +70,7 @@ func TestRegistryRefusesCredentialedOrigin(t *testing.T) {
 		"ssh://git%3Atok3n@github.com/o/r",
 		"git%3Atok3n@github.com:o/r.git",
 		"ssh://tok3n%40x@github.com/o/r",
+		"git:tok3n/x@github.com:o/r.git",
 		"https://github.com/o/r?tok3n=1",
 		"https://github.com/o/r#tok3n",
 		"git@github.com:o/r.git?tok3n",
@@ -82,6 +85,16 @@ func TestRegistryRefusesCredentialedOrigin(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "tok3n") || strings.Contains(err.Error(), "github.com") {
 			t.Errorf("problem text holds the URL: %v", err)
+		}
+	}
+	for _, origin := range []string{"https://u:tok3n/x@github.com/o/r.git", "ssh://git:tok3n/x@github.com/o/r"} {
+		err := CheckOrigin("r", origin)
+		if err == nil {
+			t.Errorf("CheckOrigin(%q) accepted", origin)
+			continue
+		}
+		if strings.Contains(err.Error(), "tok3n") || strings.Contains(DisplayOrigin(origin), "tok3n") {
+			t.Errorf("%q leaks its token: %v / %q", origin, err, DisplayOrigin(origin))
 		}
 	}
 	if err := CheckOrigin("r", "ssh://git@github.com/o/r"); err != nil {

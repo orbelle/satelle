@@ -410,24 +410,24 @@ func NormaliseOrigin(s string) (string, error) {
 }
 
 func carriesSecrets(s string) bool {
-	o, ok := parseOrigin(s)
-	if !ok {
+	if _, ok := parseOrigin(s); !ok {
 		return false
 	}
-	if u := o.url; u != nil {
-		if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(s, "?#") {
-			return true
-		}
-		if u.User == nil {
-			return false
-		}
-		if strings.EqualFold(u.Scheme, "ssh") {
-			_, has := u.User.Password()
-			return has || !plainUser(u.User.String())
-		}
+	if strings.ContainsAny(s, "?#") {
 		return true
 	}
-	return o.scpPass || o.scpExtra || (o.scpUser != "" && !plainUser(o.scpUser))
+	n := strings.Count(s, "@")
+	if n == 0 {
+		return false
+	}
+	scheme, rest, hasScheme := strings.Cut(s, "://")
+	if !hasScheme {
+		rest = s
+	} else if !strings.EqualFold(scheme, "ssh") {
+		return true
+	}
+	user, _, _ := strings.Cut(rest, "@")
+	return n != 1 || !plainUser(user)
 }
 
 func plainUser(s string) bool {
@@ -443,26 +443,28 @@ func plainUser(s string) bool {
 }
 
 func DisplayOrigin(s string) string {
-	o, ok := parseOrigin(s)
-	if !ok {
+	if _, ok := parseOrigin(s); !ok {
 		return Unparseable
 	}
 	if !carriesSecrets(s) {
 		return s
 	}
-	if u := o.url; u != nil {
-		c := *u
-		c.RawQuery, c.ForceQuery, c.Fragment, c.RawFragment = "", false, "", ""
-		if strings.EqualFold(c.Scheme, "ssh") && c.User != nil && plainUser(c.User.Username()) {
-			c.User = url.User(c.User.Username())
-		} else {
-			c.User = nil
-		}
-		return c.String()
+	clean, _, _ := strings.Cut(s, "?")
+	clean, _, _ = strings.Cut(clean, "#")
+	scheme, rest, hasScheme := strings.Cut(clean, "://")
+	if !hasScheme {
+		scheme, rest = "", clean
 	}
-	out := o.scpHost + ":" + o.scpPath
-	if plainUser(o.scpUser) {
-		out = o.scpUser + "@" + out
+	if i := strings.LastIndex(rest, "@"); i >= 0 {
+		rest = rest[i+1:]
 	}
-	return out
+	if hasScheme {
+		clean = scheme + "://" + rest
+	} else {
+		clean = rest
+	}
+	if _, ok := parseOrigin(clean); !ok || carriesSecrets(clean) {
+		return Unparseable
+	}
+	return clean
 }
