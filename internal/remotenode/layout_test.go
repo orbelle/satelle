@@ -35,10 +35,10 @@ func rewriteRun(t *testing.T, nodeDir string, edit func(map[string]any)) {
 }
 
 func TestRunLocalRefusesAnotherLayout(t *testing.T) {
-	if NodeLayout != 3 {
-		t.Fatalf("NodeLayout = %d; this test names the layouts either side of 3", NodeLayout)
+	if NodeLayout != 4 {
+		t.Fatalf("NodeLayout = %d; this test names the layouts either side of 4", NodeLayout)
 	}
-	for _, layout := range []int{2, 4} {
+	for _, layout := range []int{3, 5} {
 		t.Run(fmt.Sprintf("layout %d", layout), func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "marker")
 			f := secretFixture(t, "echo checked", []string{"touch " + marker}, "")
@@ -106,7 +106,7 @@ func TestStageInNamesLayout(t *testing.T) {
 	nodeDir := stageNode(t, tree, k, it.ID, "nod_1a72", 1)
 	var run LocalRun
 	b, err := os.ReadFile(filepath.Join(nodeDir, "in", localRunFile))
-	if err != nil || json.Unmarshal(b, &run) != nil || run.Layout != NodeLayout {
+	if err != nil || json.Unmarshal(b, &run) != nil || run.Layout != NodeLayout || run.SubstrateDigest == "" {
 		t.Fatalf("staged run.json = %s, %v", b, err)
 	}
 	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0"})
@@ -125,7 +125,7 @@ func TestRunLocalRefusesALayoutOneRunBeforeSetup(t *testing.T) {
 	rewriteRun(t, nodeDir, func(m map[string]any) { m["layout"] = 1 })
 	_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
 		Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
-	if err == nil || !strings.Contains(err.Error(), "is laid out for node layout 1; this node implements node layout 3; refused before setup") {
+	if err == nil || !strings.Contains(err.Error(), "is laid out for node layout 1; this node implements node layout 4; refused before setup") {
 		t.Fatalf("RunLocal on a layout-1 run = %v", err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {

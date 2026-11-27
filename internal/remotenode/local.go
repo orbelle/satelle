@@ -45,7 +45,7 @@ const (
 	localOutcome    = "outcome.json"
 )
 
-const NodeLayout = 3
+const NodeLayout = 4
 
 const (
 	RunRunning   = "running"
@@ -146,11 +146,12 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 }
 
 type LocalRun struct {
-	NodeID     string        `json:"node_id"`
-	Run        RunDescriptor `json:"run"`
-	Steps      int           `json:"steps,omitempty"`
-	WorkCommit string        `json:"work_commit,omitempty"`
-	Layout     int           `json:"layout,omitempty"`
+	NodeID          string        `json:"node_id"`
+	Run             RunDescriptor `json:"run"`
+	Steps           int           `json:"steps,omitempty"`
+	WorkCommit      string        `json:"work_commit,omitempty"`
+	Layout          int           `json:"layout,omitempty"`
+	SubstrateDigest string        `json:"substrate_digest,omitempty"`
 }
 
 type LocalOutcome struct {
@@ -1285,6 +1286,15 @@ func stageIn(o FireOptions, in, node string, chains []string) (string, bool, err
 		return "", false, err
 	}
 	files[localSubstrate] = sub
+	for _, name := range []string{localSubstrate, localDefinition} {
+		if err := os.WriteFile(filepath.Join(in, name), files[name], 0o644); err != nil {
+			return "", false, err
+		}
+		delete(files, name)
+	}
+	if lr.SubstrateDigest, err = stagedSubstrateDigest(in, o.Bundle); err != nil {
+		return "", false, err
+	}
 	runJSON, err := json.Marshal(lr)
 	if err != nil {
 		return "", false, err

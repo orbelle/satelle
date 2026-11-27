@@ -126,6 +126,9 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	if err := checkLayout(run.Layout, NodeLayout); err != nil {
 		return LocalOutcome{}, err
 	}
+	if run.SubstrateDigest == "" {
+		return LocalOutcome{}, fmt.Errorf("%s carries no substrate digest; refused before setup", localRunFile)
+	}
 	bundle, err := os.ReadFile(filepath.Join(in, localDefinition))
 	if err != nil {
 		return LocalOutcome{}, err
@@ -180,6 +183,9 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	defer nr.Restore()
+	if nr.Digest() != run.SubstrateDigest {
+		return LocalOutcome{}, fmt.Errorf("the unpacked substrate's digest %s is not the substrate digest %s that %s carries; refused before setup", nr.Digest(), run.SubstrateDigest, localRunFile)
+	}
 	reject := func(head string, lines []string, prefix, status string) (LocalOutcome, error) {
 		fmt.Fprintln(o.Log, "node: "+head)
 		return rejectRun(o.Dir, *values, priv, head, lines, prefix, steps, status)

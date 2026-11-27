@@ -201,6 +201,22 @@ func unpackSubstrate(in, root string, overlay []fileEntry) error {
 	return nil
 }
 
+func stagedSubstrateDigest(in string, definition []byte) (string, error) {
+	_, overlay, err := ReadBundle(definition)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp("", "satelle-digest-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+	if err := unpackSubstrate(in, tmp, overlay); err != nil {
+		return "", err
+	}
+	return kernel.SubstrateDigest(tmp)
+}
+
 func sealSubstrate(root string) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

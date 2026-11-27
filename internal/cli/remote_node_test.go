@@ -36,7 +36,8 @@ func TestNodeRunLocalRefusesProgressWithSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	run, err := json.Marshal(remotenode.LocalRun{NodeID: "nod_p",
-		Run: remotenode.RunDescriptor{Mode: remotenode.ModeItem, ItemID: "sto_p"}, Layout: remotenode.NodeLayout})
+		Run: remotenode.RunDescriptor{Mode: remotenode.ModeItem, ItemID: "sto_p"}, Layout: remotenode.NodeLayout,
+		SubstrateDigest: strings.Repeat("0", 64)})
 	if err != nil {
 		t.Fatal(err)
 	}

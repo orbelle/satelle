@@ -33,7 +33,10 @@ container `satelle-node-<node>` with no network, seats the item at
 `.satelle` files, its run and the item's chain. Those files are the node's
 substrate, unpacked read-only (files 0444) at `/node/substrate`, apart from
 its work tree `/node/work`. A firing satelle and a node of another node layout
-are refused before setup. The node is given its secrets,
+are refused before setup. The run file carries the SHA-256 substrate digest of
+what the fire staged, overlay included; the node refuses the run before setup
+when its unpacked substrate does not hash to that digest, naming both, or when
+the run file carries none. The node is given its secrets,
 then runs setup, then drives the
 item (`--steps N` bounds it to N steps; 0, the default, goes as far as the
 item goes) and concludes; the fire verifies the chain the node returns,
@@ -90,8 +93,9 @@ the detached record for a detached one; a public key checks a seal and cannot
 make one, and it is not a secret value. At bring-back an outcome with no
 seal, a seal that does not verify, or a ledger whose heads differ from the
 sealed ones is concluded reject with nothing of the run imported, whatever a
-task wrote under `out/`. Starter and node agree on this as node layout 3; a
-run file of another layout is refused before setup.
+task wrote under `out/`. Starter and node agree on this as node layout 4,
+whose run file carries the substrate digest; a run file of another layout is
+refused before setup.
 
 `remote fire <remote> <item> --detach` does not hold the session: it returns
 once the docker-local or command node has started its run, printing the node,
