@@ -40,6 +40,8 @@ func TestNormaliseAndDisplayOrigin(t *testing.T) {
 		"ssh://git:pw9@h/o/r":                            "ssh://git@h/o/r",
 		"git:pw9@github.com:o/r.git":                     "git@github.com:o/r.git",
 		"git@github.com:o/r.git?token=q7x":               "git@github.com:o/r.git",
+		"ssh://git%3Atok3n@h/o/r":                        "ssh://h/o/r",
+		"git%3Atok3n@github.com:o/r.git":                 "github.com:o/r.git",
 		"not a url":                                      Unparseable,
 		"https://x\u202e@github.com/o/r":                 Unparseable,
 	} {
@@ -63,6 +65,9 @@ func TestRegistryRefusesCredentialedOrigin(t *testing.T) {
 		"https://tok3n@github.com/o/r",
 		"ssh://git:tok3n@github.com/o/r",
 		"git:tok3n@github.com:o/r.git",
+		"ssh://git%3Atok3n@github.com/o/r",
+		"git%3Atok3n@github.com:o/r.git",
+		"ssh://tok3n%40x@github.com/o/r",
 		"https://github.com/o/r?tok3n=1",
 		"https://github.com/o/r#tok3n",
 		"git@github.com:o/r.git?tok3n",

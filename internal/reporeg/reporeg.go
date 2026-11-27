@@ -423,11 +423,23 @@ func carriesSecrets(s string) bool {
 		}
 		if strings.EqualFold(u.Scheme, "ssh") {
 			_, has := u.User.Password()
-			return has
+			return has || !plainUser(u.User.String())
 		}
 		return true
 	}
-	return o.scpPass || o.scpExtra
+	return o.scpPass || o.scpExtra || (o.scpUser != "" && !plainUser(o.scpUser))
+}
+
+func plainUser(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func DisplayOrigin(s string) string {
@@ -441,7 +453,7 @@ func DisplayOrigin(s string) string {
 	if u := o.url; u != nil {
 		c := *u
 		c.RawQuery, c.ForceQuery, c.Fragment, c.RawFragment = "", false, "", ""
-		if strings.EqualFold(c.Scheme, "ssh") && c.User != nil {
+		if strings.EqualFold(c.Scheme, "ssh") && c.User != nil && plainUser(c.User.Username()) {
 			c.User = url.User(c.User.Username())
 		} else {
 			c.User = nil
@@ -449,7 +461,7 @@ func DisplayOrigin(s string) string {
 		return c.String()
 	}
 	out := o.scpHost + ":" + o.scpPath
-	if o.scpUser != "" {
+	if plainUser(o.scpUser) {
 		out = o.scpUser + "@" + out
 	}
 	return out
