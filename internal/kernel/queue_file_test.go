@@ -750,9 +750,8 @@ func TestQueueOverlapTakesOnlyUntaken(t *testing.T) {
 		}
 	}
 	claims := firedClaims(t, k, "que_q")
-	if len(claims) != 2 || claims[0].Run != a.Run || !slices.Equal(claims[0].Inputs, recA.Inputs) ||
-		claims[1].Run != b.Run || !slices.Equal(claims[1].Inputs, recB.Inputs) || !slices.Equal(claims[1].Kept, []string{s1.ID}) {
-		t.Fatalf("claims %+v, records %v %v", claims, recA.Inputs, recB.Inputs)
+	if len(claims) != 2 || claims[0].Run != a.Run || claims[1].Run != b.Run || !slices.Equal(claims[1].Kept, []string{s1.ID}) {
+		t.Fatalf("claims %+v", claims)
 	}
 
 	events, _ := k.Ledger.Read("que_q")
@@ -772,7 +771,7 @@ func TestQueueOverlapTakesOnlyUntaken(t *testing.T) {
 	if err != nil || d.Run == "" || !slices.Equal(d.Inputs, []string{s1.ID, s2.ID}) {
 		t.Fatalf("fire 4 after %s closed: %+v %v", a.Run, d, err)
 	}
-	_, err = k.appendAfter("que_q", item.KindQueueFired, "me", stale, item.QueueFire{Run: "exe_00000000", Inputs: []string{s3.ID}})
+	_, err = k.appendAfter("que_q", item.KindQueueFired, "me", stale, item.QueueFire{Run: "exe_00000000"})
 	var st *ledger.StaleTail
 	if !errors.As(err, &st) {
 		t.Fatalf("a claim built from a stale tail: %v", err)
@@ -784,7 +783,7 @@ func TestQueueOverlapTakesOnlyUntaken(t *testing.T) {
 	}
 }
 
-func TestQueueOverlapLegacyFireHoldsRunInputs(t *testing.T) {
+func TestQueueOverlapHoldsRunRecordInputs(t *testing.T) {
 	k, task := overlapQueue(t, "allow", "[filter]\nkind = \"story\"\n")
 	s1 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s1")})
 	s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
@@ -801,7 +800,7 @@ func TestQueueOverlapLegacyFireHoldsRunInputs(t *testing.T) {
 	}
 	f, err := k.Fire("q", "", "by hand", "me")
 	if err != nil || !slices.Equal(f.Inputs, []string{s2.ID}) {
-		t.Fatalf("a fire claim without inputs holds its run record's inputs: %+v %v", f, err)
+		t.Fatalf("an open run holds its run record's inputs: %+v %v", f, err)
 	}
 }
 

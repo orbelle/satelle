@@ -402,11 +402,7 @@ func (k *Kernel) openRuns(st item.QueueState) []heldRun {
 		if !open {
 			continue
 		}
-		inputs := f.Inputs
-		if inputs == nil {
-			inputs = k.runInputs(run.ID)
-		}
-		out = append(out, heldRun{run: run, inputs: inputs})
+		out = append(out, heldRun{run: run, inputs: k.runInputs(run.ID)})
 	}
 	return out
 }
@@ -498,7 +494,7 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	q, events, t, members, baseRef := r.queue, r.events, *r.trigger, r.members, r.baseRef
 	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
-	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause, Inputs: members, Kept: r.kept}
+	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause, Kept: r.kept}
 	if _, err := k.appendAfter(queueID, item.KindQueueFired, actor, prev, claim); err != nil {
 		var stale *ledger.StaleTail
 		if errors.As(err, &stale) {

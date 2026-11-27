@@ -45,12 +45,12 @@ func TestFoldQueueKeepsHeldExplicit(t *testing.T) {
 	st := FoldQueue([]ledger.Event{
 		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "d:x->y"}),
 		qev(t, KindQueueAdded, QueueEntry{Item: "b"}),
-		qev(t, KindQueueFired, QueueFire{Run: "exe_2", Inputs: []string{"b"}, Kept: []string{"a", "z"}}),
+		qev(t, KindQueueFired, QueueFire{Run: "exe_2", Kept: []string{"a", "z"}}),
 	})
 	if !slices.Equal(st.Explicit, []string{"a"}) || st.Causes["a"] != "d:x->y" || len(st.Causes) != 1 {
 		t.Fatalf("kept explicit %v causes %v", st.Explicit, st.Causes)
 	}
-	if len(st.Fires) != 1 || !slices.Equal(st.Fires[0].Inputs, []string{"b"}) || st.LastFire == nil || st.LastFire.Run != "exe_2" {
+	if len(st.Fires) != 1 || st.Fires[0].Run != "exe_2" || st.LastFire == nil || st.LastFire.Run != "exe_2" {
 		t.Fatalf("fires %+v last %+v", st.Fires, st.LastFire)
 	}
 	st = FoldQueue([]ledger.Event{

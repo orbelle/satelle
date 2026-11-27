@@ -109,8 +109,8 @@ keep re-adding after a fire.
 does; `--trigger-workflow <name>` starts an execution under the queue in that
 workflow's start state. Either way the run's `task.run` record lists the
 members it took, with the queue that fired it, and the queue's ledger records
-`queue.fired` naming the run and the members it took (`inputs`). A fire takes
-every member, so the explicit list empties.
+`queue.fired` naming the run. A fire takes every member, so the explicit list
+empties.
 
 - `--min-size 0` fires only on `queue fire`, which any session may run,
   normally the one whose item the queue holds.
@@ -127,8 +127,7 @@ held and keeps the items queued.
 
 With `overlap = "allow"` in the file's `[trigger]`, a fire starts a new run
 while earlier runs are open, taking only the members no open run took; what an
-open run took is read from its fire's `queue.fired` (`inputs`, or the run's
-`task.run` record for a fire recorded before claims named them). An explicit
+open run took is read from that run's `task.run` record. An explicit
 member an open run holds stays queued across the fire (`kept`), and `min_size`
 counts only the members no open run holds. With nothing left to take the fire
 starts nothing and exits 0. Only the file sets it; no runs of the queue share a

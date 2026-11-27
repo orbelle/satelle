@@ -56,7 +56,6 @@ type QueueFire struct {
 	Task     string   `json:"task,omitempty"`
 	Workflow string   `json:"workflow,omitempty"`
 	Cause    string   `json:"cause,omitempty"`
-	Inputs   []string `json:"inputs,omitempty"`
 	Kept     []string `json:"kept,omitempty"`
 }
 
