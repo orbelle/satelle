@@ -161,7 +161,7 @@ func missingWorktree(t *testing.T) (path, location string) {
 
 func TestResolveInstallsAndRestartsTheService(t *testing.T) {
 	units := func(f *doctorFixture) string { return filepath.Join(f.home, ".config", "systemd", "user") }
-	installCalls := []string{"daemon-reload", "enable " + serviceUnitName, "restart " + serviceUnitName, "enable --now " + syncTimerName}
+	installCalls := []string{"daemon-reload", "enable " + serviceUnitName, "restart " + serviceUnitName, "enable --now " + syncTimerName, "enable " + followServiceName, "restart " + followServiceName}
 	cases := []struct {
 		name      string
 		setup     func(t *testing.T, f *doctorFixture)
@@ -170,7 +170,7 @@ func TestResolveInstallsAndRestartsTheService(t *testing.T) {
 		writesAll bool
 	}{
 		{name: "unit files missing", setup: func(t *testing.T, f *doctorFixture) {
-			for _, n := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+			for _, n := range []string{serviceUnitName, syncServiceName, syncTimerName, followServiceName} {
 				_ = os.Remove(filepath.Join(units(f), n))
 			}
 		}, want: []string{serviceUnitName + " is not installed", syncTimerName + " is not installed"}, calls: installCalls, writesAll: true},
@@ -221,7 +221,7 @@ func TestResolveInstallsAndRestartsTheService(t *testing.T) {
 				t.Errorf("left %+v", rep.Left)
 			}
 			if tc.writesAll {
-				for _, n := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+				for _, n := range []string{serviceUnitName, syncServiceName, syncTimerName, followServiceName} {
 					if _, err := os.Stat(filepath.Join(units(f), n)); err != nil {
 						t.Errorf("%s not written: %v", n, err)
 					}

@@ -72,7 +72,7 @@ func TestOnlyReplicationVerbsReadTheStore(t *testing.T) {
 		}
 	}
 	check("Ledger.Store", selectors["Ledger.Store"], site{"ledger_store.go", "resolveStore"}, site{"cmd_ledger.go", "ledgerStoreTestCmd"})
-	check("resolveStore()", calls["resolveStore"], site{"ledger_store.go", "openStore"}, site{"ledger_autosync.go", "syncRepo"})
+	check("resolveStore()", calls["resolveStore"], site{"ledger_store.go", "openStore"}, site{"ledger_autosync.go", "syncRepo"}, site{"ledger_follow.go", "followTarget"})
 	check("openStore()", calls["openStore"], site{"ledger_store.go", "withStore"}, site{"ledger_autosync.go", "syncRepo"})
 	check("withStore()", calls["withStore"], site{"cmd_ledger.go", "ledgerPushCmd"}, site{"cmd_ledger.go", "ledgerPullCmd"}, site{"cmd_ledger.go", "ledgerStatusCmd"}, site{"cmd_ledger.go", "ledgerAdoptCmd"})
 	check("storeCommand()", calls["storeCommand"], site{"ledger_store.go", "openStore"}, site{"cmd_ledger.go", "ledgerStoreTestCmd"})

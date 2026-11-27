@@ -34,6 +34,7 @@ func syncTimerState() string { return "unsupported" }
 func printManagerStatus(w io.Writer) {
 	fmt.Fprintf(w, "unit      %s (%s)\n", unitPath(), unitState())
 	fmt.Fprintf(w, "sync      %s (%s)\n", syncTimerName, syncTimerState())
+	fmt.Fprintf(w, "follow    %s (%s)\n", followServiceName, unitState())
 }
 
 func daemonDefPath() string { return unitPath() }

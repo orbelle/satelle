@@ -150,7 +150,7 @@ func TestInstallWritesSyncUnits(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	must(t, "service", "install", "--satelled", "/x/satelled")
 	dir := filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
-	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName, followServiceName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("%s not written: %v", name, err)
 		}
@@ -167,7 +167,7 @@ func TestInstallWritesSyncUnits(t *testing.T) {
 		t.Errorf("the timer was not enabled with --now:\n%s", calls)
 	}
 	must(t, "service", "uninstall")
-	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName, followServiceName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Errorf("%s not removed: %v", name, err)
 		}
@@ -187,11 +187,11 @@ func TestServiceRefreshKeepsMatchingUnits(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	first := must(t, "service", "refresh")
-	if strings.Count(first, "(missing)") != 3 {
+	if strings.Count(first, "(missing)") != 4 {
 		t.Fatalf("first refresh:\n%s", first)
 	}
 	second := must(t, "service", "refresh")
-	if strings.Count(second, "kept ") != 3 || strings.Contains(second, "wrote ") {
+	if strings.Count(second, "kept ") != 4 || strings.Contains(second, "wrote ") {
 		t.Errorf("second refresh rewrote a unit:\n%s", second)
 	}
 }
