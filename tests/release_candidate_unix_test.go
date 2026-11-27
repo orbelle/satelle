@@ -517,7 +517,7 @@ func TestChangelogVerdictReadsTheHeadsOwnCommits(t *testing.T) {
 	}
 }
 
-func TestReleaseConflictSendsBackOne(t *testing.T) {
+func TestReleaseConflictOnlyWithTheRunLeavesItApproved(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	idX, headX := c.item("x", "a.txt", "x\n")
 	idY, headY := c.item("y", "a.txt", "y\n")
@@ -529,7 +529,7 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 
 	out := c.mustBlock("### Build the candidate")
 	got := itemLines(out)
-	if len(got) != 4 || got[0] != idX+": fast-forward head "+headX || got[1] != idY+": sent back: head "+headY+" conflicts in: a.txt" ||
+	if len(got) != 4 || got[0] != idX+": fast-forward head "+headX || got[1] != idY+": left approved: head "+headY+" conflicts only with "+idX+" in: a.txt" ||
 		got[2] != idZ+": merged head "+headZ || got[3] != idH+": sent back: its changelog" {
 		t.Fatalf("candidate lines:\n%s", out)
 	}
@@ -541,15 +541,15 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 		t.Fatalf("the candidate is not clean:\n%s", st)
 	}
 
-	if out := c.mustBlock("### Send back"); !strings.Contains(out, idY+": sent back: ") {
-		t.Fatalf("send back:\n%s", out)
+	if out := c.mustBlock("### Send back"); strings.Contains(out, idY+": sent back: ") {
+		t.Fatalf("send back moved %s:\n%s", idY, out)
 	}
-	if st := c.status(idY); st != "in_progress" {
-		t.Fatalf("%s is %s, want in_progress", idY, st)
+	if st := c.status(idY); st != "approved" {
+		t.Fatalf("%s is %s, want approved", idY, st)
 	}
-	reason := c.must("story", "attachment", idY, "release-sendback")
-	if !strings.Contains(reason, "head "+headY+" conflicts") || !strings.Contains(reason, "after "+idX+" in: a.txt;") {
-		t.Fatalf("release-sendback on %s: %q", idY, reason)
+	reason := c.must("story", "attachment", idY, "release-deferred")
+	if !strings.Contains(reason, "head "+headY+" merges cleanly onto origin/main but conflicts in a.txt with "+idX) || !strings.Contains(reason, "the next run takes it") {
+		t.Fatalf("release-deferred on %s: %q", idY, reason)
 	}
 	if got := c.must("story", "attachment", idH, "release-sendback"); strings.TrimSpace(got) != heldWhy || c.status(idH) != "in_progress" {
 		t.Fatalf("held %s: %s, release-sendback %q", idH, c.status(idH), got)
@@ -570,8 +570,8 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 			t.Fatalf("done %s: exit %d\n%s%s", id, r.code, r.out, r.err)
 		}
 	}
-	if st := c.status(idY); st != "in_progress" {
-		t.Fatalf("%s is %s", idY, st)
+	if st := c.status(idY); st != "approved" {
+		t.Fatalf("%s is %s, want approved for the next run", idY, st)
 	}
 }
 
@@ -920,3 +920,29 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 }
 
 const nodeInputHeading = "\n### The node's input\n"
+
+func TestReleaseConflictWithMainSendsBack(t *testing.T) {
+	c := newCandidateSandbox(t, false)
+	idM, headM := c.item("m", "a.txt", "m\n")
+	c.item("g", "c.txt", "g\n")
+	c.git("checkout", "-q", "--detach", "origin/main")
+	c.write("a.txt", "main moved\n")
+	c.git("commit", "-q", "-am", "main moves a.txt")
+	c.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	c.git("fetch", "-q", "origin")
+	c.fire()
+	out := c.mustBlock("### Build the candidate")
+	if got := itemLines(out); len(got) == 0 || got[0] != idM+": sent back: head "+headM+" conflicts in: a.txt" {
+		t.Fatalf("candidate lines:\n%s", out)
+	}
+	c.mustBlock("### Send back")
+	if st := c.status(idM); st != "in_progress" {
+		t.Fatalf("%s is %s, want in_progress", idM, st)
+	}
+	if !strings.Contains(c.must("story", "attachment", idM, "release-sendback"), "head "+headM+" conflicts with the release candidate") {
+		t.Fatalf("release-sendback on %s", idM)
+	}
+	if r := c.run("story", "attachment", idM, "release-deferred"); r.code == 0 {
+		t.Fatalf("%s got a release-deferred attachment", idM)
+	}
+}

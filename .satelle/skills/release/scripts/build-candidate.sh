@@ -43,6 +43,12 @@ for id in $(satelle ledger list "$exe" --kind task.run --json --session "$sessio
   else
     paths=$(git -C "$wt" diff --name-only --diff-filter=U | paste -sd ' ' -)
     git -C "$wt" merge --abort 2>/dev/null
+    if git -C "$wt" merge-tree --write-tree origin/main "$head" >/dev/null 2>&1; then
+      printf 'head %s merges cleanly onto origin/main but conflicts in %s with %s, released before it in run %s; it stays approved: merge origin/main into the branch once they land (git fetch origin && git merge origin/main; never rebase), resolve, push, and the next run takes it\n' \
+        "$head" "${paths:-(the merge failed without unmerged paths)}" "${kept:-origin/main}" "$exe" \
+        | satelle story attach "$id" --name release-deferred --file - --session "$session" >/dev/null || exit 1
+      echo "$id: left approved: head $head conflicts only with $kept in: $paths"; continue
+    fi
     printf '%s\thead %s conflicts with the release candidate after %s in: %s; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again\n' \
       "$id" "$head" "${kept:-origin/main}" "${paths:-(the merge failed without unmerged paths)}" >>"$rd/sendback"
     echo "$id: sent back: head $head conflicts in: $paths"; continue
