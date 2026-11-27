@@ -96,9 +96,43 @@ The push is a plain fast-forward: git refuses it when `origin/main` has moved
 past the branch's base. Main's ruleset asks for a pull request, so the remote
 prints that the push bypassed that rule; for a done substrate item this is
 expected, because its gates on `in_progress -> done` are the review. When the
-fast-forward is refused, the branch must be brought onto `origin/main` and
-validated again, which changes a tree: do not do it in the done item. Report
-it to the operator with the branch and what `origin/main` gained.
+fast-forward is refused, land the item by the merge below.
+
+### When main has moved
+
+When main has changed none of the item's files since their merge base, merge
+`origin/main` into the item's branch, validate the merged tree, and push the
+merge to main as a fast-forward, without asking the operator
+([[satelle-operator-rulings]], 2026-11-28). A done item's seat allows no tree
+edits, so build the merge from git objects, never in a worktree. Run each
+command on its own from the main checkout, putting in the value the step
+before printed:
+
+1. `git fetch origin`
+2. `git merge-base origin/main origin/<id>` prints `<base>`.
+3. `git diff --name-only <base> origin/<id>` lists the item's files.
+4. `git diff --name-only <base> origin/main -- <the files of step 3>` lists
+   the item's files that main changed. If it prints any path, stop: report
+   those files to the operator, and push nothing.
+5. `git merge-tree --write-tree origin/main origin/<id>` prints `<tree>` on
+   its first line. A non-zero exit is a conflict: stop, report it, and push
+   nothing.
+6. `git commit-tree <tree> -p origin/<id> -p origin/main -m 'Merge origin/main into <id> to land it (<id>)'`
+   prints `<merge>`.
+7. Validate the merged tree outside every worktree. Make an empty `<tmp>/tree`,
+   then run `git archive --output=<tmp>/merge.tar <merge>`,
+   `tar -xf <tmp>/merge.tar -C <tmp>/tree` and
+   `satelle -C <tmp>/tree validate --session <session>`. If it reports anything
+   but a valid configuration with no substrate finding, stop, report it, and
+   push nothing.
+8. `git push origin <merge>:main`, a fast-forward because `<merge>` has
+   `origin/main` as a parent; then `git push origin <merge>:refs/heads/<id>`.
+   If main moved again after step 1, git refuses the push: start again from
+   step 1.
+
+The rule is interim. It bridges until the substrate lives in satelle-factory,
+apart from the product repositories ([[satelle-control-plane-architecture]]
+§1), and retires with that move.
 
 Then bring the main checkout to `origin/main` (`git merge --ff-only origin/main`,
 run in the main checkout) and remove the item's worktree
