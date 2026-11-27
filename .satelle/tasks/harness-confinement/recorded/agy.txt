@@ -1,0 +1,12 @@
+dispatch inside written
+dispatch sibling written
+dispatch tmp written
+dispatch shell no-shell-grant
+path-hook inside written
+path-hook sibling absent
+path-hook tmp absent
+path-hook shell no-shell-grant
+scoped-settings inside written
+scoped-settings sibling absent
+scoped-settings tmp absent
+scoped-settings shell no-shell-grant

@@ -1,0 +1,8 @@
+dispatch inside written
+dispatch sibling written
+dispatch tmp written
+dispatch shell no-shell-grant
+sandbox inside written
+sandbox sibling written
+sandbox tmp written
+sandbox shell no-shell-grant

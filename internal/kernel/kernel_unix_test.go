@@ -575,14 +575,19 @@ func TestReplanReplacesJudgedPlan(t *testing.T) {
 	}
 	d.mu.Lock()
 	d.reqs = nil
+	plans := map[string]string{}
+	d.onDispatch = func(_ agent.Role, req agent.Request) {
+		b, _ := os.ReadFile(filepath.Join(folderOf(req.Prompt), "attachments", "plan"))
+		plans[req.Binding.Name] = string(b)
+	}
 	d.mu.Unlock()
 	k.Transition(ctx, it.ID, "z", "me")
 	if len(d.reqs) == 0 {
 		t.Fatal("no judge was asked")
 	}
 	for _, r := range d.reqs {
-		if !strings.Contains(r.Prompt, "PLAN-ROUND-TWO") || strings.Contains(r.Prompt, "PLAN-ROUND-ONE") {
-			t.Fatalf("judge %s prompt does not hold only the newest plan:\n%s", r.Binding.Name, r.Prompt)
+		if p := plans[r.Binding.Name]; !strings.Contains(p, "PLAN-ROUND-TWO") || strings.Contains(p, "PLAN-ROUND-ONE") || strings.Contains(r.Prompt, "PLAN-ROUND-ONE") {
+			t.Fatalf("judge %s is not pointed to only the newest plan: %q\n%s", r.Binding.Name, p, r.Prompt)
 		}
 	}
 	if _, body, err := k.AttachmentBody(it.ID, "plan", first); err != nil || !strings.Contains(string(body), "PLAN-ROUND-ONE") {
