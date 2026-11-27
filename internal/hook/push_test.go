@@ -115,7 +115,6 @@ func TestPushReservedWord(t *testing.T) {
 	}
 }
 
-// pushBranchRows each give exactly the branches listed.
 var pushBranchRows = map[string][]string{
 	"git push origin HEAD:B":                  {"B"},
 	"git push origin HEAD:refs/heads/B":       {"B"},
@@ -317,8 +316,6 @@ func TestPushReaderFailsClosed(t *testing.T) {
 	}
 }
 
-// runUnderBash runs line under bash with an empty PATH, git the given shell
-// function, from a work dir with sibling dirs x and b, D=. and DEST=HEAD:B.
 func runUnderBash(t *testing.T, gitFunc, line string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -345,8 +342,6 @@ func runUnderBash(t *testing.T, gitFunc, line string) string {
 	return string(out)
 }
 
-// TestPushReaderReadsWhatGitReceives proves the repository and refspecs the
-// reader reads are the words bash passes to git for every branch row.
 func TestPushReaderReadsWhatGitReceives(t *testing.T) {
 	const record = `git() { for a; do if [ "$a" = push ]; then printf '%s\037' "$@"; printf '\036'; exit 0; fi; done; }`
 	for c := range pushBranchRows {
@@ -380,8 +375,6 @@ func TestPushReaderReadsWhatGitReceives(t *testing.T) {
 	}
 }
 
-// TestPushReaderRefusesWhatBashWouldRun proves every row on which bash runs
-// git push gives the gate a push to judge.
 func TestPushReaderRefusesWhatBashWouldRun(t *testing.T) {
 	const hit = `git() { for a; do [ "$a" = push ] && { printf HIT; exit 0; }; done; }`
 	var rows []string

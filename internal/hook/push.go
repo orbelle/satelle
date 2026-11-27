@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// PushDest is one destination a git push on a shell line would write, as the
-// edit gate reads it. Exactly one of Branch, Unread or FailClosed is set:
-// Branch is a literal branch name; Unread says why a push's destination is
-// not read; FailClosed marks a line naming git push that the gate does not
-// read at all, First naming what it could not read.
 type PushDest struct {
 	Branch     string
 	Unread     string
@@ -18,15 +13,10 @@ type PushDest struct {
 	First      string
 }
 
-// readPushesFault is a test seam: nil in production, called at the top of
-// readPushes so a test can prove a fault refuses rather than crashes.
 var readPushesFault func()
 
 const pushReaderFault = "an internal error in the push reader"
 
-// plainLine reports whether every byte of command is part of a plain literal
-// word (literal text in plain '…' or "…" quotes included) or one of the
-// operators &&, ||, ; and |. first names the first run it cannot read.
 func plainLine(command string) (bool, string) {
 	n := len(command)
 	for i := 0; i < n; {
@@ -95,9 +85,6 @@ var (
 	pushWord = regexp.MustCompile(`\bpush\b`)
 )
 
-// namesGitPush reports whether command mentions git and push as whole words
-// once backslashes and quotes are removed. A line that only mentions both is
-// refused when it is unread: the accepted cost of failing closed.
 func namesGitPush(command string) bool {
 	s := strings.ReplaceAll(command, "\\\n", "")
 	s = strings.NewReplacer("\\", "", "'", "", `"`, "").Replace(s)
@@ -105,9 +92,6 @@ func namesGitPush(command string) bool {
 	return gitWord.MatchString(s) && pushWord.MatchString(s)
 }
 
-// plainWord is one bash word of a plain line: Text after quote removal,
-// whether any part was quoted, and Lead, the raw text before the first quoted
-// part, on which bash decides an assignment.
 type plainWord struct {
 	Text   string
 	Quoted bool
@@ -138,9 +122,6 @@ func plainWords(seg []bashTok) []plainWord {
 	return out
 }
 
-// pushReservedWord is bash's reserved words as the push reader reads them:
-// shellCompoundWords plus time. shellCompoundWords stays unchanged so the
-// operator-record rule's compound test is not widened.
 func pushReservedWord(t string) bool {
 	return shellCompoundWords[t] || t == "time"
 }
@@ -168,9 +149,6 @@ func readPushes(command string) (out []PushDest) {
 	return out
 }
 
-// pushSegments returns the arguments after `push` of each git push segment of
-// a plain line naming git push, or the single refusal that makes the line
-// unread.
 func pushSegments(command string) ([][]string, *PushDest) {
 	if !namesGitPush(command) {
 		return nil, nil
@@ -211,8 +189,6 @@ func pushSegments(command string) ([][]string, *PushDest) {
 	return out, nil
 }
 
-// segmentUnread applies the reader's segment checks; words[n] is the command
-// word (n < len(words)).
 func segmentUnread(words []plainWord, texts []string, n int) *PushDest {
 	for _, w := range []plainWord{words[0], words[n]} {
 		if !w.Quoted && pushReservedWord(w.Text) {
@@ -268,8 +244,6 @@ var pushPlainOptions = map[string]bool{
 
 const pushNotWritten = "its destination is not written"
 
-// pushPositionals splits a push's arguments into its positionals (repository,
-// then refspecs) and whether it deletes, or says which option it does not read.
 func pushPositionals(args []string) (pos []string, del bool, unread string) {
 	optsDone := false
 	for _, w := range args {

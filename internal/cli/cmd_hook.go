@@ -261,9 +261,6 @@ func seatGrantUnconfigured(r repo, session, tree string) hook.Grant {
 	return g
 }
 
-// pushVerdict judges a git push to branch: a branch that is an item's id may
-// be pushed only by a session seated on that item in a state whose performer
-// may change the tree. Any other branch is not judged. A read error refuses.
 func pushVerdict(session, branch string, lookup func(string) (item.Item, bool, error), seats func() ([]item.Seat, error), scope func(item.Item) (string, error)) hook.Verdict {
 	blocked := "satelle: git push to " + branch + " blocked"
 	it, ok, err := lookup(branch)

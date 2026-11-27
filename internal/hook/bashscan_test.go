@@ -331,8 +331,6 @@ func operatorRecordOracleCorpus() []string {
 	return out
 }
 
-// compoundRecordLines are record commands behind time and [[: shellCompoundWords
-// must not list either, or the record rule would skip their substitution.
 var compoundRecordLines = []string{
 	`time true && echo "$(satelle story rec'ord')"`,
 	`[[ -n x ]] && echo "$(sa'telle' story record)"`,
