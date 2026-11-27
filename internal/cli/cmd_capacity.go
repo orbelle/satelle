@@ -12,11 +12,15 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/integration"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/procgroup"
 	"github.com/bobmcallan/satelle/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
-var takeSample = capacity.Take
+var (
+	takeSample   = capacity.Take
+	processTable = procgroup.Table
+)
 
 func capacityCmd() *cobra.Command {
 	return &cobra.Command{
@@ -35,7 +39,7 @@ parent is a session of the same harness is counted with that session.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			repos, reposErr := capacityRepos()
-			s := takeSample(knownHarnesses(repos))
+			s := takeSample(knownHarnesses(repos), processTable)
 			seats, seatErrs := machineSeats(repos)
 			printCapacity(cmd.OutOrStdout(), s, seats, append(seatErrs, reposErr))
 			return nil

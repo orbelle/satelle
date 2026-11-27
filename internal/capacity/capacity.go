@@ -26,7 +26,7 @@ const (
 	FigAgents = "agents"
 )
 
-func Take(known Known) Sample {
+func Take(known Known, table func() ([]procgroup.Entry, error)) Sample {
 	s := Sample{Cores: runtime.NumCPU(), Errs: map[string]error{}}
 	var err error
 	if s.MemTotal, s.MemAvailable, err = readMemory(); err != nil {
@@ -35,7 +35,7 @@ func Take(known Known) Sample {
 	if s.Load, err = readLoad(); err != nil {
 		s.Errs[FigLoad] = err
 	}
-	tab, err := procgroup.Table()
+	tab, err := table()
 	if err != nil {
 		s.Errs[FigAgents] = err
 	}

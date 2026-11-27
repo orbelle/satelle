@@ -8,6 +8,9 @@ import (
 )
 
 func TestTableHoldsThisProcess(t *testing.T) {
+	if _, err := os.ReadFile("/proc/self/stat"); err != nil {
+		t.Skipf("/proc/self cannot be read here: %v", err)
+	}
 	tab, err := Table()
 	if err != nil {
 		t.Fatal(err)
@@ -24,5 +27,5 @@ func TestTableHoldsThisProcess(t *testing.T) {
 		}
 		return
 	}
-	t.Fatalf("table of %d entries lacks pid %d", len(tab), os.Getpid())
+	t.Fatalf("table of %d entries lacks pid %d: %+v", len(tab), os.Getpid(), tab)
 }

@@ -53,7 +53,7 @@ func TestCountAgents(t *testing.T) {
 }
 
 func TestTakeFillsEveryFigure(t *testing.T) {
-	s := Take(Known{"x-no-such-harness": "x"})
+	s := Take(Known{"x-no-such-harness": "x"}, procgroup.Table)
 	if s.Cores < 1 {
 		t.Errorf("cores %d", s.Cores)
 	}
