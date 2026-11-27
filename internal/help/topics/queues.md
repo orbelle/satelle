@@ -1,9 +1,10 @@
 # Queues
 
 A queue gathers items, and its trigger runs a task or a workflow over them.
-Satelle schedules and watches nothing: a queue fires only inside the command
-that fills it, or on `satelle queue fire`. Any session may fire a queue, at
-any time, normally the one whose item the queue holds.
+A queue fires in one of three ways: inside the command that fills it, when an
+enqueue reaches the trigger's minimum size; on `satelle queue fire`; or from
+this machine's sync pass, when `[[wake]]` names it (see Wake). Any session may
+fire a queue, at any time, normally the one whose item the queue holds.
 
 ## Declaring a queue
 
@@ -163,3 +164,35 @@ trigger, members (added or by filter, with their status) and last fire with
 its run's status; the tab updates live as items and runs move. A queue
 created by an external producer (satelle-server turning an event into an item)
 syncs like any item.
+
+## Wake
+
+A machine wakes a queue by naming it in its own `~/.satelle/config.toml`:
+
+    [[wake]]
+    project = "/path/to/repo"   # the project's main checkout
+    queue = "release"           # the queue's name or id
+
+The wake is off unless listed: a queue no `[[wake]]` names never fires from
+the sync pass. It is machine-local, never tracked, so only the machine that
+will operate the run wakes it. Each sync pass (`satelle ledger autosync --session <session>`,
+every 30 seconds) reads it, with no restart; removing the entry turns it off.
+
+For each queue listed for a project, the pass, after its seat fixes, fires the
+queue as `satelle queue fire` does, with cause `wake` and actor
+`satelle-sync.service`, and pushes the fire in the same pass. The fire only
+records `queue.fired` and creates the run at its workflow's start state; the
+wake moves, seats and dispatches nothing, and the run is operated by a session
+on this machine. It fires:
+
+- nothing when the queue has no members, and prints nothing;
+- nothing while the last fire's run is open (unless overlap = "allow"),
+  printing `<path>: wake <name>: held: …`;
+- only where the ledger store is local or the queue was proven in sync with
+  the store this pass, otherwise printing
+  `<path>: wake <name>: not fired: not in sync with the store`; an unreached
+  store wakes nothing.
+
+Any other refusal prints `<path>: wake <name>: not fired: <reason>`. A wake
+never fails the pass. A woken run that is cancelled or ends closes the way for
+the next pass to fire again.

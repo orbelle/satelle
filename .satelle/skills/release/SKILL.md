@@ -106,7 +106,11 @@ task, base `origin/main`, min size 0). The delivery and chore workflows enqueue
 into it by name on their `approved` state, so a story reaching approved joins it
 with the transition as the cause. Nothing fires on enqueue: this step is the
 fire, run by the session whose items are approved, at any time, and the file's
-`base` is the run's base. `satelle queue show release --session <session>`
+`base` is the run's base, unless this machine's sync pass woke the queue
+(`[[wake]]` in `~/.satelle/config.toml`, off unless listed; `satelle help queues --session <session>`):
+then this step takes the run the wake started, while it is still at backlog,
+cancels and refires it when its base is not the fetched `origin/main`, and
+otherwise proceeds the same. `satelle queue show release --session <session>`
 shows its members and last fire. A fire refused because the last run is still
 open exits 2 naming that run: finish or cancel it first.
 

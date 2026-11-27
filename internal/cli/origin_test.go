@@ -133,7 +133,7 @@ func TestSyncServiceEventsCarrySyncOrigin(t *testing.T) {
 		appended = &e
 		return nil
 	}
-	syncRepo(context.Background(), r, fix)
+	syncRepo(context.Background(), r, fix, nil)
 	if appended == nil {
 		t.Fatal("the sync pass opened no kernel")
 	}
