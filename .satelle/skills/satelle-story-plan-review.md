@@ -19,9 +19,9 @@ not edit or implement.
 ## 1. Locate the presented artifact
 
 The plan is `attachments/plan` in the record folder your prompt names (the
-item's newest attachments, read-only). Read it there: the inline copy in the
-prompt may be cut. Open the files the plan cites (`path:line`) to check its
-claims.
+item's newest attachments, read-only). Read it there: your prompt names its
+path and carries no copy of its body. Open the files the plan cites
+(`path:line`) to check its claims.
 
 The newest `plan` attachment is the whole plan. Only the newest plan is live:
 earlier versions and earlier verdicts are in the ledger and are not live, so a
