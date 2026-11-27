@@ -61,7 +61,7 @@ type sandbox struct {
 	path []string
 }
 
-var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_", "CLAUDECODE", "CURSOR_", "PI_", "GROK_", "ANTIGRAVITY_"}
+var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_", "CLAUDECODE", "CURSOR_", "PI_", "GROK_", "ANTIGRAVITY_", "DBUS_"}
 
 func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
@@ -112,8 +112,10 @@ func newSandboxAt(t *testing.T, dir string) *sandbox {
 	if err := os.MkdirAll(guard, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(guard, "launchctl"), []byte("#!/bin/sh\necho 'launchctl is refused in tests' >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"launchctl", "systemctl"} {
+		if err := os.WriteFile(filepath.Join(guard, name), []byte("#!/bin/sh\necho '"+name+" is refused in tests' >&2\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	s.initRepo("git")
 	return s
