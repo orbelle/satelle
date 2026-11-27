@@ -14,6 +14,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
@@ -193,6 +194,9 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 	in := filepath.Join(tmp, "in")
 	shallow, skill, err := stageGate(g.Tree, in, c)
 	if err != nil {
+		return fail(err, "")
+	}
+	if res.SubstrateDigest, err = kernel.SubstrateDigestOf(in, gateScript, gateSkill); err != nil {
 		return fail(err, "")
 	}
 	if _, err := h.Exec(ctx, "mkdir", "-p", root); err != nil {

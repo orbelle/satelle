@@ -11,6 +11,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gittest"
+	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
 func TestGateWrapperRunsTheCheck(t *testing.T) {
@@ -263,5 +264,45 @@ func TestParseExit(t *testing.T) {
 		if _, err := parseExit([]byte(in)); err == nil {
 			t.Errorf("parseExit(%q) accepted", in)
 		}
+	}
+}
+
+func TestStagedGateDigestFollowsTheSubstrateOnly(t *testing.T) {
+	tree := t.TempDir()
+	gittest.Git(t, tree, "init", "-q", "-b", "main")
+	skillDir := filepath.Join(tree, ".satelle", "skills", "my-check")
+	writeSkill(t, skillDir, map[string]string{"scripts/run.sh": "echo one\n", "notes.md": "n\n"})
+	gittest.Git(t, tree, "add", "-A")
+	gittest.Git(t, tree, "commit", "-q", "-m", "init")
+	head := gittest.Git(t, tree, "rev-parse", "HEAD")
+	digest := func(item, from, to, script string) string {
+		t.Helper()
+		in := filepath.Join(t.TempDir(), "in")
+		c := gate.RemoteCheck{
+			Gate:   "my-check",
+			Script: script,
+			Env:    gate.CheckEnv{Item: item, From: from, To: to, Base: head, SkillDir: skillDir},
+			Head:   gate.Head{Ref: "refs/heads/main", Commit: head},
+		}
+		if _, _, err := stageGate(tree, in, c); err != nil {
+			t.Fatalf("stageGate: %v", err)
+		}
+		d, err := kernel.SubstrateDigestOf(in, gateScript, gateSkill)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	base := digest("sto_1", "a", "b", "sh scripts/run.sh\n")
+	if d := digest("sto_2", "c", "d", "sh scripts/run.sh\n"); d != base {
+		t.Fatalf("per-run env changed the digest: %s != %s", d, base)
+	}
+	writeSkill(t, skillDir, map[string]string{"scripts/run.sh": "echo two\n"})
+	edited := digest("sto_1", "a", "b", "sh scripts/run.sh\n")
+	if edited == base {
+		t.Fatal("an uncommitted edit to a staged skill file left the digest unchanged")
+	}
+	if digest("sto_1", "a", "b", "sh scripts/run.sh --x\n") == edited {
+		t.Fatal("a changed check script left the digest unchanged")
 	}
 }
