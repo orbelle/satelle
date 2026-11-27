@@ -23,7 +23,6 @@ This repo's `.satelle/queues/release.toml`:
     task = "tas_42301d36" # or workflow = "<name>", exactly one
     base = "origin/main"  # the ref a run's base comes from
     min_size = 0          # 0 fires only on queue fire
-    overlap = "refuse"    # or "allow": fire while earlier runs are open
 
 - The name is the file's name (lower-case letters, digits, dashes). Every queue
   command takes it: `satelle queue show release --session <session>`.
@@ -53,9 +52,8 @@ This repo's `.satelle/queues/release.toml`:
   or fire past that point is refused like any other;
   `satelle ledger adopt <item> --session <session>` resolves it.
 - `satelle validate --session <session>` refuses an unknown key, a missing title, an empty
-  `[filter]`, a trigger naming both or neither target, a negative `min_size`, an
-  `overlap` other than `refuse` or `allow`, a trigger workflow that is not
-  configured, and two files binding one chain.
+  `[filter]`, a trigger naming both or neither target, a negative `min_size`, a
+  trigger workflow that is not configured, and two files binding one chain.
 
 `satelle queue create --session <session>` still makes a queue on the ledger alone (no file), for a
 one-off or for an external producer:
@@ -120,21 +118,11 @@ empties.
 - `--trigger-base` is the ref a run's base comes from when `queue fire` gives
   no `--base` (default HEAD).
 
-By default (`overlap = "refuse"`, or no `overlap`) a queue fires again only
-after the last run reached a terminal state: while it is open `queue fire`
-exits 2 naming it, and an enqueue that reaches the size reports the fire as
-held and keeps the items queued.
-
-With `overlap = "allow"` in the file's `[trigger]`, a fire starts a new run
-while earlier runs are open, taking only the members no open run took; what an
-open run took is read from that run's `task.run` record. An explicit
-member an open run holds stays queued across the fire (`kept`), and `min_size`
-counts only the members no open run holds. With nothing left to take the fire
-starts nothing and exits 0. Only the file sets it; no runs of the queue share a
-member.
-
-Two processes firing at once are serialised by the queue's chain: the one that
-loses exits 2 and creates nothing.
+A queue fires again only after the last run reached a terminal state: while it
+is open `queue fire` exits 2 naming it, and an enqueue that reaches the size
+reports the fire as held and keeps the items queued. Two processes firing at
+once are serialised by the queue's chain: the one that loses exits 2 and
+creates nothing.
 
 ## Enqueue from a state
 

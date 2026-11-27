@@ -53,20 +53,9 @@ func (k *Kernel) NextMove(id, session string) (Move, error) {
 				routed = true
 				continue
 			}
+			run, open := k.lastOpenRun(qs)
 			in := slices.Contains(m.Members, it.ID)
-			var run item.Item
-			open, carries := false, false
-			if q.Trigger != nil && q.Trigger.Overlaps() {
-				for _, h := range k.openRuns(qs) {
-					if slices.Contains(h.inputs, it.ID) {
-						run, open, carries = h.run, true, true
-						break
-					}
-				}
-			} else {
-				run, open = k.lastOpenRun(qs)
-				carries = open && slices.Contains(k.runInputs(run.ID), it.ID)
-			}
+			carries := open && slices.Contains(k.runInputs(run.ID), it.ID)
 			if !in && !carries {
 				continue
 			}
