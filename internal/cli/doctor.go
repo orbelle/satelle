@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -36,6 +38,8 @@ const (
 	doctorProbeTimeout = 2 * time.Second
 )
 
+var agentProbeTimeout = 90 * time.Second
+
 type doctorIssue struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
@@ -54,6 +58,7 @@ const (
 	resolveAsk            = "ask"
 	resolveFixItem        = "fix-item"
 	resolveRemoveProject  = "remove-project"
+	resolveAgentSetup     = "agent-setup"
 )
 
 func unattended(is doctorIssue) bool {
@@ -82,6 +87,7 @@ type doctorInput struct {
 	legacy  []string
 
 	sessionStart bool
+	noProbe      bool
 }
 
 type doctorCheck struct {
@@ -256,8 +262,8 @@ func checkUnknownKeys(_ context.Context, in *doctorInput) ([]doctorIssue, []stri
 	return out, nil
 }
 
-func checkAgents(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
-	var notes []string
+func checkAgents(ctx context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	out, notes := checkBindings(ctx, in)
 	if in.cfg != nil {
 		for _, o := range in.cfg.Overrides {
 			eff := in.cfg.Agents[o.Name]
@@ -268,7 +274,98 @@ func checkAgents(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 			notes = append(notes, fmt.Sprintf("agents: %s overridden by .satelle/%s: %s", o.Name, kernel.AgentsLocalFile, strings.Join(parts, ", ")))
 		}
 	}
-	return machineFileIssues(in, "agents", kernel.AgentsLocalFile, "a machine's overrides"), notes
+	return append(out, machineFileIssues(in, "agents", kernel.AgentsLocalFile, "a machine's overrides")...), notes
+}
+
+type usedBinding struct {
+	name string
+	b    agent.Binding
+	bin  string
+	uses string
+}
+
+func checkBindings(ctx context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	if in.cfg == nil || in.cfgErr != nil {
+		return nil, nil
+	}
+	uses := in.cfg.AgentUses()
+	var out []doctorIssue
+	var notes []string
+	var missing, resolved []usedBinding
+	for _, name := range slices.Sorted(maps.Keys(uses)) {
+		b, ok := in.cfg.Agents[name]
+		if !ok || agent.IsSession(b) {
+			continue
+		}
+		b.Name = name
+		if p := b.Placement; p != "" && p != agent.PlaceLocal {
+			notes = append(notes, fmt.Sprintf("agents: %s is placed %s, not dispatched on this machine; not checked", name, p))
+			continue
+		}
+		var parts []string
+		for _, u := range uses[name] {
+			parts = append(parts, u.String())
+		}
+		ub := usedBinding{name: name, b: b, bin: b.Command, uses: strings.Join(parts, "; ")}
+		if f := strings.Fields(b.Command); len(f) > 0 {
+			ub.bin = f[0]
+		}
+		if err := agent.Resolve(b, in.r.Tree); err != nil {
+			missing = append(missing, ub)
+			if !in.sessionStart {
+				out = append(out, doctorIssue{Check: "agents",
+					Problem: fmt.Sprintf("binding %s (command %q) is missing on this machine: %v; used by %s", name, b.Command, err, ub.uses),
+					Fix:     fmt.Sprintf("install %s on this machine's PATH (or create the path it names), or set agents.%s.command in .satelle/%s to a command this machine has; then satelle doctor", ub.bin, name, kernel.AgentsLocalFile),
+					Resolve: resolveAgentSetup})
+			}
+			continue
+		}
+		resolved = append(resolved, ub)
+	}
+	if in.sessionStart {
+		if len(missing) > 0 {
+			var named, fix []string
+			for _, m := range missing {
+				named = append(named, fmt.Sprintf("%s (%s)", m.name, m.bin))
+				fix = append(fix, fmt.Sprintf("%s (%s)", m.bin, m.name))
+			}
+			out = append(out, doctorIssue{Check: "agents",
+				Problem: "agent binding(s) missing on this machine: " + strings.Join(named, ", ") + "; satelle doctor names the states and gates that use each",
+				Fix:     "install " + strings.Join(fix, ", ") + " or set its command in .satelle/" + kernel.AgentsLocalFile,
+				Resolve: resolveAgentSetup})
+		}
+		return out, notes
+	}
+	if in.noProbe {
+		for _, r := range resolved {
+			path, _ := exec.LookPath(r.bin)
+			notes = append(notes, fmt.Sprintf("agents: %s resolves (%s); not probed (--no-probe)", r.name, path))
+		}
+		return out, notes
+	}
+	errs := make([]error, len(resolved))
+	took := make([]time.Duration, len(resolved))
+	var wg sync.WaitGroup
+	for i, r := range resolved {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := agent.Probe(ctx, r.b, agentProbeTimeout)
+			errs[i], took[i] = err, res.Duration
+		}()
+	}
+	wg.Wait()
+	for i, r := range resolved {
+		if errs[i] != nil {
+			out = append(out, doctorIssue{Check: "agents",
+				Problem: fmt.Sprintf("binding %s (command %q) does not answer a probe: %v; used by %s", r.name, r.b.Command, errs[i], r.uses),
+				Fix:     fmt.Sprintf("run %s once by hand on this machine to sign it in or see why it fails, or set agents.%s.command in .satelle/%s; then satelle doctor", r.bin, r.name, kernel.AgentsLocalFile),
+				Resolve: resolveAgentSetup})
+			continue
+		}
+		notes = append(notes, fmt.Sprintf("agents: %s ok (%s, answered in %s)", r.name, r.b.Command, took[i].Round(100*time.Millisecond)))
+	}
+	return out, notes
 }
 
 func bindingField(b agent.Binding, field string) string {

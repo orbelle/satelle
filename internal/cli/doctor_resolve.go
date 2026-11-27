@@ -43,6 +43,7 @@ const (
 	leftNotSynced = "its chain was not proven in sync with the ledger store this pass, so a release could fork it"
 	leftInstall   = "installing or updating satelle is not done unattended"
 	leftStopped   = "satelled is not answering; only a build skew is restarted unattended"
+	leftAgent     = "installing or signing in an agent on this machine is done by hand"
 )
 
 type resolveAction struct {
@@ -111,6 +112,9 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	resolveProjects(&rep, by[resolveRemoveProject])
 	for _, is := range by[""] {
 		rep.leave(is, "", leftNoFix)
+	}
+	for _, is := range by[resolveAgentSetup] {
+		rep.leave(is, "", leftAgent)
 	}
 	for _, is := range by[resolveUserDecision] {
 		rep.leave(is, "", leftUserDecision)

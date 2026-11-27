@@ -47,6 +47,7 @@ func TestRepoFindingsMatchTheRecordedBase(t *testing.T) {
 	copyCheckout(t, tree, s.dir)
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "this repo's tree")
+	standInAgents(t, s)
 
 	got := repoFindings(t, s, bin)
 	if write {
@@ -206,9 +207,9 @@ func validateJSON(t *testing.T, s *sandbox, bin string) validateReport {
 	return v
 }
 
-func doctorJSON(t *testing.T, s *sandbox, bin string) doctorReportJSON {
+func doctorJSON(t *testing.T, s *sandbox, bin string, args ...string) doctorReportJSON {
 	t.Helper()
-	r := s.exec(bin, "", "doctor", "--json")
+	r := s.exec(bin, "", append([]string{"doctor", "--json"}, args...)...)
 	var d doctorReportJSON
 	if err := json.Unmarshal([]byte(r.out), &d); err != nil {
 		t.Fatalf("doctor --json: exit %d: %v\n%s%s", r.code, err, r.out, r.err)
@@ -244,7 +245,7 @@ func repoFindings(t *testing.T, s *sandbox, bin string) []string {
 	out = append(out, group("validate substrate ", sub)...)
 	out = append(out, group("validate volatile ", vol)...)
 
-	d := doctorJSON(t, s, bin)
+	d := doctorJSON(t, s, bin, "--no-probe")
 	if len(d.Unchecked) != 0 {
 		t.Fatalf("doctor could not finish checks %v; the comparison needs every check", d.Unchecked)
 	}
@@ -264,6 +265,25 @@ func repoFindings(t *testing.T, s *sandbox, bin string) []string {
 	out = append(out, group("doctor issue ", issues)...)
 	out = append(out, group("doctor note ", notes)...)
 	return out
+}
+
+var agentCommand = regexp.MustCompile(`(?m)^command\s*=\s*"([^"]+)"`)
+
+func standInAgents(t *testing.T, s *sandbox) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "agents.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(s.home, "agents")
+	for _, m := range agentCommand.FindAllStringSubmatch(string(b), -1) {
+		f := strings.Fields(m[1])
+		if len(f) == 0 || f[0] == "session" {
+			continue
+		}
+		writeFile(t, filepath.Join(dir, f[0]), "#!/bin/sh\necho \"$0 is a stand-in agent that the findings run never starts\" >&2\nexit 1\n", 0o755)
+	}
+	s.path = append([]string{dir}, s.path...)
 }
 
 func readGolden(t *testing.T) []string {

@@ -600,6 +600,47 @@ func (c *Config) judges(gname string, g workflow.Gate) []string {
 	return out
 }
 
+type AgentUse struct {
+	Workflow string
+	State    string
+	Gate     string
+	Role     string
+	Of       string
+}
+
+func (u AgentUse) String() string {
+	switch u.Role {
+	case "performer":
+		return fmt.Sprintf("workflow %s state %s (performer)", u.Workflow, u.State)
+	case "fallback":
+		return fmt.Sprintf("workflow %s gate %s (fallback of %s)", u.Workflow, u.Gate, u.Of)
+	}
+	return fmt.Sprintf("workflow %s gate %s (%s)", u.Workflow, u.Gate, u.Role)
+}
+
+func (c *Config) AgentUses() map[string][]AgentUse {
+	out := map[string][]AgentUse{}
+	for _, wname := range sortedKeys(c.Workflows) {
+		w := c.Workflows[wname]
+		for _, sname := range sortedKeys(w.States) {
+			if p := w.States[sname].Agent(); p != nil && p.Agent != "" {
+				out[p.Agent] = append(out[p.Agent], AgentUse{Workflow: wname, State: sname, Role: "performer"})
+			}
+		}
+		for _, gname := range sortedKeys(w.Gates) {
+			for _, j := range c.judges(gname, w.Gates[gname]) {
+				out[j] = append(out[j], AgentUse{Workflow: wname, Gate: gname, Role: "judge"})
+				if f := c.Agents[j].Fallback; f != "" {
+					if _, ok := c.Agents[f]; ok {
+						out[f] = append(out[f], AgentUse{Workflow: wname, Gate: gname, Role: "fallback", Of: j})
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
 func (c *Config) judgeSets(gname string, g workflow.Gate) [][]string {
 	sets := [][]string{g.Judges()}
 	panels := c.Settings.Review.Panels[gname]

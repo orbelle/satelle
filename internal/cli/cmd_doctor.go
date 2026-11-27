@@ -8,14 +8,15 @@ import (
 )
 
 func doctorCmd() *cobra.Command {
-	var asJSON, resolve bool
+	var asJSON, resolve, noProbe bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Report what is wrong here, each with the command that fixes it; --resolve fixes what it can prove",
 		Long: `doctor reports what is wrong with this repo and this machine's satelle, each
 issue with the command that fixes it. Without --resolve it changes nothing: no
 file, ledger, runtime or git state is written, and it never contacts the
-ledger store.
+ledger store. Its agents check starts each agent binding a workflow uses once,
+in a temporary directory doctor removes (--no-probe does not).
 
 Its checks:
   config        the configuration is invalid (satelle validate)
@@ -43,10 +44,19 @@ Its checks:
              category .satelle/init.toml names; a repo that names none is
              told the key and the categories its workflow rules select, and
              given no command)
-  agents     each active override in .satelle/agents.local.toml is a note,
-             naming the agent and each field as tracked -> effective; the
-             local file not covered by an ignore rule, or tracked by git, is
-             an issue (add agents.local.toml to .satelle/.gitignore, or
+  agents     each agent binding a workflow uses (a state's performer, a
+             gate's judge or [review] panel member, a judge's fallback) must
+             resolve on this machine, its command found on PATH and every path
+             its command line names existing, and answer a probe: the
+             adapter's dispatch with read-only tools, a fixed tiny prompt, a
+             temporary directory it removes, no dispatch log and a timeout.
+             A binding missing or not answering is an issue naming the states
+             and gates that use it (install it, sign it in, or set its command
+             in .satelle/agents.local.toml); one that answers is an ok note.
+             --no-probe and session start resolve without probing. Each active
+             override in .satelle/agents.local.toml is a note, naming the
+             agent and each field as tracked -> effective; the local file not
+             covered by an ignore rule, or tracked by git, is an issue (add agents.local.toml to .satelle/.gitignore, or
              git rm --cached it, through the repo's workflow)
   repos      with a .satelle/repos.toml or .satelle/repos.local.toml present
              (none: no finding and no git call): each registered repository
@@ -102,7 +112,7 @@ Outside a satelle repo only the machine checks (versions, upgrade, projects,
 sync) run; in a pre-1.0 repo only versions, upgrade, projects and the sync
 timer are checked. The
 session-start hook runs the same checks, except context, which measures that
-hook's own output, within ` + doctorHookBudget.String() + ` and prints a short
+hook's own output, and runs no agent probe, within ` + doctorHookBudget.String() + ` and prints a short
 summary; a check still running then is listed as not checked. doctor exits 0
 when it finds nothing and 1 when it finds an issue.
 
@@ -122,6 +132,8 @@ when it finds nothing and 1 when it finds an issue.
   - a file this release ships that the repo lacks: it lists it with the
     command that raises the story for it, the user's decision, and opens no
     item for it;
+  - an agent binding missing on this machine or not answering its probe: it
+    lists it, since installing or signing in an agent is done by hand;
   - config, substrate, volatile, agents and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (the kind and tag .satelle/doctor.toml
@@ -156,6 +168,7 @@ satelle doctor itself lists every issue.`,
 			if err != nil {
 				return err
 			}
+			in.noProbe = noProbe
 			if resolve {
 				rep := resolveDoctor(cmd.Context(), in)
 				if asJSON {
@@ -205,6 +218,7 @@ satelle doctor itself lists every issue.`,
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the report as JSON")
+	cmd.Flags().BoolVar(&noProbe, "no-probe", false, "check each used binding resolves without starting it")
 	cmd.Flags().BoolVar(&resolve, "resolve", false, "fix what doctor can prove, ask about orphaned seats, open one item for the substrate findings")
 	return cmd
 }
