@@ -197,7 +197,7 @@ func (c *Config) agentProblems() []error {
 	var errs []error
 	for _, name := range c.Agents.Names() {
 		o, overridden := c.override(name)
-		for _, err := range agent.Problems(c.Agents[name]) {
+		for _, err := range append(agent.Problems(c.Agents[name]), c.Agents.FallbackProblems(name)...) {
 			if overridden {
 				errs = append(errs, fmt.Errorf("%s: agents.%s: %w (overriding %s)", AgentsLocalFile, name, err, strings.Join(o.Fields, ", ")))
 			} else {
@@ -582,6 +582,48 @@ func (c *Config) judges(gname string, g workflow.Gate) []string {
 	return out
 }
 
+func (c *Config) judgeSets(gname string, g workflow.Gate) [][]string {
+	sets := [][]string{g.Judges()}
+	panels := c.Settings.Review.Panels[gname]
+	for _, tier := range sortedKeys(panels) {
+		sets = append(sets, panels[tier])
+	}
+	return sets
+}
+
+func (c *Config) fallbackProblems(w *workflow.Workflow, gname string) []error {
+	var errs []error
+	g := w.Gates[gname]
+	for _, j := range c.judges(gname, g) {
+		f := c.Agents[j].Fallback
+		fb, ok := c.Agents[f]
+		if f == "" || !ok {
+			continue
+		}
+		if err := agent.CheckJudge(fb); err != nil {
+			errs = append(errs, fmt.Errorf("workflow %s: gate %q: judge %q fallback: %w", w.Name, gname, j, err))
+		}
+	}
+	for _, set := range c.judgeSets(gname, g) {
+		named := map[string]string{}
+		for _, j := range set {
+			f := c.Agents[j].Fallback
+			if f == "" {
+				continue
+			}
+			if slices.Contains(set, f) {
+				errs = append(errs, fmt.Errorf("workflow %s: gate %q: judge %q fallback %q is also a judge of this gate", w.Name, gname, j, f))
+			}
+			if first, dup := named[f]; dup && first != j {
+				errs = append(errs, fmt.Errorf("workflow %s: gate %q: judges %q and %q name the same fallback %q, so one binding could answer for both", w.Name, gname, first, j, f))
+			} else if !dup {
+				named[f] = j
+			}
+		}
+	}
+	return errs
+}
+
 func (c *Config) reviewGate(name string) (found, check bool) {
 	check = true
 	for _, wname := range sortedKeys(c.Workflows) {
@@ -607,6 +649,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 				}
 			}
 		}
+		errs = append(errs, c.fallbackProblems(w, gname)...)
 		g := w.Gates[gname]
 		if sk, ok := c.Skills[g.Skill]; ok && len(g.Judges()) > 0 && !sk.IsCheck() {
 			if key, legacy := gate.LegacyAnswerKey(sk.Body); legacy {

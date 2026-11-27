@@ -227,7 +227,8 @@ only here, or when an enqueue reaches its minimum size. Any session may fire,
 normally the one whose items the queue holds, at any time.
 
 It exits 0 when it fired or the queue had no members, and 2 when the last
-fire's run is still open or the queue changed while firing.`,
+fire's run is still open (unless the queue's trigger sets overlap = "allow")
+or the queue changed while firing.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()

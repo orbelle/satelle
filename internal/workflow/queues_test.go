@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/item"
@@ -42,5 +44,35 @@ func TestLoadQueuesAndApply(t *testing.T) {
 	q.Apply(&it)
 	if it.Inputs != nil {
 		t.Fatalf("no filter left inputs %+v", it.Inputs)
+	}
+}
+
+func TestQueueOverlapSetting(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, overlap string) *Queue {
+		t.Helper()
+		p := filepath.Join(dir, name+".toml")
+		body := "title = \"Q\"\n[trigger]\ntask = \"tas_1\"\noverlap = \"" + overlap + "\"\n"
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		q, err := ParseQueue(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return q
+	}
+	q := write("allow", "allow")
+	if q.Trigger.Overlap != item.OverlapAllow || !q.Trigger.Overlaps() || len(q.Validate(func(string) bool { return false })) != 0 {
+		t.Fatalf("allow: %+v %v", q.Trigger, q.Validate(func(string) bool { return false }))
+	}
+	q = write("odd", "sometimes")
+	errs := q.Validate(func(string) bool { return false })
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), q.File) || !strings.Contains(errs[0].Error(), "sometimes") {
+		t.Fatalf("unknown overlap: %v", errs)
+	}
+	b, err := json.Marshal(item.Trigger{Task: "t"})
+	if err != nil || strings.Contains(string(b), "overlap") {
+		t.Fatalf("an unset overlap changes the trigger's json: %s %v", b, err)
 	}
 }

@@ -78,7 +78,11 @@ warning colour. It still refuses the move (exit 2), but it is not a rejected
 round toward a hold, is not dissent, and is not handed to a re-run as a
 finding; carry never carries over it. A panel that does not pass is a reject
 when any member rejected, else an error. Other failures (a missing skill or
-agent, an answer with no verdict) stay rejects.
+agent, an answer with no verdict) stay rejects. A judge whose binding names a
+`fallback` (`satelle help agents --session <session>`) is not an error when
+its dispatch fails and the fallback answers: the fallback is asked with the
+same prompt and its verdict is the judge's result. An answer with no verdict
+never falls back.
 
 Every model gate's verdict (a skill that is not `type: check`) records the
 change it saw: its base, head, branch and the hash of the diff alone. `story
@@ -130,8 +134,10 @@ init --session <session>` writes the check skill `satelle-judge-differs-from-per
 with no `agent` or `panel` on the transitions it chooses. It fails each gate
 where no judge is of another model family (claude, gpt, gemini, grok, its
 `FAMILIES` table) than the dispatched performer of the from-state: a single
-judge must differ, and a panel passes when one member differs. A session
-performer has no model in config and is not compared.
+judge must differ, and a panel passes when one member differs. A judge whose
+binding names a `fallback` counts as differing only when its fallback is of
+another family than the performer too. A session performer has no model in
+config and is not compared.
 
 A gate's `trigger` is a check skill whose exit decides relevance: exit 0 means
 relevant and the gate runs; exit 1 means not relevant, and the gate is recorded
@@ -197,6 +203,13 @@ Each judged `gate.run` also records the judge's `command`, `model`, `effort`
 (when its binding sets one; omitted when unset) and `prompt_bytes` (the byte
 length of the prompt given to the judge): on the top-level record for a single
 judge, and on each `members[]` entry for a panel.
+When a judge's dispatch failed and its fallback judged, that record (the
+top level for a single judge, the member's `members[]` entry for a panel)
+names the fallback as its `binding`, `command` and `model`, sums both
+attempts' tokens and duration, starts its `notes` with `<first> could not be
+asked (...); fallback <fallback> judged`, and carries `fallback_from`: the
+first judge's `binding`, `command`, `model` and `error` (its `dispatch
+failed: ...` text, which passes through the same redaction as `notes`).
 
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
