@@ -131,6 +131,18 @@ func TestServiceInstallLoadsLaunchAgents(t *testing.T) {
 	if !strings.Contains(out, "dev.satelle.satelled loaded and (re)started\n") || !strings.Contains(out, "dev.satelle.sync loaded: each project on this machine syncs every 30s\n") {
 		t.Errorf("install output:\n%s", out)
 	}
+	fp := launchAgentPath(followLabel)
+	f := readText(t, fp)
+	if !inOrder(f, "<string>"+plistText(cli)+"</string>", "<string>ledger</string>", "<string>follow</string>") ||
+		!strings.Contains(f, "<key>KeepAlive</key>\n\t<true/>") {
+		t.Errorf("follow plist:\n%s", f)
+	}
+	if log := e.calls(t); !strings.Contains(log, "bootstrap "+e.gui()+" "+fp) {
+		t.Errorf("the follow agent was not loaded:\n%s", log)
+	}
+	if !strings.Contains(out, "dev.satelle.follow loaded and (re)started\n") {
+		t.Errorf("install output:\n%s", out)
+	}
 }
 
 func TestServiceRefreshRepairsOneLaunchAgent(t *testing.T) {

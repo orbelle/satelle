@@ -36,7 +36,7 @@ the same push, then pull, for each project on this machine whose store is not
 local. adopt resolves a fork pull refuses, for the items named. See
 'satelle help ledger-store'.`,
 	}
-	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAdoptCmd(), ledgerAutosyncCmd())
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAdoptCmd(), ledgerAutosyncCmd(), ledgerFollowCmd())
 	return cmd
 }
 

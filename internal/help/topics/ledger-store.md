@@ -198,6 +198,19 @@ instead: `~/Library/LaunchAgents/dev.satelle.satelled.plist` runs satelled, and
 `dev.satelle.sync.plist` runs `satelle ledger autosync --session <session>` every
 30 seconds.
 
+The same commands also install `satelle-follow.service` (on macOS the
+`dev.satelle.follow` launch agent), which keeps `satelle ledger follow --session <session>`
+running. For each project on this machine whose store is satelle.dev and which
+is bound, it keeps a subscription to the store open and watches the local
+ledger: a local write, an event another location appended, and each
+reconnect run the same pass, so a story created, updated or moved at one
+location reaches every other online, bound location within seconds, and a
+location coming back online catches up within seconds of reconnecting. It
+never applies a streamed event itself, and leaves seat releases and queue
+wakes to the timer. A dropped subscription is re-dialled within 2 seconds;
+`satelle-sync.timer` stays the fallback, and its next pass pushes and pulls
+whatever the follower missed.
+
 Each pass also confirms satelled's mirror of every project it visits, local
 store or not: it sends the digest of the project's full snapshot, satelled
 marks the mirror fresh when that matches the last one it applied, and the full

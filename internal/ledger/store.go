@@ -337,16 +337,29 @@ func (s *Store) write(e Event) error {
 }
 
 func (s *Store) withLock(fn func() error) error {
-	f, err := os.OpenFile(filepath.Join(s.dir, "ledger.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := s.lock("ledger.lock")
 	if err != nil {
-		return fmt.Errorf("ledger: lock: %w", err)
+		return err
 	}
-	defer f.Close()
-	if err := lockFile(f); err != nil {
-		return fmt.Errorf("ledger: lock: %w", err)
-	}
-	defer unlockFile(f)
+	defer unlock()
 	return fn()
+}
+
+func (s *Store) LockPass() (func(), error) { return s.lock("sync.lock") }
+
+func (s *Store) lock(name string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(s.dir, name), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: lock: %w", err)
+	}
+	if err := lockFile(f); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("ledger: lock: %w", err)
+	}
+	return func() {
+		_ = unlockFile(f)
+		f.Close()
+	}, nil
 }
 
 func (s *Store) Head(item string) (string, error) {
@@ -460,17 +473,53 @@ func (s *Store) Size(item string) (int64, error) {
 }
 
 func (s *Store) Items() ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(s.dir, "ledger"))
+	entries, err := s.itemEntries()
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ".jsonl"); ok && !e.IsDir() && ValidItem(name) {
-			out = append(out, name)
-		}
+	for name := range entries {
+		out = append(out, name)
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+type Mark struct {
+	Size    int64
+	ModTime time.Time
+}
+
+func (s *Store) Marks() (map[string]Mark, error) {
+	entries, err := s.itemEntries()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Mark, len(entries))
+	for name, e := range entries {
+		info, err := e.Info()
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[name] = Mark{Size: info.Size(), ModTime: info.ModTime()}
+	}
+	return out, nil
+}
+
+func (s *Store) itemEntries() (map[string]os.DirEntry, error) {
+	entries, err := os.ReadDir(filepath.Join(s.dir, "ledger"))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]os.DirEntry{}
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), ".jsonl"); ok && !e.IsDir() && ValidItem(name) {
+			out[name] = e
+		}
+	}
 	return out, nil
 }
 
