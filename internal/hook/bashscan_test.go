@@ -45,6 +45,7 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: `tar -C "/dst" -xf a.tar`, paths: []string{"/dst"}},
 		{cmd: `bash -c 'rm -f q'`, paths: []string{"/w/q"}},
 		{cmd: `python3 -c 'print(1)'`, inline: []string{"/w"}},
+		{cmd: `cd /o && python3 -c 'print(1)' && git merge x`, paths: []string{"/o"}, inline: []string{"/o"}},
 		{cmd: "python3 script.py"},
 		{cmd: "cat <<'EOF' | python3 -\nprint(1)\nEOF", inline: []string{"/w"}},
 		{cmd: "chmod +x /tmp/x.sh", paths: []string{"/tmp/x.sh"}},
@@ -68,6 +69,8 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: "chmod --reference=ref +x", paths: []string{"/w/+x"}},
 		{cmd: "echo x \\\n  > a.txt", paths: []string{"/w/a.txt"}},
 		{cmd: "cd sub \\\n  && touch f", paths: []string{"/w/sub/f"}},
+		{cmd: "bash -c 'X+=1 command true; rm /o/f'", paths: []string{"/o/f"}},
+		{cmd: "bash -c 'X+=1 >/dev/null true; echo x > /o/f'", paths: []string{"/dev/null", "/o/f"}},
 	} {
 		got := ScanBash(c.cmd, "/w", "", noFile)
 		if !slices.Equal(got.Paths, c.paths) || !slices.Equal(got.Inline, c.inline) {
@@ -401,6 +404,227 @@ done`
 	for _, c := range hits {
 		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: bash runs satelle story record, the scan allows it", c)
+		}
+	}
+}
+
+func TestScanBashGitAfterCd(t *testing.T) {
+	noFile := func(string) bool { return false }
+	for _, c := range []struct {
+		cmd   string
+		paths []string
+	}{
+		{"cd /o && git merge x", []string{"/o"}},
+		{"cd /o; cd sub && git merge x", []string{"/o", "/w/sub", "/o/sub"}},
+		{"cd /o && git -C a merge x", []string{"/o/a", "/w/a"}},
+		{"git -C/o merge x", []string{"/o"}},
+		{"cd /o && git status", nil},
+	} {
+		got := ScanBash(c.cmd, "/w", "", noFile)
+		if !slices.Equal(got.Paths, c.paths) || got.Unreadable != "" {
+			t.Errorf("%q: paths %v unreadable %q, want %v and a plain line", c.cmd, got.Paths, got.Unreadable, c.paths)
+		}
+	}
+}
+
+func TestGitAfterCdMatchesBash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash oracle runs on unix")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, o, bin := filepath.Join(dir, "B"), filepath.Join(dir, "O"), filepath.Join(dir, "bin")
+	for _, d := range []string{filepath.Join(b, "sub"), filepath.Join(o, "sub"), bin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := `#!/bin/sh
+while [ $# -gt 0 ]; do
+  case $1 in
+    -C) cd "$2" || exit 1; shift 2;;
+    -C*) cd "${1#-C}" || exit 1; shift;;
+    -*) shift;;
+    *) break;;
+  esac
+done
+printf '%s\t%s\n' "$(pwd -P)" "$1" >> "$GITLOG"
+`
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := []string{
+		"cd O && git merge x", "cd O; cd sub && git merge x", "cd nope; git merge x", "cd O || cd sub && git merge x",
+		"cd O | cd sub; git merge x", "cd O && git -C sub merge x", "cd O && git -Csub merge x",
+		"cd sub && cd ../.. && git merge x", "'cd' O && 'git' merge x", "cd O && ls && git merge x",
+	}
+	unread := []string{
+		"pushd O && git merge x", "builtin cd O && git merge x", "X=1 cd O && git merge x", "X+=1 cd O && git merge x",
+		"cd O && echo hi && git merge x", "printf -v d %s O; cd O && git merge x", "cd O && git\\\n merge x",
+		"cd O && git >/dev/null merge x", `cd O && git -C "$(pwd)" merge x`,
+	}
+	noFile := func(string) bool { return false }
+	check := func(line string, wantPlain bool) {
+		line = strings.ReplaceAll(line, " O", " "+o)
+		log := filepath.Join(dir, "log")
+		_ = os.Remove(log)
+		cmd := exec.Command(bash, "-c", line)
+		cmd.Dir = b
+		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "GITLOG="+log)
+		_ = cmd.Run()
+		data, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatalf("%q: bash ran no git: %v", line, err)
+		}
+		got := ScanBash(line, b, b, noFile)
+		if wantPlain != (got.Unreadable == "") {
+			t.Errorf("%q: unreadable %q, want plain %v", line, got.Unreadable, wantPlain)
+		}
+		for _, row := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			ran, sub, _ := strings.Cut(row, "\t")
+			if ran == b || gitReadOnlySubcommands[sub] {
+				continue
+			}
+			if got.Unreadable == "" && !slices.Contains(got.Paths, filepath.ToSlash(ran)) {
+				t.Errorf("%q: bash runs git %s in %s, the scan reads %v", line, sub, ran, got.Paths)
+			}
+		}
+	}
+	for _, l := range plain {
+		check(l, true)
+	}
+	for _, l := range unread {
+		check(l, false)
+	}
+}
+
+func TestReadPlainLine(t *testing.T) {
+	for _, c := range []struct {
+		line  string
+		words []string
+	}{
+		{`git commit -m "it's (x)"`, []string{"git", "commit", "-m", "it's (x)"}},
+		{"cd 'a b'", []string{"cd", "a b"}},
+		{"git diff HEAD~1;", []string{"git", "diff", "HEAD~1"}},
+		{`ls "C:\bin\x"`, []string{"ls", `C:\bin\x`}},
+		{"/bin/echo hi", []string{"/bin/echo", "hi"}},
+	} {
+		segs, why := readPlainLine(c.line)
+		if why != "" || len(segs) != 1 {
+			t.Errorf("%q: %d segments, unread %q, want one plain segment", c.line, len(segs), why)
+			continue
+		}
+		var got []string
+		for _, w := range segs[0].Words {
+			got = append(got, w.Value)
+		}
+		if !slices.Equal(got, c.words) {
+			t.Errorf("%q: words %q, want %q", c.line, got, c.words)
+		}
+	}
+	for _, c := range []struct{ line, want string }{
+		{"git log # x", "#"},
+		{"git log $x", "$"},
+		{"git log `x`", "`"},
+		{`git log a\ b`, `\`},
+		{"git log \\\n -1", "a line continuation"},
+		{"git log\ngit diff", "a newline"},
+		{"git log\r", "a carriage return"},
+		{"git log & ls", "a lone &"},
+		{"git log |& cat", "|&"},
+		{"(git log)", "("},
+		{"{ git log; }", "{"},
+		{"ls *.go", "*"},
+		{"ls [ab]", "["},
+		{"cat < f", "a redirection <"},
+		{"git log > f", "a redirection >"},
+		{"git log 2>&1", "a redirection >"},
+		{"ls ~/x", "~"},
+		{"git commit -m x!", "!"},
+		{"ls caf\xc3\xa9", "0xc3"},
+		{`git log "$x"`, "$ inside double quotes"},
+		{`git log "a\$"`, "a backslash escape inside double quotes"},
+		{"git log 'x", "an unterminated single quote"},
+		{`git log "x`, "an unterminated double quote"},
+		{"git log;; ls", "an empty command"},
+		{"git log &&", "a trailing &&"},
+		{"X=1 cd a", "an assignment"},
+		{"X+=1 cd a", "an assignment"},
+		{"echo hi", "the builtin or keyword echo"},
+		{"printf -v x y", "the builtin or keyword printf"},
+		{"true", "the builtin or keyword true"},
+		{"pwd", "the builtin or keyword pwd"},
+		{"pushd a", "the builtin or keyword pushd"},
+		{"then git x", "the builtin or keyword then"},
+		{"cd", "a cd whose target"},
+		{"cd -", "a cd whose target"},
+		{"cd -P x", "a cd whose target"},
+		{"cd a b", "a cd whose target"},
+	} {
+		if _, why := readPlainLine(c.line); !strings.Contains(why, c.want) || why == "" {
+			t.Errorf("%q: unread %q, want it naming %q", c.line, why, c.want)
+		}
+	}
+}
+
+func TestNamesGit(t *testing.T) {
+	for _, c := range []string{
+		`git commit -m "$(cat f)"`, "x=$(git rev-parse HEAD); git reset --hard", "'git' merge x 2>&1",
+		"/usr/bin/git -C /o merge x >l", "git status 2>&1", `g\it merge x`, `"g"it merge x`, "git\\\n merge x",
+		"git.exe -C x merge y", "ls ~/git && make",
+	} {
+		if !namesGit(c) {
+			t.Errorf("%q: namesGit false, want true", c)
+		}
+	}
+	for _, c := range []string{"cat .gitignore > x", "echo $HOME", "digit=1; echo $digit", "git-lfs pull >l", "GIT_DIR=x make"} {
+		if namesGit(c) {
+			t.Errorf("%q: namesGit true, want false", c)
+		}
+	}
+}
+
+func TestAssignmentPrefix(t *testing.T) {
+	for _, w := range []string{"X=1", "X+=1", "X="} {
+		if !isAssignmentPrefix(w) {
+			t.Errorf("isAssignmentPrefix(%q) false, want true", w)
+		}
+	}
+	for _, w := range []string{"1X=y", "-x=y", "=x", "X+1"} {
+		if isAssignmentPrefix(w) {
+			t.Errorf("isAssignmentPrefix(%q) true, want false", w)
+		}
+	}
+	if isAssignmentWord("X+=1") {
+		t.Error(`isAssignmentWord("X+=1") is true; the legacy scans must keep reading it as a command word`)
+	}
+}
+
+func TestBashBuiltinWordsCoverBash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash oracle runs on unix")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	out, err := exec.Command(bash, "-c", "compgen -b; compgen -k").Output()
+	if err != nil {
+		t.Fatalf("compgen: %v", err)
+	}
+	words := strings.Fields(string(out))
+	if len(words) < 50 {
+		t.Fatalf("compgen printed %d words; the oracle is not working", len(words))
+	}
+	for _, w := range words {
+		if !bashBuiltinWords[w] {
+			t.Errorf("bash builtin or keyword %q is not in bashBuiltinWords", w)
 		}
 	}
 }

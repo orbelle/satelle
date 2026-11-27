@@ -1,10 +1,12 @@
 package hook
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -14,22 +16,35 @@ type BashTargets struct {
 	Paths          []string
 	Inline         []string
 	OperatorRecord bool
+	Unreadable     string
 	Pushes         []PushDest
 }
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
-	seen := map[string]bool{}
+	seen := map[*[]string]map[string]bool{&t.Paths: {}, &t.Inline: {}}
 	add := func(dst *[]string, p string) {
 		p = path.Clean(p)
-		if p == "" || p == "." || seen[p] {
+		if p == "" || p == "." || seen[dst][p] {
 			return
 		}
-		seen[p] = true
+		seen[dst][p] = true
 		*dst = append(*dst, p)
 	}
-	scanBash(command, path.Clean(filepath.ToSlash(cwd)), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
+	base := path.Clean(filepath.ToSlash(cwd))
+	scanBash(command, base, root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
 	t.OperatorRecord = operatorRecordCommand(command, 0)
+	segs, why := readPlainLine(command)
+	if why == "" {
+		var dirs []string
+		dirs, why = plainGitDirs(segs, base)
+		for _, d := range dirs {
+			add(&t.Paths, d)
+		}
+	}
+	if why != "" && namesGit(command) {
+		t.Unreadable = why
+	}
 	t.Pushes = readPushes(command)
 	return t
 }
@@ -109,6 +124,210 @@ type bashTok struct {
 	Op         string
 	Raw        string
 	Start, End int
+}
+
+type plainWord struct {
+	Value    string
+	Unquoted string
+}
+
+type plainSegment struct {
+	Words []plainWord
+}
+
+func readPlainLine(command string) ([]plainSegment, string) {
+	var segs []plainSegment
+	var cur []plainWord
+	var val, unq strings.Builder
+	inWord, quoted := false, false
+	pending := ""
+	endWord := func() {
+		if inWord {
+			cur = append(cur, plainWord{Value: val.String(), Unquoted: unq.String()})
+		}
+		val.Reset()
+		unq.Reset()
+		inWord, quoted = false, false
+	}
+	endSeg := func(at int) string {
+		endWord()
+		if len(cur) == 0 {
+			return fmt.Sprintf("an empty command at byte %d", at)
+		}
+		if why := plainCommand(cur); why != "" {
+			return why
+		}
+		segs = append(segs, plainSegment{Words: cur})
+		cur = nil
+		return ""
+	}
+	for i := 0; i < len(command); {
+		c := command[i]
+		var next byte
+		if i+1 < len(command) {
+			next = command[i+1]
+		}
+		switch {
+		case c == ' ' || c == '\t':
+			endWord()
+			i++
+		case (c == '&' && next == '&') || (c == '|' && next == '|') || c == ';' || (c == '|' && next != '&'):
+			op := command[i : i+1]
+			if c != ';' && next == c {
+				op = command[i : i+2]
+			}
+			if why := endSeg(i); why != "" {
+				return nil, why
+			}
+			pending = op
+			i += len(op)
+		case c == '\'':
+			end := strings.IndexByte(command[i+1:], '\'')
+			if end < 0 {
+				return nil, fmt.Sprintf("an unterminated single quote at byte %d", i)
+			}
+			val.WriteString(command[i+1 : i+1+end])
+			inWord, quoted, pending = true, true, ""
+			i += end + 2
+		case c == '"':
+			j := i + 1
+			for ; j < len(command) && command[j] != '"'; j++ {
+				switch d := command[j]; d {
+				case '$', '`', '!':
+					return nil, fmt.Sprintf("%s inside double quotes at byte %d", describeShellByte(d), j)
+				case '\\':
+					if j+1 < len(command) && strings.IndexByte("$`\"\\\n", command[j+1]) >= 0 {
+						return nil, fmt.Sprintf("a backslash escape inside double quotes at byte %d", j)
+					}
+				}
+				val.WriteByte(command[j])
+			}
+			if j == len(command) {
+				return nil, fmt.Sprintf("an unterminated double quote at byte %d", i)
+			}
+			inWord, quoted, pending = true, true, ""
+			i = j + 1
+		case plainWordByte(c) || (c == '~' && inWord && command[i-1] != '=' && command[i-1] != ':'):
+			val.WriteByte(c)
+			if !quoted {
+				unq.WriteByte(c)
+			}
+			inWord, pending = true, ""
+			i++
+		case c == '\\' && next == '\n':
+			return nil, fmt.Sprintf("a line continuation at byte %d", i)
+		case c == '|':
+			return nil, fmt.Sprintf("the token |& at byte %d", i)
+		default:
+			return nil, fmt.Sprintf("%s at byte %d", describeShellByte(c), i)
+		}
+	}
+	endWord()
+	if len(cur) == 0 {
+		if pending != "" && pending != ";" {
+			return nil, fmt.Sprintf("a trailing %s", pending)
+		}
+		return segs, ""
+	}
+	if why := endSeg(len(command)); why != "" {
+		return nil, why
+	}
+	return segs, ""
+}
+
+func plainWordByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+		strings.IndexByte("-_./,:+@^=%", c) >= 0
+}
+
+func describeShellByte(c byte) string {
+	switch {
+	case c == '\n':
+		return "a newline"
+	case c == '\r':
+		return "a carriage return"
+	case c == '&':
+		return "a lone &"
+	case c == '<' || c == '>':
+		return "a redirection " + string(c)
+	case c >= 0x80 || c < 0x20:
+		return fmt.Sprintf("the byte 0x%02x", c)
+	}
+	return "the token " + string(c)
+}
+
+func plainCommand(words []plainWord) string {
+	w := words[0]
+	switch {
+	case isAssignmentPrefix(w.Unquoted):
+		return "an assignment to " + w.Unquoted[:strings.IndexAny(w.Unquoted, "+=")]
+	case w.Value == "cd":
+		if len(words) != 2 || words[1].Value == "" || strings.HasPrefix(words[1].Value, "-") {
+			return "a cd whose target is not one plain literal path"
+		}
+	case bashBuiltinWords[w.Value]:
+		return "the builtin or keyword " + w.Value
+	}
+	return ""
+}
+
+const maxPlainDirs = 64
+
+func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
+	cands := []string{base}
+	var dirs []string
+	for _, s := range segs {
+		values := make([]string, len(s.Words))
+		for i, w := range s.Words {
+			values[i] = w.Value
+		}
+		if values[0] == "cd" {
+			for _, c := range slices.Clone(cands) {
+				if d := resolvePath(c, values[1]); d != "" && !slices.Contains(cands, d) {
+					cands = append(cands, d)
+				}
+			}
+			if len(cands) > maxPlainDirs {
+				return nil, fmt.Sprintf("more than %d directories", maxPlainDirs)
+			}
+			continue
+		}
+		_, gitDirs, ok := gitInvocation(values)
+		if !ok || gitReadOnlyInvocation(values) {
+			continue
+		}
+		for _, c := range cands {
+			d, moved := c, false
+			for _, g := range gitDirs {
+				if g != "" {
+					d, moved = resolvePath(d, g), true
+				}
+			}
+			if moved || c != base {
+				dirs = append(dirs, d)
+			}
+		}
+	}
+	return dirs, ""
+}
+
+func namesGit(command string) bool {
+	text := strings.NewReplacer("\\\r\n", "", "\\\n", "").Replace(command)
+	text = strings.NewReplacer("\\", "", "'", "", "\"", "").Replace(text)
+	edge := func(c byte) bool {
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+	}
+	for off := 0; ; {
+		i := strings.Index(text[off:], "git")
+		if i < 0 {
+			return false
+		}
+		i += off
+		if (i == 0 || !edge(text[i-1])) && (i+3 == len(text) || !edge(text[i+3])) {
+			return true
+		}
+		off = i + 1
+	}
 }
 
 func tokenizeBash(command string) []bashTok {
@@ -449,6 +668,10 @@ func gitInvocationArgs(words []string) (sub string, dirs, args []string, ok bool
 			}
 			i += 2
 			continue
+		case strings.HasPrefix(w, "-C"):
+			dirs = append(dirs, w[2:])
+			i++
+			continue
 		case strings.HasPrefix(w, "--git-dir=") ||
 			strings.HasPrefix(w, "--work-tree=") ||
 			strings.HasPrefix(w, "--exec-path=") ||
@@ -557,6 +780,14 @@ func isAssignmentWord(w string) bool {
 		return false
 	}
 	return isShellIdent(strings.TrimSuffix(w[:eq], "+"))
+}
+
+func isAssignmentPrefix(w string) bool {
+	if isAssignmentWord(w) {
+		return true
+	}
+	plus := strings.Index(w, "+=")
+	return plus > 0 && isShellIdent(w[:plus])
 }
 
 func programSegments(segs []bashSegment, j int) []bashSegment {
@@ -730,6 +961,18 @@ var shellOpaqueWords = map[string]bool{
 	"while": true, "until": true, "for": true, "case": true, "esac": true, "select": true,
 	"function": true, "coproc": true, "!": true, "{": true, "}": true, "[[": true,
 }
+
+var bashBuiltinWords = func() map[string]bool {
+	m := map[string]bool{}
+	for _, w := range strings.Fields(". : [ alias bg bind break builtin caller cd command compgen complete compopt continue " +
+		"declare dirs disown echo enable eval exec exit export false fc fg getopts hash help history jobs kill let local " +
+		"logout mapfile popd printf pushd pwd read readarray readonly return set shift shopt source suspend test times " +
+		"trap true type typeset ulimit umask unalias unset wait " +
+		"! [[ ]] { } case coproc do done elif else esac fi for function if in select then time until while") {
+		m[w] = true
+	}
+	return m
+}()
 
 func shellProgram(seg bashSegment) (string, bool) {
 	_, prog, ok := shellProgramToken(seg)

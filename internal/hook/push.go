@@ -92,19 +92,19 @@ func namesGitPush(command string) bool {
 	return gitWord.MatchString(s) && pushWord.MatchString(s)
 }
 
-type plainWord struct {
+type pushArg struct {
 	Text   string
 	Quoted bool
 	Lead   string
 }
 
-func plainWords(seg []bashTok) []plainWord {
-	var out []plainWord
-	var cur *plainWord
+func plainWords(seg []bashTok) []pushArg {
+	var out []pushArg
+	var cur *pushArg
 	leadOpen := false
 	for i, t := range seg {
 		if i == 0 || seg[i-1].End != t.Start {
-			out = append(out, plainWord{})
+			out = append(out, pushArg{})
 			cur = &out[len(out)-1]
 			leadOpen = true
 		}
@@ -189,8 +189,8 @@ func pushSegments(command string) ([][]string, *PushDest) {
 	return out, nil
 }
 
-func segmentUnread(words []plainWord, texts []string, n int) *PushDest {
-	for _, w := range []plainWord{words[0], words[n]} {
+func segmentUnread(words []pushArg, texts []string, n int) *PushDest {
+	for _, w := range []pushArg{words[0], words[n]} {
 		if !w.Quoted && pushReservedWord(w.Text) {
 			return &failClosed("`" + w.Text + "`")[0]
 		}

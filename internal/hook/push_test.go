@@ -60,7 +60,7 @@ func TestGateJudgesPushes(t *testing.T) {
 	}
 }
 
-func wordsOf(t *testing.T, line string) []plainWord {
+func wordsOf(t *testing.T, line string) []pushArg {
 	t.Helper()
 	segs := splitSegments(tokenizeBash(line))
 	if len(segs) != 1 {
@@ -84,7 +84,7 @@ func TestPlainWords(t *testing.T) {
 		{`git`, "git", false, "git"},
 	} {
 		w := wordsOf(t, c.in)
-		if len(w) != 1 || w[0] != (plainWord{Text: c.text, Quoted: c.quoted, Lead: c.lead}) {
+		if len(w) != 1 || w[0] != (pushArg{Text: c.text, Quoted: c.quoted, Lead: c.lead}) {
 			t.Errorf("%q: %+v, want {%q %v %q}", c.in, w, c.text, c.quoted, c.lead)
 		}
 	}
