@@ -27,8 +27,10 @@ There is one orchestrator per control repository. It:
 2. **Sizes the fleet.** How many workers run is its choice, bounded by the
    hardware and by the other projects sharing the machines, not by a count
    fixed in this repository. Its source is the capacity command
-   sto_deb291e7 delivers (`satelle help --session <session>` lists it once it
-   ships); until then it reads the same facts by hand when it decides. It reads
+   sto_deb291e7 delivers: `satelle story get sto_deb291e7 --session <session>`
+   says whether it has shipped and `satelle help --session <session>` names it;
+   where `satelle help` names no such command, the orchestrator reads the same
+   facts (cores, memory, load, live sessions, seats) by hand. It reads
    capacity on demand, when it is about to start or stop a worker, or at a
    considerate cadence of minutes, never as a tight polling loop: other
    projects share the machines ([[satelle-shared-machine]]).
