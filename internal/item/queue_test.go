@@ -41,6 +41,28 @@ func TestFoldQueue(t *testing.T) {
 	}
 }
 
+func TestFoldQueueKeepsHeldExplicit(t *testing.T) {
+	st := FoldQueue([]ledger.Event{
+		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "d:x->y"}),
+		qev(t, KindQueueAdded, QueueEntry{Item: "b"}),
+		qev(t, KindQueueFired, QueueFire{Run: "exe_2", Kept: []string{"a", "z"}}),
+	})
+	if !slices.Equal(st.Explicit, []string{"a"}) || st.Causes["a"] != "d:x->y" || len(st.Causes) != 1 {
+		t.Fatalf("kept explicit %v causes %v", st.Explicit, st.Causes)
+	}
+	if len(st.Fires) != 1 || st.Fires[0].Run != "exe_2" || st.LastFire == nil || st.LastFire.Run != "exe_2" {
+		t.Fatalf("fires %+v last %+v", st.Fires, st.LastFire)
+	}
+	st = FoldQueue([]ledger.Event{
+		qev(t, KindQueueAdded, QueueEntry{Item: "a"}),
+		qev(t, KindQueueFired, QueueFire{Run: "exe_1"}),
+		qev(t, KindQueueFired, QueueFire{Run: "exe_2"}),
+	})
+	if len(st.Explicit) != 0 || len(st.Causes) != 0 || len(st.Fires) != 2 || st.LastFire.Run != "exe_2" {
+		t.Fatalf("a fire without kept clears every explicit member: %+v", st)
+	}
+}
+
 func TestFoldQueueRemembersAdds(t *testing.T) {
 	st := FoldQueue([]ledger.Event{
 		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "c1"}),
@@ -150,6 +172,9 @@ func TestTriggerValidate(t *testing.T) {
 		{Trigger{}, false},
 		{Trigger{Task: "tas_1", Workflow: "w"}, false},
 		{Trigger{Task: "tas_1", MinSize: -1}, false},
+		{Trigger{Task: "tas_1", Overlap: OverlapRefuse}, true},
+		{Trigger{Task: "tas_1", Overlap: OverlapAllow}, true},
+		{Trigger{Task: "tas_1", Overlap: "sometimes"}, false},
 	} {
 		if err := c.t.Validate(); (err == nil) != c.ok {
 			t.Errorf("%+v: %v", c.t, err)

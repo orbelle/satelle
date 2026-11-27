@@ -24,6 +24,7 @@ type Binding struct {
 	Deny      []string `toml:"deny"`
 	Placement string   `toml:"placement"`
 	Brief     string   `toml:"brief"`
+	Fallback  string   `toml:"fallback"`
 }
 
 type Request struct {

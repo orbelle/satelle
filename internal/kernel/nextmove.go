@@ -53,9 +53,28 @@ func (k *Kernel) NextMove(id, session string) (Move, error) {
 				routed = true
 				continue
 			}
-			run, open := k.lastOpenRun(qs)
 			in := slices.Contains(m.Members, it.ID)
-			carries := open && slices.Contains(k.runInputs(run.ID), it.ID)
+			var run item.Item
+			open, carries := false, false
+			if q.Trigger != nil && q.Trigger.Overlaps() {
+				held, unsettled, err := k.holdings(qs)
+				for _, h := range held {
+					if slices.Contains(h.inputs, it.ID) {
+						run, open, carries = h.run, true, true
+						break
+					}
+				}
+				if err != nil || unsettled != nil {
+					routed = routed || in || carries
+					continue
+				}
+			} else {
+				run, open = k.lastOpenRun(qs)
+				if open {
+					_, rec, _, _ := k.taskRun(run.ID)
+					carries = slices.Contains(rec.Inputs, it.ID)
+				}
+			}
 			if !in && !carries {
 				continue
 			}
@@ -69,7 +88,7 @@ func (k *Kernel) NextMove(id, session string) (Move, error) {
 				}
 				continue
 			}
-			if _, err := k.fireReady(q.ID, ""); err == nil {
+			if r, err := k.fireReady(q.ID, ""); err == nil && slices.Contains(r.members, it.ID) {
 				mv := none
 				mv.Act, mv.Target = MoveFire, name
 				return mv, nil

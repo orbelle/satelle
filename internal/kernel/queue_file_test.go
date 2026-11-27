@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -356,6 +358,7 @@ func TestQueueFileProblems(t *testing.T) {
 		"both targets":    "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nworkflow = \"triage\"\n",
 		"no target":       "title = \"x\"\n[trigger]\nbase = \"main\"\n",
 		"negative size":   "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nmin_size = -1\n",
+		"unknown overlap": "title = \"x\"\n[trigger]\ntask = \"tas_1\"\noverlap = \"sometimes\"\n",
 		"workflow":        "title = \"x\"\n[trigger]\nworkflow = \"nope\"\n",
 		"invalid id":      "id = \"bad id\"\ntitle = \"x\"\n",
 		"bad file name!":  "title = \"x\"\n",
@@ -685,5 +688,344 @@ func TestMirrorTailRefusesAnyOtherEvent(t *testing.T) {
 	}
 	if wrote, err := k.Remirror("que_release"); err != nil || wrote {
 		t.Fatalf("Remirror on an agreeing chain: wrote %v, %v", wrote, err)
+	}
+}
+
+func overlapQueue(t *testing.T, overlap, rest string) (*Kernel, item.Item) {
+	t.Helper()
+	return overlapQueueSized(t, overlap, rest, 0)
+}
+
+func overlapQueueSized(t *testing.T, overlap, rest string, minSize int) (*Kernel, item.Item) {
+	t.Helper()
+	root, open := queueKernel(t)
+	k := open()
+	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("release")})
+	k.Close()
+	trig := "[trigger]\ntask = \"" + task.ID + "\"\nmin_size = " + strconv.Itoa(minSize) + "\n"
+	if overlap != "" {
+		trig += "overlap = \"" + overlap + "\"\n"
+	}
+	queueFile(t, root, "q", "title = \"Q\"\n"+rest+trig)
+	return open(), task
+}
+
+func firedClaims(t *testing.T, k *Kernel, queueID string) []item.QueueFire {
+	t.Helper()
+	events, err := k.Ledger.Read(queueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []item.QueueFire
+	for _, e := range events {
+		if e.Kind == item.KindQueueFired {
+			var f item.QueueFire
+			if err := e.Decode(&f); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestQueueOverlapTakesOnlyUntaken(t *testing.T) {
+	k, _ := overlapQueue(t, "allow", "[filter]\nkind = \"story\"\n")
+	s1 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s1")})
+	s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
+	a, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || a.Run == "" || !slices.Equal(a.Inputs, []string{s1.ID, s2.ID}) {
+		t.Fatalf("fire 1 %+v %v", a, err)
+	}
+	if _, err := k.Enqueue("q", []string{s1.ID}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	s3 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s3")})
+	b, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || b.Run == "" || b.Run == a.Run || !slices.Equal(b.Inputs, []string{s3.ID}) {
+		t.Fatalf("fire 2 with run %s open: %+v %v", a.Run, b, err)
+	}
+	if _, st, _, err := k.QueueMembers("q"); err != nil || !slices.Equal(st.Explicit, []string{s1.ID}) {
+		t.Fatalf("an explicit member the open run holds is kept queued: %v %v", st.Explicit, err)
+	}
+
+	disjoint(t, ledgerRun(t, k, a.Run), ledgerRun(t, k, b.Run))
+	claims := firedClaims(t, k, "que_q")
+	if len(claims) != 2 || claims[0].Run != a.Run || claims[1].Run != b.Run || !slices.Equal(claims[1].Kept, []string{s1.ID}) {
+		t.Fatalf("claims %+v", claims)
+	}
+
+	c, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || c.Run != "" {
+		t.Fatalf("fire 3 with every member held: %+v %v", c, err)
+	}
+	if n := len(firedClaims(t, k, "que_q")); n != 2 {
+		t.Fatalf("an empty fire wrote a claim: %d", n)
+	}
+
+	if res, err := k.Transition(context.Background(), a.Run, "cancelled", "me"); err != nil || !res.Moved {
+		t.Fatalf("cancel %s: %+v %v", a.Run, res, err)
+	}
+	d, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || d.Run == "" || !slices.Equal(d.Inputs, []string{s1.ID, s2.ID}) {
+		t.Fatalf("fire 4 after %s closed: %+v %v", a.Run, d, err)
+	}
+	disjoint(t, ledgerRun(t, k, b.Run), ledgerRun(t, k, d.Run))
+}
+
+func TestQueueOverlapHoldsRunRecordInputs(t *testing.T) {
+	k, task := overlapQueue(t, "allow", "[filter]\nkind = \"story\"\n")
+	s1 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s1")})
+	s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
+	other := newQueue(t, k, nil, item.Trigger{Task: task.ID})
+	if _, err := k.Enqueue(other.ID, []string{s1.ID}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := k.Fire(other.ID, "", "by hand", "me")
+	if err != nil || legacy.Run == "" {
+		t.Fatalf("fire %+v %v", legacy, err)
+	}
+	if _, err := k.append("que_q", item.KindQueueFired, "me", item.QueueFire{Run: legacy.Run, Task: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || !slices.Equal(f.Inputs, []string{s2.ID}) {
+		t.Fatalf("an open run holds its run record's inputs: %+v %v", f, err)
+	}
+}
+
+func TestQueueOverlapRefused(t *testing.T) {
+	for _, overlap := range []string{"", "refuse"} {
+		t.Run("overlap="+overlap, func(t *testing.T) {
+			k, _ := overlapQueue(t, overlap, "")
+			q, _ := k.Get("que_q")
+			if q.Trigger == nil || q.Trigger.Overlaps() {
+				t.Fatalf("trigger %+v", q.Trigger)
+			}
+			s1 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s1")})
+			if _, err := k.Enqueue("q", []string{s1.ID}, "", "me"); err != nil {
+				t.Fatal(err)
+			}
+			a, err := k.Fire("q", "", "by hand", "me")
+			if err != nil || a.Run == "" {
+				t.Fatalf("fire 1 %+v %v", a, err)
+			}
+			s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
+			if _, err := k.Enqueue("q", []string{s2.ID}, "", "me"); err != nil {
+				t.Fatal(err)
+			}
+			_, err = k.Fire("q", "", "by hand", "me")
+			if !errors.Is(err, ErrRunOpen) || !strings.Contains(err.Error(), a.Run) {
+				t.Fatalf("fire with %s open: %v", a.Run, err)
+			}
+			if n := len(firedClaims(t, k, "que_q")); n != 1 {
+				t.Fatalf("a refused fire wrote a claim: %d", n)
+			}
+		})
+	}
+}
+
+func ledgerRun(t *testing.T, k *Kernel, run string) TaskRunRecord {
+	t.Helper()
+	events, err := k.Ledger.Read(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recs []TaskRunRecord
+	created := 0
+	for _, e := range events {
+		switch e.Kind {
+		case item.KindCreated:
+			created++
+		case KindTaskRun:
+			var rec TaskRunRecord
+			if err := e.Decode(&rec); err != nil {
+				t.Fatal(err)
+			}
+			recs = append(recs, rec)
+		}
+	}
+	if created != 1 || len(recs) != 1 {
+		t.Fatalf("%s holds %d created and %d task.run events", run, created, len(recs))
+	}
+	return recs[0]
+}
+
+func disjoint(t *testing.T, a, b TaskRunRecord) {
+	t.Helper()
+	for _, id := range a.Inputs {
+		if slices.Contains(b.Inputs, id) {
+			t.Fatalf("%s is in both runs: %v and %v", id, a.Inputs, b.Inputs)
+		}
+	}
+}
+
+type overlapFixture struct {
+	k      *Kernel
+	task   item.Item
+	s1, s2 string
+}
+
+func newOverlapFixture(t *testing.T, minSize int) overlapFixture {
+	t.Helper()
+	k, task := overlapQueueSized(t, "allow", "[filter]\nkind = \"story\"\n", minSize)
+	s1 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s1")})
+	s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
+	return overlapFixture{k: k, task: task, s1: s1.ID, s2: s2.ID}
+}
+
+func (f overlapFixture) claim(t *testing.T) string {
+	t.Helper()
+	run := item.NewID(f.k.Settings.Prefix(ExecutionKind))
+	events, err := f.k.Ledger.Read("que_q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.k.appendAfter("que_q", item.KindQueueFired, "me", events[len(events)-1].Hash, item.QueueFire{Run: run, Task: f.task.ID, Cause: "by hand"}); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+func (f overlapFixture) runFields() item.Fields {
+	kind, parent := ExecutionKind, f.task.ID
+	return item.Fields{Kind: &kind, Title: ptr("release"), Parent: &parent}
+}
+
+func (f overlapFixture) createRun(t *testing.T, run string) {
+	t.Helper()
+	if _, err := f.k.create(f.runFields(), "me", run); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f overlapFixture) unsettledHolds(t *testing.T, run string) {
+	t.Helper()
+	k := f.k
+	x := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("x")})
+	before := len(firedClaims(t, k, "que_q"))
+	size, _ := k.Ledger.Size(run)
+	out, err := k.Enqueue("q", []string{x.ID}, "", "me")
+	if err != nil || out.Fire != nil || !strings.Contains(out.Held, run) {
+		t.Fatalf("enqueue at min size with %s unsettled: %+v %v", run, out, err)
+	}
+	if after, _ := k.Ledger.Size(run); after != size || len(firedClaims(t, k, "que_q")) != before {
+		t.Fatalf("a held enqueue wrote to %s or the queue", run)
+	}
+	if _, err := k.Dequeue("q", []string{x.ID}, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f overlapFixture) completesThenTakesOnlyNew(t *testing.T, run string) {
+	t.Helper()
+	k := f.k
+	out, err := k.Fire("q", "", "by hand", "me")
+	if !errors.Is(err, ErrQueueMoved) || !strings.Contains(err.Error(), run) || out.Run != "" {
+		t.Fatalf("fire with %s unsettled: %+v %v", run, out, err)
+	}
+	first := ledgerRun(t, k, run)
+	if !slices.Equal(first.Inputs, []string{f.s1, f.s2}) {
+		t.Fatalf("completed %s took %v", run, first.Inputs)
+	}
+	s3 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s3")})
+	next, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || next.Run == "" || next.Run == run || !slices.Equal(next.Inputs, []string{s3.ID}) {
+		t.Fatalf("fire after %s settled: %+v %v", run, next, err)
+	}
+	disjoint(t, first, ledgerRun(t, k, next.Run))
+}
+
+func TestQueueOverlapClaimWithoutRun(t *testing.T) {
+	f := newOverlapFixture(t, 1)
+	run := f.claim(t)
+	f.unsettledHolds(t, run)
+	if n, _ := f.k.Ledger.Size(run); n != 0 {
+		t.Fatalf("%s exists before a fire completes it", run)
+	}
+	f.completesThenTakesOnlyNew(t, run)
+}
+
+func TestQueueOverlapRunWithoutTaskRun(t *testing.T) {
+	f := newOverlapFixture(t, 1)
+	run := f.claim(t)
+	f.createRun(t, run)
+	f.unsettledHolds(t, run)
+	f.completesThenTakesOnlyNew(t, run)
+}
+
+func TestQueueOverlapTaskRunNotInCache(t *testing.T) {
+	f := newOverlapFixture(t, 0)
+	k := f.k
+	run := f.claim(t)
+	f.createRun(t, run)
+	if _, err := k.Ledger.Append(run, KindTaskRun, "me", TaskRunRecord{Task: f.task.ID, Inputs: []string{f.s1, f.s2}, Queue: "que_q"}); err != nil {
+		t.Fatal(err)
+	}
+	if ev, err := k.Cache.Events(run, KindTaskRun); err != nil || len(ev) != 0 {
+		t.Fatalf("the cache holds %s's task.run: %v %v", run, ev, err)
+	}
+	s3 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s3")})
+	next, err := k.Fire("q", "", "by hand", "me")
+	if err != nil || next.Run == "" || !slices.Equal(next.Inputs, []string{s3.ID}) {
+		t.Fatalf("fire with %s's task.run only in the ledger: %+v %v", run, next, err)
+	}
+	disjoint(t, ledgerRun(t, k, run), ledgerRun(t, k, next.Run))
+}
+
+func TestQueueOverlapNeverCreatedRecovers(t *testing.T) {
+	t.Run("completed then closed", func(t *testing.T) {
+		f := newOverlapFixture(t, 0)
+		k := f.k
+		run := f.claim(t)
+		if _, err := k.Fire("q", "", "by hand", "me"); !errors.Is(err, ErrQueueMoved) {
+			t.Fatalf("fire with %s never created: %v", run, err)
+		}
+		if res, err := k.Transition(context.Background(), run, "cancelled", "me"); err != nil || !res.Moved {
+			t.Fatalf("cancel %s: %+v %v", run, res, err)
+		}
+		next, err := k.Fire("q", "", "by hand", "me")
+		if err != nil || next.Run == "" || next.Run == run || !slices.Equal(next.Inputs, []string{f.s1, f.s2}) {
+			t.Fatalf("fire after %s closed: %+v %v", run, next, err)
+		}
+	})
+	t.Run("an earlier unsettled claim holds nothing", func(t *testing.T) {
+		f := newOverlapFixture(t, 0)
+		k := f.k
+		lost := f.claim(t)
+		held := f.claim(t)
+		if _, _, err := k.startRun(held, f.runFields(), "", TaskRunRecord{Task: f.task.ID, Inputs: []string{f.s1}, Queue: "que_q"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		next, err := k.Fire("q", "", "by hand", "me")
+		if err != nil || next.Run == "" || !slices.Equal(next.Inputs, []string{f.s2}) {
+			t.Fatalf("fire past the unsettled %s: %+v %v", lost, next, err)
+		}
+		if n, _ := k.Ledger.Size(lost); n != 0 {
+			t.Fatalf("an earlier unsettled claim %s was created", lost)
+		}
+	})
+}
+
+func TestStartRunAdoptsExisting(t *testing.T) {
+	f := newOverlapFixture(t, 0)
+	k := f.k
+	run := item.NewID(k.Settings.Prefix(ExecutionKind))
+	first, rec, err := k.startRun(run, f.runFields(), "", TaskRunRecord{Task: f.task.ID, Inputs: []string{f.s1}, Queue: "que_q"}, "me")
+	if err != nil || first.ID != run {
+		t.Fatalf("first startRun %+v %v", first, err)
+	}
+	again, got, err := k.startRun(run, f.runFields(), "", TaskRunRecord{Task: f.task.ID, Inputs: []string{f.s2}, Queue: "que_q"}, "me")
+	if err != nil || again.ID != run || !slices.Equal(got.Inputs, rec.Inputs) {
+		t.Fatalf("second startRun adopted %+v %+v %v", again, got, err)
+	}
+	if r := ledgerRun(t, k, run); !slices.Equal(r.Inputs, []string{f.s1}) {
+		t.Fatalf("%s's task.run %v", run, r.Inputs)
+	}
+	story := f.s1
+	other := f.runFields()
+	other.Parent = &story
+	if _, _, err := k.startRun(run, other, "", TaskRunRecord{}, "me"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("startRun at %s under another parent: %v", run, err)
 	}
 }

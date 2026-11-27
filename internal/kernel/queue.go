@@ -315,11 +315,25 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	if t == nil || t.MinSize == 0 || len(out.Added) == 0 {
 		return out, nil
 	}
-	_, _, m, err := k.QueueMembers(queueID)
-	if err != nil {
-		return out, err
+	var members []string
+	if t.Overlaps() {
+		r, err := k.fireReady(queueID, "")
+		if errors.Is(err, ErrQueueMoved) {
+			out.Held = err.Error()
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+		members = r.members
+	} else {
+		_, _, m, err := k.QueueMembers(queueID)
+		if err != nil {
+			return out, err
+		}
+		members = m.Members
 	}
-	if len(m.Members) < t.MinSize {
+	if len(members) < t.MinSize {
 		return out, nil
 	}
 	fire, err := k.Fire(queueID, "", "enqueue", actor)
@@ -357,11 +371,18 @@ func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, erro
 }
 
 type fireReadiness struct {
-	queue   item.Item
-	events  []ledger.Event
-	trigger *item.Trigger
-	members []string
-	baseRef string
+	queue     item.Item
+	events    []ledger.Event
+	trigger   *item.Trigger
+	members   []string
+	kept      []string
+	baseRef   string
+	unsettled *item.Fired
+}
+
+func (k *Kernel) runOpen(run item.Item) bool {
+	w := k.Workflows[run.Workflow]
+	return w == nil || !w.IsTerminal(run.Status)
 }
 
 func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
@@ -370,13 +391,60 @@ func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
 		return item.Item{}, false
 	}
 	run, err := k.Get(lf.Run)
-	if err != nil {
+	if err != nil || !k.runOpen(run) {
 		return item.Item{}, false
 	}
-	if w := k.Workflows[run.Workflow]; w == nil || !w.IsTerminal(run.Status) {
-		return run, true
+	return run, true
+}
+
+type heldRun struct {
+	run    item.Item
+	inputs []string
+}
+
+func (k *Kernel) holdings(st item.QueueState) ([]heldRun, *item.Fired, error) {
+	var held []heldRun
+	for i, f := range st.Fires {
+		if f.Run == "" {
+			continue
+		}
+		run, rec, settled, err := k.taskRun(f.Run)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !settled {
+			if i == len(st.Fires)-1 {
+				return held, &st.Fires[i], nil
+			}
+			continue
+		}
+		if k.runOpen(run) {
+			held = append(held, heldRun{run: run, inputs: rec.Inputs})
+		}
 	}
-	return item.Item{}, false
+	return held, nil, nil
+}
+
+func unsettledFire(queueID string, f *item.Fired) error {
+	return fmt.Errorf("%w: queue %s's fire of %s has no task.run yet", ErrQueueMoved, queueID, f.Run)
+}
+
+func untaken(st item.QueueState, members []string, open []heldRun) (take, kept []string) {
+	held := func(id string) bool {
+		return slices.ContainsFunc(open, func(h heldRun) bool { return slices.Contains(h.inputs, id) })
+	}
+	take = []string{}
+	for _, id := range members {
+		if !held(id) {
+			take = append(take, id)
+		}
+	}
+	for _, id := range st.Explicit {
+		if held(id) && !slices.Contains(kept, id) {
+			kept = append(kept, id)
+		}
+	}
+	return take, kept
 }
 
 func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
@@ -398,14 +466,27 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	t := *q.Trigger
 	r.trigger = &t
 	st := item.FoldQueue(events)
-	if run, open := k.lastOpenRun(st); open {
-		return r, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
+	if !t.Overlaps() {
+		if run, open := k.lastOpenRun(st); open {
+			return r, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
+		}
 	}
 	m, err := k.membership(q, st)
 	if err != nil {
 		return r, err
 	}
 	r.members = m.Members
+	if t.Overlaps() {
+		held, unsettled, err := k.holdings(st)
+		if err != nil {
+			return r, err
+		}
+		r.members, r.kept = untaken(st, m.Members, held)
+		if unsettled != nil {
+			r.unsettled = unsettled
+			return r, unsettledFire(queueID, unsettled)
+		}
+	}
 	if len(r.members) == 0 {
 		return r, nil
 	}
@@ -435,6 +516,12 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 		out.Inputs = r.members
 	}
 	if err != nil {
+		if r.unsettled != nil {
+			out.Inputs = []string{}
+			if _, _, cerr := k.startFireRun(r.queue, *r.trigger, r.unsettled.Run, r.members, r.trigger.Base, actor); cerr != nil {
+				return out, fmt.Errorf("queue %s claimed its members for %s, but the run was not created: %w", queueID, r.unsettled.Run, cerr)
+			}
+		}
 		return out, err
 	}
 	if len(r.members) == 0 {
@@ -443,7 +530,7 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	q, events, t, members, baseRef := r.queue, r.events, *r.trigger, r.members, r.baseRef
 	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
-	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause}
+	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause, Kept: r.kept}
 	if _, err := k.appendAfter(queueID, item.KindQueueFired, actor, prev, claim); err != nil {
 		var stale *ledger.StaleTail
 		if errors.As(err, &stale) {
@@ -451,23 +538,28 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 		}
 		return out, err
 	}
+	run, rec, err := k.startFireRun(q, t, runID, members, baseRef, actor)
+	if err != nil {
+		return out, fmt.Errorf("queue %s claimed its members for %s, but the run was not created: %w", queueID, runID, err)
+	}
+	out.Inputs = rec.Inputs
+	out.Run, out.Status, out.Base, out.BaseRef = run.ID, run.Status, run.Base, rec.BaseRef
+	return out, nil
+}
+
+func (k *Kernel) startFireRun(q item.Item, t item.Trigger, runID string, members []string, baseRef, actor string) (item.Item, TaskRunRecord, error) {
 	kind := ExecutionKind
 	f := item.Fields{Kind: &kind}
-	rec := TaskRunRecord{Task: t.Task, Inputs: members, Queue: queueID}
+	rec := TaskRunRecord{Task: t.Task, Inputs: members, Queue: q.ID}
 	if t.Task != "" {
 		task, err := k.Get(t.Task)
 		if err != nil {
-			return out, err
+			return item.Item{}, rec, err
 		}
 		f.Title, f.Parent = &task.Title, &t.Task
 	} else {
 		wf := t.Workflow
 		f.Title, f.Parent, f.Workflow = &q.Title, &q.ID, &wf
 	}
-	run, rec, err := k.startRun(runID, f, baseRef, rec, actor)
-	if err != nil {
-		return out, fmt.Errorf("queue %s claimed its members for %s, but the run was not created: %w", queueID, runID, err)
-	}
-	out.Run, out.Status, out.Base, out.BaseRef = run.ID, run.Status, run.Base, rec.BaseRef
-	return out, nil
+	return k.startRun(runID, f, baseRef, rec, actor)
 }

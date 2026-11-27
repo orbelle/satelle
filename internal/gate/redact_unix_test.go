@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -94,4 +96,45 @@ func TestJudgeTextRedactedBeforeTheSnippet(t *testing.T) {
 			t.Fatalf("the answer holds a 16-byte window of the value at %d", i)
 		}
 	}
+}
+
+func TestFallbackErrorRedacted(t *testing.T) {
+	v := secretValue(t, 200)
+	r, d := fallbackRun(workflow.Gate{Skill: "judge", Agent: "dead"}, map[string]string{"dead": "y1"})
+	r.Redact = redactorOf(v)
+	d.errs = map[string]error{"dead": errors.New("harness exited: token " + v)}
+	d.redacted = map[string]bool{}
+	rs, _ := r.Execute(context.Background())
+	if rs[0].FallbackFrom == nil {
+		t.Fatalf("no fallback: %+v", rs[0])
+	}
+	noWindowOf(t, "fallback_from.error", rs[0].FallbackFrom.Error, v)
+	noWindowOf(t, "the notes", rs[0].Notes, v)
+	raw, err := json.Marshal(rs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	noWindowOf(t, "the gate.run record", string(raw), v)
+	if !d.redacted["dead"] || !d.redacted["y1"] {
+		t.Fatalf("a judge request carried no redactor: %v", d.redacted)
+	}
+	r, d = fallbackRun(workflow.Gate{Skill: "judge", Panel: []string{"dead", "n1"}, Combine: workflow.CombineAll}, map[string]string{"dead": "y2"})
+	r.Redact = redactorOf(v)
+	d.errs = map[string]error{"dead": errors.New("harness exited: token " + v)}
+	rs, _ = r.Execute(context.Background())
+	fell := 0
+	for _, m := range rs[0].Members {
+		if m.FallbackFrom != nil {
+			fell++
+			noWindowOf(t, "members[].fallback_from.error", m.FallbackFrom.Error, v)
+		}
+	}
+	if fell != 1 {
+		t.Fatalf("members %+v", rs[0].Members)
+	}
+	raw, err = json.Marshal(rs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	noWindowOf(t, "the panel gate.run record", string(raw), v)
 }
