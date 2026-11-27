@@ -42,11 +42,18 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   N=1 that is the repo's own worktree ([[satelle-control-plane-architecture]]
   §2, §3).
 - Offline appends wait locally and are pushed by the next automatic pass once
-  the store is reachable; an append that forks a chain another location
-  extended is refused and reported, never re-based (see the next bullet;
-  re-basing is sto_e4a6f77f). Events commute, except **status transitions**: a transition must match the
-  story's fold at its position (its `from` is the folded status), or it is a
-  chain break, always reported. A break never moves a story out of a state its
+  the store is reachable. An append that forks a chain another location
+  extended is re-based onto the store's head when every local event after the
+  fork commutes with each of the store's newer events, by a closed allowlist
+  (`item.Commutes`, sto_ebdd6380): a seat release, and a queue add the store's
+  newer events neither claimed nor kept. The re-based events keep their ids and
+  content, and the same pass pushes them. Any other fork is a conflict: nothing
+  is written, the item is reported naming both events, and the local events
+  stay for `satelle ledger adopt`. Events commute, except **status
+  transitions**: a transition must match the story's fold at its position (its
+  `from` is the folded status), or it is a chain break, always reported. A
+  transition is never re-based, so one whose `from` no longer matches the
+  store's fold is reported as a conflict. A break never moves a story out of a state its
   governing route marks final (terminal, or a park that does not resume).
   Elsewhere it applies out of order, so a legacy chain linked once in
   insertion order still folds to the status its transitions reached.
@@ -72,9 +79,13 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
   item's status and the workflow. Server-side location holds are removed.
-- Other locations see a change at their next automatic pass:
-  `satelle-sync.timer` runs every 30 s, so within 90 s of the write. `Subscribe`
-  may later shorten this without a second path (sto_e4a6f77f).
+- Other online locations see a change within seconds: `satelle ledger follow`
+  (the `satelle-follow` service) holds the store's `Chain.Subscribe` open and
+  runs the same sync pass on each local write and each streamed event it does
+  not hold, never applying a streamed event directly (sto_e4a6f77f).
+  `satelle-sync.timer` stays the fallback: its pass pushes and pulls whatever
+  the subscription missed. `satelle ledger follow --help` names the reconnect
+  and retry intervals.
 
 ## 3. Scope is the project binding
 
