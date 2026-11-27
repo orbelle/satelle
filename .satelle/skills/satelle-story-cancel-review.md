@@ -17,7 +17,8 @@ invent a supersede or cancel children on the operator's behalf.
 ## Floor — reason required
 
 **Reject** when there is **no reason on record**: a body note, or a
-`cancel-reason` attachment in the record folder (you cannot read the ledger). A
+`cancel-reason` attachment, `attachments/cancel-reason` in the record folder
+(you cannot read the ledger). A
 bare cancel erases the item without audit trail. A `cancel-reason:` tag is
 **metadata**, not a substitute — a tag alone with no reason on record still
 rejects.
