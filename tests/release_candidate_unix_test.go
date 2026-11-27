@@ -117,8 +117,9 @@ func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *ca
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), repoText(t, "scripts/changelog-items.sh"), 0o755)
 	writeFile(t, filepath.Join(s.dir, "scripts", "drift-check.sh"), repoText(t, "scripts/drift-check.sh"), 0o755)
 	writeFile(t, filepath.Join(s.dir, "scripts", "check-serve-version.sh"), repoText(t, "scripts/check-serve-version.sh"), 0o755)
+	writeFile(t, filepath.Join(s.dir, "scripts", "release-targets.sh"), repoText(t, "scripts/release-targets.sh"), 0o755)
 	add := []string{"Makefile", "a.txt", ".version", "docs/releases", "scripts/changelog-items.sh", "scripts/drift-check.sh",
-		"scripts/release-binary.sh", "scripts/check-serve-version.sh", ".satelle"}
+		"scripts/release-binary.sh", "scripts/check-serve-version.sh", "scripts/release-targets.sh", ".satelle"}
 	for p, body := range base {
 		mode := os.FileMode(0o644)
 		if strings.HasSuffix(p, ".sh") {
