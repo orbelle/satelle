@@ -325,7 +325,42 @@ func operatorRecordOracleCorpus() []string {
 	add("{satelle,story,record} sto_1")
 	add("satelle {story,record} sto_1")
 	add("satelle story {record,x}")
+	for _, c := range compoundRecordLines {
+		add(c)
+	}
 	return out
+}
+
+// compoundRecordLines are record commands behind time and [[: shellCompoundWords
+// must not list either, or the record rule would skip their substitution.
+var compoundRecordLines = []string{
+	`time true && echo "$(satelle story rec'ord')"`,
+	`[[ -n x ]] && echo "$(sa'telle' story record)"`,
+}
+
+func TestOperatorRecordCompoundWordsUnchanged(t *testing.T) {
+	noFile := func(string) bool { return false }
+	for _, c := range compoundRecordLines {
+		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: the record rule allows it", c)
+		}
+	}
+}
+
+func TestAssignmentWords(t *testing.T) {
+	for _, w := range []string{"A=1", "A+=1", "_x+=", "A=", "A+="} {
+		if !isAssignmentWord(w) {
+			t.Errorf("%q is not read as an assignment", w)
+		}
+	}
+	for _, w := range []string{"A+", "+=1", "A++=1", "1A=x", "-A=1"} {
+		if isAssignmentWord(w) {
+			t.Errorf("%q is read as an assignment", w)
+		}
+	}
+	if got := ScanBash("A+=1 rm x", "/w", "/w", func(string) bool { return false }).Paths; !slices.Contains(got, "/w/x") {
+		t.Errorf("A+=1 rm x: paths %v, want /w/x", got)
+	}
 }
 
 func TestOperatorRecordRefusesWhatBashWouldRun(t *testing.T) {

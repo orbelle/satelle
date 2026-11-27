@@ -84,8 +84,34 @@ func (g Gate) Bash(command, cwd string) Verdict {
 			return v
 		}
 	}
+	if g.Push == nil {
+		return allow
+	}
+	for _, d := range t.Pushes {
+		var v Verdict
+		switch {
+		case d.FailClosed:
+			v = Verdict{Reason: fmt.Sprintf(pushFailClosed, d.First)}
+		case d.Unread != "":
+			v = Verdict{Reason: fmt.Sprintf(pushUnread, d.Unread)}
+		default:
+			v = g.Push(d.Branch)
+		}
+		if !v.Allow {
+			return v
+		}
+	}
 	return allow
 }
+
+const (
+	pushFailClosed = "satelle: git push blocked by the edit gate's fail-closed rule: this command names git push and holds %s, which the gate does not read. " +
+		"The gate reads a line naming git push only when it is plain literal words (literal text in plain '…' or \"…\" quotes included) joined by &&, ||, ; or |, " +
+		"with git as a segment's command word and no shell keyword. Rewrite it in plain form, for example git -C <dir> push origin HEAD:refs/heads/<branch> " +
+		"in place of cd \"$dir\" && git push …, and without redirections. See satelle help edit-gate --session <session>."
+	pushUnread = "satelle: git push blocked: %s, so the gate cannot tell which branch it pushes to. " +
+		"Write one literal branch destination: git push origin HEAD:refs/heads/<branch>. See satelle help edit-gate --session <session>."
+)
 
 func (g Gate) judge(abs string, inline bool) Verdict {
 	root := filepath.Clean(g.Root)

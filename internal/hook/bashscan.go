@@ -14,6 +14,7 @@ type BashTargets struct {
 	Paths          []string
 	Inline         []string
 	OperatorRecord bool
+	Pushes         []PushDest
 }
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
@@ -29,6 +30,7 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	}
 	scanBash(command, path.Clean(filepath.ToSlash(cwd)), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
 	t.OperatorRecord = operatorRecordCommand(command, 0)
+	t.Pushes = readPushes(command)
 	return t
 }
 
@@ -551,7 +553,10 @@ func leadingAssignments(words []string) int {
 
 func isAssignmentWord(w string) bool {
 	eq := strings.IndexByte(w, '=')
-	return eq > 0 && !strings.HasPrefix(w, "-") && isShellIdent(w[:eq])
+	if eq < 0 || strings.HasPrefix(w, "-") {
+		return false
+	}
+	return isShellIdent(strings.TrimSuffix(w[:eq], "+"))
 }
 
 func programSegments(segs []bashSegment, j int) []bashSegment {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/procgroup"
 	"github.com/bobmcallan/satelle/internal/seatlife"
@@ -132,6 +133,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 		rel, _ := filepath.Rel(r.Tree, r.DataDir)
 		g.Exempt = []string{filepath.ToSlash(rel) + "/**"}
 		g.Grant = func(tree string) hook.Grant { return grantUnconfigured(r, session, tree) }
+		g.Push = func(branch string) hook.Verdict { return pushVerdictUnconfigured(r, session, branch) }
 		v := judgeHook(g, in)
 		switch {
 		case v.Allow:
@@ -146,6 +148,11 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	g.Exempt = k.Settings.Gate.EditExemptPaths
 	g.Locked = k.Settings.Gate.LockedPaths
 	g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
+	g.Push = func(branch string) hook.Verdict {
+		return pushVerdict(session, branch, k.Cache.Item,
+			func() ([]item.Seat, error) { return k.Cache.Seats(session, "") },
+			func(it item.Item) (string, error) { return editScope(k.Workflows, it), nil })
+	}
 	v := judgeHook(g, in)
 	if !v.Allow && session == "" {
 		v.Reason += " (no session id: the harness sent none and SATELLE_SESSION is unset)"
@@ -252,6 +259,55 @@ func seatGrantUnconfigured(r repo, session, tree string) hook.Grant {
 		}
 	}
 	return g
+}
+
+// pushVerdict judges a git push to branch: a branch that is an item's id may
+// be pushed only by a session seated on that item in a state whose performer
+// may change the tree. Any other branch is not judged. A read error refuses.
+func pushVerdict(session, branch string, lookup func(string) (item.Item, bool, error), seats func() ([]item.Seat, error), scope func(item.Item) (string, error)) hook.Verdict {
+	blocked := "satelle: git push to " + branch + " blocked"
+	it, ok, err := lookup(branch)
+	if err != nil {
+		return hook.Verdict{Reason: blocked + ": the items cannot be read to tell whether it is an item's branch: " + err.Error()}
+	}
+	if !ok || it.ID != branch {
+		return hook.Verdict{Allow: true}
+	}
+	refuse := fmt.Sprintf("%s. %s is the branch of item %s (%q), and this session holds no seat on %s in a state whose performer may change the tree. "+
+		"A session pushes only to the branch of an item it is seated on to edit: push your own item's branch, or seat on %s in such a state "+
+		"(satelle story seat %s --session <session>). See satelle help edit-gate --session <session>.", blocked, branch, it.ID, it.Title, it.ID, it.ID, it.ID)
+	if session == "" {
+		return hook.Verdict{Reason: refuse}
+	}
+	held, err := seats()
+	if err != nil {
+		return hook.Verdict{Reason: blocked + ": this session's seats cannot be read: " + err.Error()}
+	}
+	for _, s := range held {
+		if s.Item != it.ID {
+			continue
+		}
+		sc, err := scope(it)
+		if err != nil {
+			return hook.Verdict{Reason: fmt.Sprintf("%s: the edit scope of item %s in state %q cannot be read: %v", blocked, it.ID, it.Status, err)}
+		}
+		if sc == workflow.EditsTree {
+			return hook.Verdict{Allow: true}
+		}
+	}
+	return hook.Verdict{Reason: refuse}
+}
+
+func pushVerdictUnconfigured(r repo, session, branch string) hook.Verdict {
+	_, ch, err := openRecord(r)
+	if err != nil {
+		return hook.Verdict{Reason: "satelle: git push to " + branch + " blocked: the items and seats cannot be read: " + err.Error()}
+	}
+	defer ch.Close()
+	dir := filepath.Join(r.DataDir, kernel.WorkflowsDir)
+	return pushVerdict(session, branch, ch.Item,
+		func() ([]item.Seat, error) { return ch.Seats(session, "") },
+		func(it item.Item) (string, error) { return workflow.StateEditScope(dir, it.Workflow, it.Status) })
 }
 
 func canonicalPath(p string) string {
