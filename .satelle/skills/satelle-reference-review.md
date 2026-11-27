@@ -12,8 +12,9 @@ is written as a reference to where it is answered (a command, a file, a
 dated history. Read that principle; this skill does not restate it.
 
 Your prompt carries the item, the move, its changed paths and the diff since
-its base. Every changed path is under `.satelle/`: the deterministic gates
-before you already refused anything else, any configuration or substrate
+its base. Every changed path is under `.satelle/`, or is a test under `tests/`
+that `satelle-test-change-review` judges; the deterministic gates before you
+already refused anything else, any configuration or substrate
 finding of `satelle validate --session <session>`, and every line the patterns of
 `.satelle/volatile.toml` catch. You judge by meaning what wording cannot catch.
 You are read-only: you may Read, Grep and Glob the tree, and the item's

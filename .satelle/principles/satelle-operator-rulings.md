@@ -339,3 +339,10 @@ are reviewed*).
   <session>` states. The security review rubric
   (`.satelle/skills/satelle-security-review/SKILL.md`) judges against it, and
   a finding outside it is noted, not a reason to reject (sto_c675d950).
+- **A shipped skill and this repo's copy change in one story.** A delivery
+  story may change both copies of a skill the binary ships: the template under
+  `internal/kernel/template/` and this repo's copy of the same file under
+  `.satelle/`, and no other `.satelle/` path (operator, 2026-11-25), after the
+  fallback judge of sto_eef1d36a could not ship with its independence rule
+  because a test requires the two copies to be equal
+  ([[satelle-split-authored-process]]; sto_aabc85ad).
