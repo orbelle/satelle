@@ -12,14 +12,26 @@ import (
 )
 
 func SubstrateDigest(root string) (string, error) {
+	return substrateDigest(root, nil)
+}
+
+func SubstrateDigestOf(root string, names ...string) (string, error) {
+	include := map[string]bool{}
+	for _, n := range names {
+		include[n] = true
+	}
+	return substrateDigest(root, include)
+}
+
+func substrateDigest(root string, include map[string]bool) (string, error) {
 	var entries []pack.DigestEntry
-	if err := digestDir(root, "", map[string]bool{}, &entries); err != nil {
+	if err := digestDir(root, "", include, map[string]bool{}, &entries); err != nil {
 		return "", err
 	}
 	return pack.ComputeDigest(entries), nil
 }
 
-func digestDir(dir, rel string, open map[string]bool, out *[]pack.DigestEntry) error {
+func digestDir(dir, rel string, include, open map[string]bool, out *[]pack.DigestEntry) error {
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return err
@@ -35,7 +47,7 @@ func digestDir(dir, rel string, open map[string]bool, out *[]pack.DigestEntry) e
 	}
 	for _, de := range des {
 		name := de.Name()
-		if rel == "" && name == runsDir {
+		if rel == "" && (include == nil && name == runsDir || include != nil && !include[name]) {
 			continue
 		}
 		p := filepath.Join(dir, name)
@@ -46,7 +58,7 @@ func digestDir(dir, rel string, open map[string]bool, out *[]pack.DigestEntry) e
 		}
 		switch {
 		case st.IsDir():
-			if err := digestDir(p, r, open, out); err != nil {
+			if err := digestDir(p, r, nil, open, out); err != nil {
 				return err
 			}
 		case st.Mode().IsRegular():

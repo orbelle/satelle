@@ -63,6 +63,10 @@ type gateRemote struct {
 	Result     string `json:"result"`
 	Notes      string `json:"notes"`
 	Location   string `json:"location"`
+	Staged     struct {
+		Digest string `json:"digest"`
+		Head   string `json:"head"`
+	} `json:"staged"`
 }
 
 func (s *sandbox) remoteRuns(id string) []gateRemote {
@@ -194,6 +198,42 @@ echo "env=$SATELLE_ITEM $SATELLE_FROM $SATELLE_TO"`
 	}
 	if _, err := os.Stat(filepath.Join(fake, name)); !os.IsNotExist(err) {
 		t.Fatalf("the accepted node's container is left: %v", err)
+	}
+}
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+func TestRemoteGateRecordsTheStagedSubstrateAndHead(t *testing.T) {
+	t.Parallel()
+	s, fake := gateSandbox(t, "", `echo ok`, gateboxDef(""), true)
+	head := s.branchWork("feat", true)
+	staged := func(title, wantHead string) string {
+		t.Helper()
+		id := s.create("story", "--title", title).ID
+		if r := s.presentDone(id); r.code != 0 {
+			t.Fatalf("set: exit %d\n%s%s\nlog:\n%s", r.code, r.out, r.err, fakeLog(t, fake))
+		}
+		runs := s.remoteRuns(id)
+		if len(runs) != 1 || runs[0].Result != "accept" {
+			t.Fatalf("gate runs %+v", runs)
+		}
+		g := runs[0]
+		if !sha256Hex.MatchString(g.Staged.Digest) || g.Staged.Head != wantHead {
+			t.Fatalf("staged %+v, want a SHA-256 digest and head %s", g.Staged, wantHead)
+		}
+		return g.Staged.Digest
+	}
+	first := staged("one", head)
+	if second := staged("two", head); second != first {
+		t.Fatalf("identical staged substrate gave %s then %s", first, second)
+	}
+	s.write(".satelle/skills/suite-check.md", checkSkillText("echo ok again"))
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "change the check")
+	s.git("push", "-q", "origin", "feat")
+	next := strings.TrimSpace(s.git("rev-parse", "HEAD"))
+	if third := staged("three", next); third == first {
+		t.Fatal("a changed check script left the staged digest unchanged")
 	}
 }
 

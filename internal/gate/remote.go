@@ -16,6 +16,11 @@ type Head struct {
 	Ref    string
 }
 
+type Staged struct {
+	Digest string `json:"digest"`
+	Head   string `json:"head,omitempty"`
+}
+
 type RemoteCheck struct {
 	Remote, Gate, Script string
 	Env                  CheckEnv
@@ -24,9 +29,10 @@ type RemoteCheck struct {
 }
 
 type RemoteOutcome struct {
-	Node   string
-	Exit   int
-	Output string
+	Node            string
+	Exit            int
+	Output          string
+	SubstrateDigest string
 }
 
 type RemoteChecker interface {
@@ -49,10 +55,14 @@ func (r Run) remote(ctx context.Context, name string, g workflow.Gate, skill wor
 	if out.Node != "" {
 		loc = agent.PlaceRemote + out.Node
 	}
-	if err != nil {
-		return Result{Result: Reject, Notes: prefix + checkFailure(err, source, bound([]byte(out.Output))), Location: loc}
+	var staged *Staged
+	if out.SubstrateDigest != "" {
+		staged = &Staged{Digest: out.SubstrateDigest, Head: r.Head.Commit}
 	}
-	res := Result{Result: Reject, Location: loc, verdict: true}
+	if err != nil {
+		return Result{Result: Reject, Notes: prefix + checkFailure(err, source, bound([]byte(out.Output))), Location: loc, Staged: staged}
+	}
+	res := Result{Result: Reject, Location: loc, Staged: staged, verdict: true}
 	res.Notes = fmt.Sprintf("%snode %s at %s: exit %d\n%s", prefix, out.Node, ledger.ShortHash(r.Head.Commit), out.Exit, bound([]byte(out.Output)))
 	if out.Exit == 0 {
 		res.Result = Accept
