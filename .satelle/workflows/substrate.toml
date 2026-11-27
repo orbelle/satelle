@@ -40,6 +40,13 @@ combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.test-change]
+skill = "satelle-test-change-review"
+panel = ["reviewer-grok-4.7"]
+combine = "all"
+trigger = "satelle-test-change-trigger"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
 [gates.reference-review]
 skill = "satelle-reference-review"
 panel = ["reviewer-gemini-4-hydrogen-high"]
@@ -68,7 +75,7 @@ from = ["in_progress"]
 to = "done"
 groups = [
   { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals", "substrate-suite"] },
-  { mode = "sequential", gates = ["workflow-change", "reference-review"] },
+  { mode = "sequential", gates = ["workflow-change", "test-change", "reference-review"] },
 ]
 
 [[transition]]
