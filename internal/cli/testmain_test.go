@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gittest"
@@ -19,11 +20,18 @@ var refusedManagers = []string{"systemctl", "launchctl"}
 
 var guardDir string
 
+const envTestHold = "SATELLE_TEST_HOLD"
+
 func TestMain(m *testing.M) { os.Exit(runGuarded(m)) }
 
 func runGuarded(m *testing.M) int {
 	os.Unsetenv("XDG_RUNTIME_DIR")
 	os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
+	if os.Getenv(envTestHold) != "" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	dir, err := os.MkdirTemp("", "satelle-guard-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
