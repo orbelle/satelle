@@ -1,0 +1,13 @@
+name = "default"
+[states.todo]
+start = true
+[states.doing]
+performer = { agent = "hands", skill = "work" }
+[states.finished]
+terminal = true
+[[transition]]
+from = ["todo"]
+to = "doing"
+[[transition]]
+from = ["doing"]
+to = "finished"

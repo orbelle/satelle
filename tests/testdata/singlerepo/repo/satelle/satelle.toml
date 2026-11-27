@@ -1,0 +1,5 @@
+[workflows]
+default = "default"
+[gate]
+edit_exempt_paths = ["notes/**"]
+locked_paths = ["vendor/**"]
