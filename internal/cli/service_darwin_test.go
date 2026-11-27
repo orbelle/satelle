@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -423,4 +424,58 @@ func TestDoctorReportsAndResolvesTheMissingLaunchAgent(t *testing.T) {
 			t.Errorf("notes %q", rep.Notes)
 		}
 	})
+}
+
+func (e *launchdEnv) holdAgent(t *testing.T, label string, pid int, bin string) {
+	t.Helper()
+	state := launchctlState(e.log)
+	writeFile(t, filepath.Join(state, label+".pid"), strconv.Itoa(pid)+"\n")
+	st, err := os.Stat(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sys := st.Sys().(*syscall.Stat_t)
+	writeFile(t, filepath.Join(state, strconv.Itoa(pid)+".lsof"), fmt.Sprintf("p%d\nftxt\nD0x%x\ni%d\n", pid, uint32(sys.Dev), sys.Ino))
+}
+
+func fakeLsof(t *testing.T, state string) {
+	t.Helper()
+	bin := t.TempDir()
+	writeExec(t, filepath.Join(bin, "lsof"), fmt.Sprintf("#!/bin/sh\ncat %q/\"$3\".lsof 2>/dev/null || exit 1\n", state))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestServiceRefreshLeavesCurrentAgentsRunning(t *testing.T) {
+	e := newLaunchdEnv(t, launchctlFake{})
+	e.setPort(t, 1)
+	sat := e.fakeDaemon(t)
+	mustRun(t, "service", "refresh")
+	cli, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeLsof(t, launchctlState(e.log))
+	e.holdAgent(t, daemonLabel, 4242, sat)
+	e.holdAgent(t, followLabel, 4343, cli)
+	e.clear(t)
+	out := mustRun(t, "service", "refresh")
+	if log := e.calls(t); strings.Contains(log, "kickstart") || strings.Contains(log, "bootstrap") || strings.Contains(log, "bootout") {
+		t.Errorf("a current agent was restarted:\n%s", log)
+	}
+	for _, want := range []string{
+		daemonLabel + " loaded and already running " + sat + ", not restarted\n",
+		followLabel + " loaded and already running " + cli + ", not restarted: writes push",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	other := filepath.Join(t.TempDir(), "satelled")
+	writeExec(t, other, "#!/bin/sh\nexit 0\n")
+	e.holdAgent(t, daemonLabel, 4242, other)
+	e.clear(t)
+	mustRun(t, "service", "refresh")
+	if log := e.calls(t); !strings.Contains(log, "kickstart -k "+e.target(daemonLabel)) || strings.Contains(log, "kickstart -k "+e.target(followLabel)) {
+		t.Errorf("only satelled, on another file, should restart:\n%s", log)
+	}
 }
