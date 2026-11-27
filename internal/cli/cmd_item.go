@@ -618,6 +618,9 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 		if res.Moved {
 			fmt.Fprintf(w, "%s: %s -> %s\n", res.Item.ID, res.From, res.To)
 		}
+		for _, s := range res.Released {
+			fmt.Fprintf(w, "%s: released the seat of session %s\n", res.Item.ID, s)
+		}
 		for _, q := range res.Queued {
 			printQueueOutcome(w, q)
 		}

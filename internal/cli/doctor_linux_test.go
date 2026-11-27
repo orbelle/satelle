@@ -184,8 +184,9 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 		}, want: []want{{"sync", "the last sync pass failed", "satelle ledger status"}}, note: "pushed 3 item(s), pulled 0 item(s), forked 1: sto_x (diverged)"},
 		{name: "seats", setup: func(t *testing.T, f *doctorFixture) {
 			done := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-			must(t, "story", "seat", done, "--session", "s-done")
 			must(t, "story", "set", done, "--status", "done")
+			machine, host := thisMachine(t)
+			staleSeat(t, done, "s-done", machine, host)
 			gone := createID(t, "story", "create", "--title", "elsewhere", "--criteria", "c")
 			wt := filepath.Join(t.TempDir(), "wt")
 			gittest.Git(t, f.dir, "add", "-A")

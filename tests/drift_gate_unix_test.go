@@ -13,11 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/item"
 )
 
 const driftTaskLine = `(?m)^task=(tas_[A-Za-z0-9_]+)$`
@@ -926,10 +926,9 @@ func TestDriftSkillsStateTheirTrigger(t *testing.T) {
 	}
 }
 
-func TestDriftLastStepsTakeTheNewestFinishedRun(t *testing.T) {
+func TestDriftRunsReleaseTheirSeatAtDone(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
-	var runs []string
 	for range 2 {
 		exe := d.start(d.drift, stepSeat(t))
 		d.attachReport(exe, noDriftReport())
@@ -937,21 +936,12 @@ func TestDriftLastStepsTakeTheNewestFinishedRun(t *testing.T) {
 		if r := d.run("execution", "set", exe, "--status", "done"); r.code != 0 {
 			t.Fatalf("drift run %s did not close: exit %d\n%s%s", exe, r.code, r.out, r.err)
 		}
-		runs = append(runs, exe)
-		time.Sleep(1100 * time.Millisecond)
-	}
-	older, newer := runs[0], runs[1]
-	d.must("execution", "release", older)
-
-	six := shBlock(t, ".satelle/skills/drift-review.md", "## 6.", d.drift)
-	sel := lineWith(t, six, "exe=$(satelle execution list", "drift-review.md step 6")
-	r := d.exec("bash", "", "-c", "session=\"${SATELLE_SESSION:-}\"\ntask="+d.drift+"\n"+sel+"\necho \"$exe\"")
-	if got := strings.TrimSpace(r.out); r.code != 0 || got != newer {
-		t.Fatalf("drift-review.md step 6 picks %q (exit %d %s), want the newest finished run %s (older %s)", got, r.code, r.err, newer, older)
-	}
-
-	r = d.exec("bash", "", "-c", shBlock(t, ".satelle/skills/drift-review.md", "## 6.", d.drift))
-	if r.code != 0 || !strings.Contains(r.out, "released") || !strings.Contains(r.out, newer) {
-		t.Fatalf("drift-review.md step 6 did not release the seat on the newest finished run %s: exit %d\n%s%s", newer, r.code, r.out, r.err)
+		var got struct {
+			Seats []item.Seat `json:"seats"`
+		}
+		d.mustJSON(&got, "execution", "get", exe)
+		if len(got.Seats) != 0 {
+			t.Fatalf("drift run %s still holds seats after done: %+v", exe, got.Seats)
+		}
 	}
 }
