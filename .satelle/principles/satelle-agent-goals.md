@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; a story's drive does not end at approved: the session that drove it there fires the release and follows the run to done. An epic's children are driven to approved; the driving agent or the operator decides when to fire a release, so an epic may ship in one release or several, and the epic closes when every child is done. A hold parks the item for the operator: run the block breaker on it, then report it and stop, unless its resolution changes only the plan or a driver note.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; a session working alone does not end a story's drive at approved: it fires the release and follows the run to done. In a fleet (satelle-fleet-roles) a worker stops at approved (done for a substrate story), reports to its orchestrator, and never fires a release or lands; the orchestrator fires releases and lands substrate stories. An epic's children are driven to approved; the driving agent or the operator decides when to fire a release, so an epic may ship in one release or several, and the epic closes when every child is done. A hold parks the item for the operator: run the block breaker on it, then report it and stop, unless its resolution changes only the plan or a driver note.
 ---
 
 # Agent goals
@@ -32,8 +32,9 @@ first runs the block breaker on it (`.satelle/session.md`), then reports the hol
 and stops. The one exception is the restart a block resolution that changes only
 the plan or a driver note allows the session.
 
-**This session is the orchestrator when both seats are in-loop** (both resolve
-to the in-loop command: the same agent). `complete sty_<id>` starts that story's
+**This session drives its own steps when both seats are in-loop** (both resolve
+to the in-loop command: the same agent); this is not the fleet orchestrator of
+[[satelle-fleet-roles]]. `complete sty_<id>` starts that story's
 drive; an epic, or `drive epic <id> to done`, starts *Driving an epic*.
 
 **A named performer hands the drive back here.** The step's agent does the step
@@ -45,13 +46,22 @@ drive stays in this session.
 
 **One story at a time — outside an epic.**
 Drive a single engaged story to its terminal state before engaging another. A
-story's drive does not end at `approved`: the session that drove it there
-fires the release (`satelle queue fire release --session <session>`,
-release/SKILL.md step 0) and follows the run until the story is `done`; it waits
-only at a park state or a state that declares `waits`.
+session working alone does not end a story's drive at `approved`: it fires the
+release (`satelle queue fire release --session <session>`, release/SKILL.md
+step 0) and follows the run until the story is `done`; it waits only at a park
+state or a state that declares `waits`.
+
+**A worker in a fleet stops at `approved`.** A session given its story by an
+orchestrator ([[satelle-fleet-roles]]) drives it to `approved`, or to `done` for
+a substrate story, reports to the orchestrator and stops there. It never fires
+a release and never lands a substrate story unless the orchestrator tells it
+to land one; the orchestrator fires releases, lands substrate stories, runs
+block breakers and carries operator decisions. A hold it reports and stops at,
+as above.
 
 **When to release is a call, the agent's or the operator's.** The driving
-agent or the operator decides when to fire the release queue: one approved
+agent (in a fleet, the orchestrator) or the operator decides when to fire the
+release queue: one approved
 story, or several together, by the number of approved stories and the impact
 of shipping them. A run takes every approved story in the queue, whoever
 drove it. Within an epic, children reach `approved` and are released when that
@@ -67,7 +77,8 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 **Drive epic `<id>` to done:**
 
 1. Drive each child on its own category workflow to `approved`.
-2. Release when the driving agent or the operator decides to: after one
+2. Release when the driving agent (in a fleet, the orchestrator) or the
+   operator decides to: after one
    child, or once several are approved, by their number and the impact of
    shipping them. Follow `.satelle/skills/release/SKILL.md` from step 0 (it fires the
    `release` queue) through step 11 (the drift review). The run takes every
