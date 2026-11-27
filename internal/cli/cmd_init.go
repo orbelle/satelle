@@ -307,8 +307,7 @@ skills/<name>/pack.toml) or in a known advisory table of satelle.toml
 as <file>: [<table>] <key> = <value> (or <file>: <key> = <value> at top level),
 under the unknown_keys key with --json. These are listed without failing the
 check; satelle doctor reports each as an unknown-keys issue. Unknown keys in
-workflows/*.toml, queues/*.toml, agents.toml, agents.local.toml, repos.toml,
-repos.local.toml, in
+workflows/*.toml, queues/*.toml, agents.toml, agents.local.toml, in
 satelle.toml's [workflows], [gate] or [review] tables, or any unknown top-level
 key or table in satelle.toml fail configuration loading.`,
 		Args: cobra.NoArgs,

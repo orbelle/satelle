@@ -2,7 +2,7 @@
 
 Everything satelle runs lives in `.satelle/`, in git, owned by you. Process-control
 files and tables (`workflows/*.toml`, `queues/*.toml`, `agents.toml`,
-`agents.local.toml`, `repos.toml`, `repos.local.toml`, and `satelle.toml`'s `[workflows]`, `[gate]` and `[review]`
+`agents.local.toml`, and `satelle.toml`'s `[workflows]`, `[gate]` and `[review]`
 tables, as well as any top-level key or table `satelle.toml` does not read) are
 decoded strictly and refuse an unknown key. Lenient files (`doctor.toml`,
 `ui.toml`, `init.toml`, `volatile.toml`, `harness.toml`,
@@ -125,20 +125,6 @@ its `commands` key.
   edits it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
-- `repos.toml` — optional: the target repositories this control repository
-  onboards, one `[repos.<name>]` table each: `origin` (required; an ssh,
-  scp-style or http(s) URL with no credentials, query or fragment), `base`
-  (the default base branch; none is `main`), `fetch` (the repository's own
-  fetch command, stored and shown, never run by satelle) and `tier`
-  (`standard` or `protected`; none is `standard`). `self`, the control
-  repository itself, is always a target and is never declared; with no
-  `repos.toml` it is the only one. A name is lower-case letters, digits, `.`,
-  `_` and `-`. Written by `satelle repo add --session <session>`, listed by
-  `satelle repo list --session <session>`.
-- `repos.local.toml` — this machine's checkout of each registered repository,
-  `[repos.<name>] path = "<absolute path>"`; ignored by git. Both files are
-  read as regular files only (a symlink is refused), and no problem satelle
-  reports about them quotes a value from them.
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` or `skills/<name>/SKILL.md` — the skills performers, gates
   and checks follow. A skill may be a single file (`skills/<name>.md`) or a
@@ -356,7 +342,7 @@ owner's share. Visibility writes nothing locally and needs no seat.
 `satelle doctor --session <session>` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
 within 2 s. Besides its kernel checks (config, unknown-keys, substrate, volatile, substrate-dir, init, harness,
-repos, versions, sync, seats) it
+versions, sync, seats) it
 runs what `.satelle/doctor.toml` names:
 
     [[check]]
@@ -393,14 +379,6 @@ command; an unreadable marketplace is a note, never an issue. Configure it to ha
     [[check]]
     skill = "satelle-pack-version-check"
     fix = "in a seat that may change the tree, run the update command the issue names, then merge each edited file it lists under .satelle/pack-merge"
-
-`[repos] max_count` is the most target repositories `.satelle/repos.toml`
-may declare before the `repos` check raises an issue; with no key there is no
-threshold, and a value that is not a positive integer is a configuration
-problem:
-
-    [repos]
-    max_count = 8               # optional; no default
 
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.

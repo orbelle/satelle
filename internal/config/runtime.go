@@ -267,18 +267,6 @@ func CanonicalRepoRoot(repoRoot string) string {
 	return mainCheckoutRoot(root, common)
 }
 
-func CanonicalRepoRootEnv(repoRoot string, env []string) string {
-	root := strings.TrimSpace(repoRoot)
-	if root == "" {
-		root = "."
-	}
-	common, _, ok := gitCommonIdentityEnv(root, env)
-	if !ok {
-		return root
-	}
-	return mainCheckoutRoot(root, common)
-}
-
 func mainCheckoutRoot(root, common string) string {
 	if filepath.Base(common) != ".git" {
 		return root
