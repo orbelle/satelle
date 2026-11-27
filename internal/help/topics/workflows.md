@@ -434,14 +434,16 @@ names every file in the prompt, and removes it after the run. A folder left by
 a run whose process exited before removing it is removed when the next run
 writes its folder; a folder whose run is still in progress is kept. Small bodies are
 also inlined, up to 16 KiB each and 64 KiB in all, newest first, each cut
-marked with the bytes shown and the file to read. A detached run gets the
-record inline only. The session reads any version itself with
+marked with the bytes shown and the file to read. A judge's prompt names the
+files only: no attachment body is inlined, and the judge reads each file from
+the folder. A detached run gets the record inline only. The session reads any version itself with
 `satelle story attachment <id> <name> [--sha S] --session <session>`.
 
 To see a gate's input and verdict before presenting, dry-run it:
 `satelle gate run <workflow>/<gate> --item <id> --session <session>` runs that
 one gate against the item as its transition would. A check gets the same env,
-stdin and directory, and a judge gets the same prompt and record folder,
+stdin and directory, and a judge gets the same prompt (naming the record files,
+not their bodies) and the same record folder,
 including a draft plan already attached. The command prints the result, each
 panel member's verdict and the full notes. It writes nothing to the ledger, so
 it adds no gate.run and no hold round. Every script the gate starts gets exactly

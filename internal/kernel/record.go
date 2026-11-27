@@ -30,6 +30,14 @@ const (
 	claimTries        = 100
 )
 
+type recordView int
+
+const (
+	recordInline recordView = iota
+	recordFolder
+	recordPointers
+)
+
 type Record struct {
 	Dir     string
 	Section string
@@ -200,7 +208,7 @@ func (k *Kernel) OpenRecord(id string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return k.record(it, events, true)
+	return k.record(it, events, recordFolder)
 }
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
@@ -213,7 +221,7 @@ func fileName(name string) string {
 	return f
 }
 
-func (k *Kernel) record(it item.Item, events []ledger.Event, folder bool) (Record, error) {
+func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView) (Record, error) {
 	atts, _ := item.LatestAttachments(item.FoldAttachments(events))
 	children, err := k.List(cache.Query{Parent: it.ID})
 	if err != nil {
@@ -231,13 +239,13 @@ func (k *Kernel) record(it item.Item, events []ledger.Event, folder bool) (Recor
 	var rec Record
 	paths := make([]string, len(atts))
 	childrenPath := ""
-	if folder {
+	if view != recordInline {
 		if rec.Dir, err = k.writeRecord(it, atts, bodies, children, paths); err != nil {
 			return Record{}, err
 		}
 		childrenPath = filepath.Join(rec.Dir, "children.md")
 	}
-	rec.Section = renderRecord(atts, bodies, paths, children, rec.Dir, childrenPath)
+	rec.Section = renderRecord(atts, bodies, paths, children, rec.Dir, childrenPath, view == recordPointers)
 	return rec, nil
 }
 
@@ -302,7 +310,7 @@ func clip(s string, max int) (string, int) {
 	return s[:n], n
 }
 
-func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, children []item.Item, dir, childrenPath string) string {
+func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, children []item.Item, dir, childrenPath string, pointersOnly bool) string {
 	var b strings.Builder
 	where := func(i int) string {
 		if dir == "" {
@@ -317,12 +325,20 @@ func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, child
 			fmt.Fprintf(&b, "- %s (%s, %s, %d bytes, sha256 %s)\n", paths[i], a.Name, a.MediaType, a.Size, ledger.ShortHash(a.SHA256))
 		}
 		fmt.Fprintf(&b, "- %s (%d children)\n", childrenPath, len(children))
-		b.WriteString("Read a file there for its full body; a body below may be cut.\n")
+		if pointersOnly {
+			b.WriteString("Read a file there for its full body; no attachment body is in this prompt.\n")
+		} else {
+			b.WriteString("Read a file there for its full body; a body below may be cut.\n")
+		}
 	} else {
 		b.WriteString("The item's record (attachments and children), inline:\n")
 	}
+	inline := atts
+	if pointersOnly {
+		inline = nil
+	}
 	spent := 0
-	for i, a := range atts {
+	for i, a := range inline {
 		body := bodies[i]
 		fmt.Fprintf(&b, "\nAttachment %s (%s, %d bytes", a.Name, a.MediaType, len(body))
 		if i == 0 {
