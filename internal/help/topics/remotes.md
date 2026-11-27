@@ -45,6 +45,46 @@ container-start `[setup]` (a gate placed on a remote, or a node that joins with
 `--no-setup`): it runs before any substrate is on the machine and has
 `SATELLE_SUBSTRATE_DIR` unset.
 
+Once its kernel is open, a node run stamps its runtime as a node runtime
+(`runtime/runtime.json`: the substrate and work tree it was given, the
+substrate's digest and the node process) and hands everything it starts, its
+checks, triggers, after-skills, performers and judges, `SATELLE_NODE_RUN`
+(the node's run directory) and `SATELLE_NODE_WITHHOLD` (the names of its
+declared secrets, never their values). A satelle command started inside the
+node's work tree then opens the node's own substrate and ledger rather than
+walking up from the tree, with the named secrets withheld from every git
+lookup that resolution runs. The variable is only where to look: the command
+is refused unless that runtime is a node runtime, not the machine's, holds
+no link or special file, was stamped by a process the command descends from
+and, for a substrate other than the tree's own `.satelle`, still matches the
+stamped digest; enforcing that digest begins where the substrate is separate
+from the work tree, and where it is the tree's own `.satelle` that substrate
+governs as it does today. A refused `SATELLE_NODE_RUN` fails the command,
+`doctor`, `init` and the project commands included, with a non-zero
+exit; it is never read as not in a repo. The hooks, the session-start doctor
+and `ledger autosync` never follow it: they always use the work tree's own
+substrate, keep their exit codes, and list the principles keyed to them from
+that substrate. Gate jobs a node serves for another kernel do not get
+`SATELLE_NODE_RUN`, so they stay off the node's ledger, and keep
+`SATELLE_NODE_WITHHOLD`, because their environment holds the declared
+secrets' values and resolution must still withhold them from git. The node
+re-checks its stamp, and a separate substrate's digest, before a joined node
+pushes its ledger and before a local node writes its outcome.
+
+A local run's ledger is imported only when the node sealed its outcome. For
+each fire the starter makes an Ed25519 key pair and hands the private key to
+the node on its stdin as `satelle.seal` beside the secret values; the node
+keeps it in memory only, never in its environment, a file or a log, so no
+check, performer or judge it starts can read it. After its run verifies, the
+node signs its outcome together with the head of every chain in its ledger.
+The starter keeps only the public key, in memory for an attached run and in
+the detached record for a detached one; a public key checks a seal and cannot
+make one, and it is not a secret value. At bring-back an outcome with no
+seal, a seal that does not verify, or a ledger whose heads differ from the
+sealed ones is concluded reject with nothing of the run imported, whatever a
+task wrote under `out/`. Starter and node agree on this as node layout 2; a
+run file of another layout is refused before setup.
+
 `remote fire <remote> <item> --detach` does not hold the session: it returns
 once the docker-local or command node has started its run, printing the node,
 and records the run running while the node goes on working. Nothing brings
@@ -67,7 +107,7 @@ that starts the node's run (`node run-local --detach`) carries the
 secrets on its stdin, as an attached run's does, and returns once the run has
 started: the node runs on in its own session, holding none of that exec's
 output, so no process stays alive here. The detached record keeps the names
-of the secrets handed, never a value. `remote status` and `remote stop` take
+of the secrets handed, never a value, and the run's public seal key. `remote status` and `remote stop` take
 those names, and the definition's, from the shell or `.satelle/.env` and
 unset them at entry, before any git or `[connect]` command runs (the one
 lookup of the runtime directory before then runs with only PATH, HOME,

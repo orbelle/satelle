@@ -85,7 +85,11 @@ the command that wires one.`,
 			if err := installHooks(out, cwd, harnesses, staleHook(substrateTree(NewRootCmd()))); err != nil {
 				return err
 			}
-			if r, err := findRepo(""); err == nil {
+			r, err := findRepo("")
+			if errors.Is(err, config.ErrNodeHint) {
+				return err
+			}
+			if err == nil {
 				var unwired []string
 				for _, w := range hook.WiringOf(r.Tree) {
 					if !w.Wired() {

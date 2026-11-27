@@ -110,3 +110,18 @@ func TestStageInNamesLayout(t *testing.T) {
 		t.Fatalf("outcome = %+v", out)
 	}
 }
+
+func TestRunLocalRefusesALayoutOneRunBeforeSetup(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "marker")
+	f := secretFixture(t, "echo checked", []string{"touch " + marker}, "")
+	nodeDir := f.stage(t, "nod_1a71")
+	rewriteRun(t, nodeDir, func(m map[string]any) { m["layout"] = 1 })
+	_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
+		Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
+	if err == nil || !strings.Contains(err.Error(), "is laid out for node layout 1; this node implements node layout 2; refused before setup") {
+		t.Fatalf("RunLocal on a layout-1 run = %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused run ran its setup: %v", err)
+	}
+}

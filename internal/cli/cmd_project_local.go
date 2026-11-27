@@ -144,7 +144,9 @@ func localProjects() ([]localProject, error) {
 		lp := localProject{Name: config.RepoName(p), Path: p, State: "ok", Bound: "-"}
 		if st, err := os.Stat(p); err != nil || !st.IsDir() {
 			lp.State = "missing"
-		} else if r, err := findRepo(p); err == nil {
+		} else if r, err := findRepo(p); errors.Is(err, config.ErrNodeHint) {
+			return nil, err
+		} else if err == nil {
 			if b, ok, _ := loadBinding(r); ok && b.Slug != "" {
 				lp.Bound = b.Slug
 			}
@@ -167,19 +169,21 @@ func addLocalProject(cmd *cobra.Command, path string) error {
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%d projects on this machine)\n", path, len(gc.Projects.Paths))
 	}
-	seedUI(cmd, path)
-	return nil
+	return seedUI(cmd, path)
 }
 
-func seedUI(cmd *cobra.Command, path string) {
+func seedUI(cmd *cobra.Command, path string) error {
 	r, err := findRepo(path)
+	if errors.Is(err, config.ErrNodeHint) {
+		return err
+	}
 	if err != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %v\n", err)
-		return
+		return nil
 	}
 	if !pushesToUI(r) {
 		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %s is under the temp dir; a repo there pushes nothing to satelled\n", path)
-		return
+		return nil
 	}
 	pushed := false
 	err = withUISource(r, func(c uipush.Client, src uipush.Source) error {
@@ -196,6 +200,7 @@ func seedUI(cmd *cobra.Command, path string) {
 	case !pushed:
 		fmt.Fprintln(cmd.OutOrStdout(), "not seeded: the push to satelled is disabled")
 	}
+	return nil
 }
 
 func dropPartition(cmd *cobra.Command, repoKey string) error {
@@ -224,6 +229,9 @@ func repoArg(args []string) (string, error) {
 		return filepath.Clean(abs), nil
 	}
 	r, err := findRepo("")
+	if errors.Is(err, config.ErrNodeHint) {
+		return "", err
+	}
 	if err != nil {
 		return "", errors.New("not in a satelle project; name the project's path")
 	}

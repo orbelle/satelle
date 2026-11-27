@@ -36,7 +36,7 @@ func TestDoctorReportsAGoneProjectAndResolveRemovesIt(t *testing.T) {
 	if len(found) != 1 || found[0].Resolve != resolveRemoveProject || found[0].Fix != "satelle project remove "+gone {
 		t.Fatalf("want one %s issue for %s fixed by %s, got %+v", checkProjectsName, gone, resolveRemoveProject, found)
 	}
-	if n := resolvable(loadDoctorInput(""), found, false); n != 1 {
+	if n := resolvable(mustDoctorInput(t, ""), found, false); n != 1 {
 		t.Errorf("resolvable without a terminal = %d, want 1: the fix needs no answer", n)
 	}
 
@@ -74,11 +74,11 @@ func TestDoctorChecksProjectsOutsideARepo(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	registerProjects(t, gone)
 	t.Chdir(t.TempDir())
-	issues, _ := checkProjects(t.Context(), loadDoctorInput(""))
+	issues, _ := checkProjects(t.Context(), mustDoctorInput(t, ""))
 	if len(issues) != 1 || issues[0].path != gone {
 		t.Fatalf("outside a repo: want the gone project %s, got %+v", gone, issues)
 	}
-	if !slices.ContainsFunc(doctorChecks(loadDoctorInput("")), func(c doctorCheck) bool { return c.name == checkProjectsName }) {
+	if !slices.ContainsFunc(doctorChecks(mustDoctorInput(t, "")), func(c doctorCheck) bool { return c.name == checkProjectsName }) {
 		t.Error("the projects check does not run outside a repo")
 	}
 }

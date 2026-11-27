@@ -3,10 +3,13 @@ package remotenode
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -141,7 +144,8 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	}
 	steps.start(run.Run.Mode, run.Run.ItemID)
 	fmt.Fprintf(o.Log, "node: definition %s, run %s %s\n", def.Name, run.Run.Mode, run.Run.ItemID)
-	if *values, err = readSecrets(def, o.Secrets); err != nil {
+	var priv ed25519.PrivateKey
+	if *values, priv, err = readNodeInput(def, o.Secrets); err != nil {
 		return LocalOutcome{}, err
 	}
 	var clean func(string) string
@@ -192,6 +196,11 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	defer k.Close()
+	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	defer nr.Restore()
 
 	if err := importIn(k.Ledger, in, run.Run.ItemID); err != nil {
 		return LocalOutcome{}, err
@@ -235,7 +244,20 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	out.Notes = redact(out.Notes, *values)
 	steps.concluded(res.Verdict, res.Item.Status)
 	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
-	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
+	outDir := filepath.Join(o.Dir, "out")
+	if err := nr.Verify(); err != nil {
+		if rerr := os.Remove(filepath.Join(outDir, localOutcome)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			err = errors.Join(err, rerr)
+		}
+		return LocalOutcome{}, err
+	}
+	if out.Heads, err = ledgerHeads(k.Ledger); err != nil {
+		return LocalOutcome{}, err
+	}
+	if out.Seal, err = sealOutcome(priv, out); err != nil {
+		return LocalOutcome{}, err
+	}
+	return out, writeOutcome(outDir, out)
 }
 
 func runGateNotes(l *ledger.Store, target, actor string) (string, error) {
@@ -260,39 +282,52 @@ func runGateNotes(l *ledger.Store, target, actor string) (string, error) {
 	return b.String(), nil
 }
 
-func readSecrets(def remotedef.Definition, in io.Reader) ([]string, error) {
+func readNodeInput(def remotedef.Definition, in io.Reader) ([]string, ed25519.PrivateKey, error) {
 	names := secretNames(def)
-	if len(names) == 0 {
-		return nil, nil
-	}
 	if in == nil {
-		return nil, fmt.Errorf("the definition declares secret %s and none was given on stdin", names[0])
+		if len(names) > 0 {
+			return nil, nil, fmt.Errorf("the definition declares secret %s and none was given on stdin", names[0])
+		}
+		return nil, nil, nil
 	}
 	b, err := io.ReadAll(io.LimitReader(in, maxSecretPayload+1))
 	if err != nil {
-		return nil, fmt.Errorf("reading secrets from stdin: %w", err)
+		return nil, nil, fmt.Errorf("reading secrets from stdin: %w", err)
 	}
 	if len(b) > maxSecretPayload {
-		return nil, fmt.Errorf("the secrets on stdin are over %d bytes", maxSecretPayload)
+		return nil, nil, fmt.Errorf("the secrets on stdin are over %d bytes", maxSecretPayload)
 	}
-	var given map[string]string
-	if err := json.Unmarshal(b, &given); err != nil {
-		return nil, errors.New("the secrets on stdin are not a JSON object of names to values")
+	given := map[string]string{}
+	if len(bytes.TrimSpace(b)) > 0 {
+		if err := json.Unmarshal(b, &given); err != nil {
+			return nil, nil, errors.New("the secrets on stdin are not a JSON object of names to values")
+		}
+	}
+	var priv ed25519.PrivateKey
+	if v, ok := given[sealPayloadKey]; ok {
+		k, err := hex.DecodeString(v)
+		if err != nil || len(k) != ed25519.PrivateKeySize {
+			return nil, nil, errors.New("the run's seal key on stdin is not an Ed25519 private key")
+		}
+		priv = ed25519.PrivateKey(k)
+	}
+	if len(names) == 0 {
+		return nil, priv, nil
 	}
 	taken := map[string]string{}
 	for _, n := range names {
 		v := given[n]
 		if v == "" {
-			return nil, fmt.Errorf("secret %s was not given on stdin", n)
+			return nil, nil, fmt.Errorf("secret %s was not given on stdin", n)
 		}
 		taken[n] = v
 	}
 	for _, n := range names {
 		if err := os.Setenv(n, taken[n]); err != nil {
-			return nil, fmt.Errorf("secret %s: %w", n, err)
+			return nil, nil, fmt.Errorf("secret %s: %w", n, err)
 		}
 	}
-	return longestFirst(taken), nil
+	return longestFirst(taken), priv, nil
 }
 
 func importIn(dst *ledger.Store, in, itemID string) error {

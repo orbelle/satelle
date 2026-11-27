@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -52,7 +53,11 @@ func saveBinding(r repo, b binding) error {
 
 func projectServer(flag string) (string, error) {
 	if strings.TrimSpace(flag) == "" {
-		if r, err := findRepo(""); err == nil {
+		r, err := findRepo("")
+		if errors.Is(err, config.ErrNodeHint) {
+			return "", err
+		}
+		if err == nil {
 			if b, ok, _ := loadBinding(r); ok && b.Server != "" {
 				return b.Server, nil
 			}
@@ -152,7 +157,11 @@ satelle help ledger-store). With [ledger] store = "local" nothing replicates.`,
 			return writeJSON(cmd.OutOrStdout(), resp.GetProjects())
 		}
 		bound := ""
-		if r, err := findRepo(""); err == nil {
+		r, err := findRepo("")
+		if errors.Is(err, config.ErrNodeHint) {
+			return err
+		}
+		if err == nil {
 			if b, ok, _ := loadBinding(r); ok {
 				bound = b.Project
 			}

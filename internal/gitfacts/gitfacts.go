@@ -14,11 +14,18 @@ import (
 	"strings"
 )
 
-type Repo struct{ Dir string }
+type Repo struct {
+	Dir string
+	Env []string
+}
 
 func (r Repo) git(args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", r.Dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	env := r.Env
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = append(slices.Clone(env), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {

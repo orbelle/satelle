@@ -3,15 +3,20 @@
 package tests
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fireDetached(t *testing.T) (s *sandbox, id, fake, node, name string) {
 	t.Helper()
 	s, id, fake = dockerLocalSandbox(t, true)
+	writeFile(t, filepath.Join(fake, "hold-detached"), "", 0o644)
 	out := s.must("remote", "fire", "docker-probe", id, "--detach")
 	t.Logf("fire --detach:\n%s", out)
 	m := nodeLine.FindStringSubmatch(out)
@@ -59,18 +64,39 @@ func TestDockerLocalFireDetachReturnsBeforeTheNodeEnds(t *testing.T) {
 	lines := fakeLines(t, fake)
 	copyIn := logIndex(lines, 0, func(l string) bool { return strings.HasPrefix(l, "cp ") && strings.HasSuffix(l, " "+name+":/node/in") })
 	detached := logIndex(lines, 0, func(l string) bool {
-		return strings.HasPrefix(l, "exec -d "+name+" sh -c satelle node run-local --dir /node")
+		return l == "exec -i "+name+" satelle node run-local --dir /node --detach --progress"
 	})
-	if copyIn < 0 || detached < copyIn || logIndex(lines, 0, func(l string) bool { return strings.Contains(l, "exec -i ") }) >= 0 {
-		t.Fatalf("the node was not given its work and started detached (cp %d, exec -d %d):\n%s", copyIn, detached, strings.Join(lines, "\n"))
+	if copyIn < 0 || detached < copyIn || logIndex(lines, 0, func(l string) bool { return strings.HasPrefix(l, "exec -d ") }) >= 0 {
+		t.Fatalf("the node was not given its work and started detached with exec -i (cp %d, exec -i %d):\n%s", copyIn, detached, strings.Join(lines, "\n"))
+	}
+	stdin := filepath.Join(fake, name, "detach.stdin")
+	var given map[string]string
+	if b, err := os.ReadFile(stdin); err != nil || json.Unmarshal(b, &given) != nil {
+		t.Fatalf("the detached start's stdin = %q, %v", b, err)
+	}
+	if k, err := hex.DecodeString(given["satelle.seal"]); err != nil || len(k) != ed25519.PrivateKeySize {
+		t.Fatalf("the detached start's stdin carries no seal key: %q", given["satelle.seal"])
 	}
 	if n := len(seatsOf(s, id)); n != 1 {
 		t.Fatalf("seats while the node works = %d, want the node's", n)
 	}
 
-	r := s.exec("sh", "", "-c", satelleBin+" node run-local --dir "+nodeDir+" </dev/null >"+nodeDir+"/out/node.log 2>&1; echo $? >"+nodeDir+"/out/exit")
+	r := s.exec("sh", "", "-c", satelleBin+" node run-local --dir "+nodeDir+" --detach --progress <"+stdin)
 	if r.code != 0 {
 		t.Fatalf("the simulated node: %s", r.out)
+	}
+	deadline := time.Now().Add(2 * time.Minute)
+	if d, ok := t.Deadline(); ok {
+		deadline = d
+	}
+	for {
+		if b, err := os.ReadFile(filepath.Join(nodeDir, "out", "exit")); err == nil && strings.HasSuffix(string(b), "\n") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the detached node wrote no exit")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if b, err := os.ReadFile(filepath.Join(nodeDir, "out", "exit")); err != nil || strings.TrimSpace(string(b)) != "0" {
 		log, _ := os.ReadFile(filepath.Join(nodeDir, "out", "node.log"))

@@ -213,7 +213,7 @@ func IsRuntimeKeyDir(name string) bool {
 
 const RepoPathMarkerName = "repo.path"
 
-func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
+func WriteRepoPathMarker(runtimeDir, repoRoot string, env []string) error {
 	runtimeDir = strings.TrimSpace(runtimeDir)
 	repoRoot = strings.TrimSpace(repoRoot)
 	if runtimeDir == "" || repoRoot == "" {
@@ -226,7 +226,18 @@ func WriteRepoPathMarker(runtimeDir, repoRoot string) error {
 	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
 		return err
 	}
-	abs, err := filepath.Abs(CanonicalRepoRoot(repoRoot))
+	root := repoRoot
+	var common string
+	var ok bool
+	if env != nil {
+		common, _, ok = gitCommonIdentityEnv(repoRoot, env)
+	} else {
+		common, _, ok = gitCommonIdentity(repoRoot)
+	}
+	if ok {
+		root = mainCheckoutRoot(repoRoot, common)
+	}
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		abs = repoRoot
 	}
@@ -253,6 +264,10 @@ func CanonicalRepoRoot(repoRoot string) string {
 	if !ok {
 		return root
 	}
+	return mainCheckoutRoot(root, common)
+}
+
+func mainCheckoutRoot(root, common string) string {
 	if filepath.Base(common) != ".git" {
 		return root
 	}

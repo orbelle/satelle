@@ -88,6 +88,7 @@ type joiner struct {
 	nc     *NodeClient
 	run    RunDescriptor
 	digest string
+	nr     *NodeRun
 
 	mu           sync.Mutex
 	progress     string
@@ -231,6 +232,16 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 		return Outcome{}, err
 	}
 	defer k.Close()
+	var withhold []string
+	for _, e := range def.SecretEntries() {
+		withhold = append(withhold, e.Key)
+	}
+	nr, err := MarkNodeRun(o.Dir, o.NodeID, root, tree, withhold)
+	if err != nil {
+		return Outcome{}, err
+	}
+	defer nr.Restore()
+	j.nr = nr
 	actor := "node:" + o.NodeID
 	report := Report{Version: o.Version, DefinitionVersion: version, Allow: def.Allow(), Repos: fetched,
 		Bindings: k.Agents.Names(), Now: time.Now().UnixNano()}
@@ -241,6 +252,9 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 		out, err = j.drive(ctx, k, actor)
 	case ModePerformer:
 		out, err = j.perform(ctx, k, node, tree, report)
+		if err == nil {
+			err = nr.Verify()
+		}
 	default:
 		return Outcome{Verdict: kernel.VerdictAccept, Notes: "set up; no run"}, nil
 	}
@@ -357,6 +371,9 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	}
 	j.say("driving %s", target)
 	res, derr := k.Drive(ctx, target, actor)
+	if verr := j.nr.Verify(); verr != nil {
+		return Outcome{}, verr
+	}
 	pushed, perr := repl.Push(ctx)
 	if derr != nil {
 		return Outcome{}, derr

@@ -89,16 +89,20 @@ type doctorCheck struct {
 	run  func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string)
 }
 
-func loadDoctorInput(dir string) *doctorInput {
-	r, err := findRepo(dir)
+func loadDoctorInput(dir string) (*doctorInput, error) { return doctorInputFor(findRepo(dir)) }
+
+func doctorInputFor(r repo, err error) (*doctorInput, error) {
+	if errors.Is(err, config.ErrNodeHint) {
+		return nil, err
+	}
 	if err != nil {
-		return &doctorInput{}
+		return &doctorInput{}, nil
 	}
 	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
-		return &doctorInput{inRepo: true, r: r, legacy: m, cfgErr: errors.New(needsUpgradeLine(r.Tree, m)), harness: hook.Caller()}
+		return &doctorInput{inRepo: true, r: r, legacy: m, cfgErr: errors.New(needsUpgradeLine(r.Tree, m)), harness: hook.Caller()}, nil
 	}
 	cfg, cerr := kernel.LoadConfig(r.DataDir)
-	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr, harness: hook.Caller()}
+	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr, harness: hook.Caller()}, nil
 }
 
 func doctorChecks(in *doctorInput) []doctorCheck {

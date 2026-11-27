@@ -3,6 +3,7 @@ package remotenode
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -44,7 +45,7 @@ const (
 	localOutcome    = "outcome.json"
 )
 
-const NodeLayout = 1
+const NodeLayout = 2
 
 const (
 	RunRunning   = "running"
@@ -148,6 +149,8 @@ type LocalOutcome struct {
 	Verdict string             `json:"verdict"`
 	Notes   string             `json:"notes"`
 	Steps   []kernel.DriveStep `json:"steps,omitempty"`
+	Heads   map[string]string  `json:"heads,omitempty"`
+	Seal    string             `json:"seal,omitempty"`
 }
 
 type LocalRuns struct{ Dir string }
@@ -205,6 +208,7 @@ type LocalDetached struct {
 	Egress      bool      `json:"egress,omitempty"`
 	SecretNames []string  `json:"secret_names,omitempty"`
 	Answered    time.Time `json:"answered,omitzero"`
+	SealKey     string    `json:"seal_key,omitempty"`
 }
 
 func (r LocalRuns) SaveDetached(remote, itemID string, d LocalDetached) error {
@@ -747,20 +751,25 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if !ok {
 		return LocalOutcome{}, fmt.Errorf("the node's handle %s cannot pass stdin to the node", h.ID())
 	}
-	payload, err := stdinPayload(o.Secrets)
+	pub, priv, err := newRunSeal()
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	payload, err := stdinPayload(o.Secrets, priv)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
 	fmt.Fprintf(o.Out, "running the node on %s\n", o.Item)
 	raw, execErr := sx.ExecStdin(ctx, bytes.NewReader(payload), "satelle", "node", "run-local", "--dir", LocalNodeDir)
+	clear(payload)
 	log := redact(string(raw), o.Secrets.Redact)
 	if execErr != nil {
 		execErr = errors.New(redact(execErr.Error(), o.Secrets.Redact))
 	}
-	return bringBack(ctx, o.Kernel, h, chains, node, o.Secrets, execErr, log)
+	return bringBack(ctx, o.Kernel, h, chains, node, o.Secrets, hex.EncodeToString(pub), execErr, log)
 }
 
-func bringBack(ctx context.Context, k *kernel.Kernel, h provider.Handle, chains []string, node string, secrets Secrets, execErr error, log string) (LocalOutcome, error) {
+func bringBack(ctx context.Context, k *kernel.Kernel, h provider.Handle, chains []string, node string, secrets Secrets, sealKey string, execErr error, log string) (LocalOutcome, error) {
 	tmp, err := os.MkdirTemp("", "satelle-back-")
 	if err != nil {
 		return LocalOutcome{}, err
@@ -796,6 +805,12 @@ func bringBack(ctx context.Context, k *kernel.Kernel, h provider.Handle, chains 
 			return LocalOutcome{}, err
 		}
 	}
+	if err := checkSeal(sealKey, out); err != nil {
+		return unsealed(err), nil
+	}
+	if err := checkHeads(back, out.Heads); err != nil {
+		return unsealed(err), nil
+	}
 	res, err := importBack(k, back, chains, node, secrets.Values)
 	if broken := (*ledger.BrokenLink)(nil); errors.As(err, &broken) {
 		return LocalOutcome{Verdict: kernel.VerdictReject,
@@ -808,6 +823,11 @@ func bringBack(ctx context.Context, k *kernel.Kernel, h provider.Handle, chains 
 		return LocalOutcome{}, err
 	}
 	return concludeImport(out, res), nil
+}
+
+func unsealed(why error) LocalOutcome {
+	return LocalOutcome{Verdict: kernel.VerdictReject,
+		Notes: fmt.Sprintf("the node's outcome is not sealed by its run (%s); nothing of the run was imported", why)}
 }
 
 func readRegular(p string) ([]byte, error) {
@@ -854,33 +874,25 @@ func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node s
 	if _, err := h.Exec(ctx, "mkdir", "-p", outDir); err != nil {
 		return err
 	}
-	side := LocalDetached{Chains: chains, Remove: remove, Egress: len(o.Definition.Network.Allow) > 0,
-		SecretNames: o.Secrets.Names, Answered: time.Now().UTC()}
-	if o.Definition.Provider == remotedef.ProviderCommand {
-		return startCommandDetached(ctx, o, h, side)
-	}
-	dx, ok := h.(provider.DetachedExec)
-	if !ok {
-		return fmt.Errorf("the node's handle %s cannot run detached", h.ID())
-	}
-	script := fmt.Sprintf("satelle node run-local --dir %s --progress </dev/null >%s 2>&1; echo $? >%s",
-		LocalNodeDir, path.Join(outDir, detachedLog), path.Join(outDir, detachedExit))
-	fmt.Fprintf(o.Out, "running the node on %s, detached\n", o.Item)
-	if err := dx.ExecDetached(ctx, "sh", "-c", script); err != nil {
+	pub, priv, err := newRunSeal()
+	if err != nil {
 		return err
 	}
-	return o.Runs.SaveDetached(o.Remote, o.Item, side)
+	side := LocalDetached{Chains: chains, Remove: remove, Egress: len(o.Definition.Network.Allow) > 0,
+		SecretNames: o.Secrets.Names, Answered: time.Now().UTC(), SealKey: hex.EncodeToString(pub)}
+	return startNodeDetached(ctx, o, h, side, priv)
 }
 
-func startCommandDetached(ctx context.Context, o FireOptions, h provider.Handle, side LocalDetached) error {
+func startNodeDetached(ctx context.Context, o FireOptions, h provider.Handle, side LocalDetached, priv ed25519.PrivateKey) error {
 	sx, ok := h.(provider.StdinExec)
 	if !ok {
 		return fmt.Errorf("the node's handle %s cannot pass stdin to the node", h.ID())
 	}
-	payload, err := stdinPayload(o.Secrets)
+	payload, err := stdinPayload(o.Secrets, priv)
 	if err != nil {
 		return err
 	}
+	defer clear(payload)
 	if err := o.Runs.SaveDetached(o.Remote, o.Item, side); err != nil {
 		return err
 	}
@@ -899,10 +911,13 @@ func startCommandDetached(ctx context.Context, o FireOptions, h provider.Handle,
 	return nil
 }
 
-func stdinPayload(s Secrets) ([]byte, error) {
-	values := s.Values
+func stdinPayload(s Secrets, priv ed25519.PrivateKey) ([]byte, error) {
+	values := maps.Clone(s.Values)
 	if values == nil {
 		values = map[string]string{}
+	}
+	if priv != nil {
+		values[sealPayloadKey] = hex.EncodeToString(priv)
 	}
 	return json.Marshal(values)
 }
@@ -1063,7 +1078,7 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 		}
 		return end(fmt.Sprintf("the node failed: exit %d\n%s", code, o.Secrets.cleanN(log, 1900)))
 	}
-	out, err := bringBack(ctx, k, h, sidecar.Chains, node, o.Secrets, nil, "")
+	out, err := bringBack(ctx, k, h, sidecar.Chains, node, o.Secrets, sidecar.SealKey, nil, "")
 	if err != nil {
 		return end(err.Error())
 	}

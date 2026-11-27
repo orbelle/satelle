@@ -278,7 +278,11 @@ func registeredRepos() ([]repo, error) {
 		if st, err := os.Stat(path); err != nil || !st.IsDir() {
 			continue
 		}
-		if r, err := findRepo(path); err == nil {
+		r, err := findRepo(path)
+		if errors.Is(err, config.ErrNodeHint) {
+			return nil, err
+		}
+		if err == nil {
 			out = append(out, r)
 		}
 	}

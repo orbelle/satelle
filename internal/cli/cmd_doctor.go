@@ -140,8 +140,12 @@ satelle doctor itself lists every issue.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
+			in, err := loadDoctorInput("")
+			if err != nil {
+				return err
+			}
 			if resolve {
-				rep := resolveDoctor(cmd.Context(), loadDoctorInput(""))
+				rep := resolveDoctor(cmd.Context(), in)
 				if asJSON {
 					b, err := json.MarshalIndent(rep, "", "  ")
 					if err != nil {
@@ -156,7 +160,6 @@ satelle doctor itself lists every issue.`,
 				}
 				return nil
 			}
-			in := loadDoctorInput("")
 			rep := runDoctor(cmd.Context(), in)
 			if asJSON {
 				b, err := json.MarshalIndent(rep, "", "  ")

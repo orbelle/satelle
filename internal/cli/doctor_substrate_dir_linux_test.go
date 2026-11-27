@@ -101,7 +101,7 @@ func TestDoctorNotesEachRelativeSubstrateReadAndChangesNoFile(t *testing.T) {
 func TestSessionStartDoctorSkipsTheRelativeSubstrateCheck(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
-	in := loadDoctorInput(dir)
+	in := mustDoctorInput(t, dir)
 	for _, start := range []bool{false, true} {
 		in.sessionStart = start
 		found := false

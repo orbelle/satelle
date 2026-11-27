@@ -6,6 +6,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -54,9 +56,11 @@ case "$cmd" in
     cp -R "$(map "$1")" "$(map "$2")" ;;
   exec)
     [ "$1" = -d ] && exit 0
+    [ "$1" = -i ] && shift
     [ -f "$FAKE/../hang-exec" ] && exec sleep 30
     name=$1; shift
     [ -d "$FAKE/$name" ] || { echo "Error: no such container: $name" >&2; exit 1; }
+    case " $* " in *" run-local "*" --detach "*) cat >"$FAKE/$name/detach.stdin"; echo "node run started detached as process 0"; exit 0 ;; esac
     [ "$1" = ls ] && [ -f "$FAKE/../fail-ls" ] && { echo "Error: the daemon is gone" >&2; exit 1; }
     n=$#
     for a in "$@"; do
@@ -102,9 +106,19 @@ func fireDetached(t *testing.T, o FireOptions) detached {
 	return d
 }
 
+func (d detached) stdin(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.Open(filepath.Join(filepath.Dir(d.nodeDir), "detach.stdin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return f
+}
+
 func (d detached) conclude(t *testing.T) {
 	t.Helper()
-	if _, err := RunLocal(context.Background(), LocalOptions{Dir: d.nodeDir, Version: "1.0.0"}); err != nil {
+	if _, err := RunLocal(context.Background(), LocalOptions{Dir: d.nodeDir, Version: "1.0.0", Secrets: d.stdin(t)}); err != nil {
 		t.Fatal(err)
 	}
 	d.exit(t, "0", "")
@@ -209,8 +223,8 @@ func TestFireLocalDetachRefusals(t *testing.T) {
 func TestBringBackLocalImportsAConcludedRun(t *testing.T) {
 	d := fireDetached(t, itemFire(t))
 	log := d.dockerLog(t)
-	if !strings.Contains(log, "exec -d "+provider.ContainerName(d.run.GetNodeId())+" sh -c satelle node run-local --dir /node --progress </dev/null >/node/out/node.log 2>&1; echo $? >/node/out/exit") ||
-		strings.Contains(log, "exec -i") {
+	if !strings.Contains(log, "exec -i "+provider.ContainerName(d.run.GetNodeId())+" satelle node run-local --dir /node --detach --progress") ||
+		strings.Contains(log, "exec -d") {
 		t.Fatalf("the node was not started detached:\n%s", log)
 	}
 	if !d.seated(t) {
@@ -862,8 +876,12 @@ func TestBringBackLocalRefusesUntakenRecordedSecrets(t *testing.T) {
 func TestLocalDetachedSidecarCarriesNoValue(t *testing.T) {
 	runs := LocalRuns{Dir: t.TempDir()}
 	const value = "the-secret-value-of-s"
+	pub, priv, err := newRunSeal()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := runs.SaveDetached("probe", "sto_1", LocalDetached{Chains: []string{"sto_1"}, Remove: true, Egress: true,
-		SecretNames: []string{"S"}, Answered: time.Now()}); err != nil {
+		SecretNames: []string{"S"}, Answered: time.Now(), SealKey: hex.EncodeToString(pub)}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(runs.detachedPath("probe", "sto_1"))
@@ -874,10 +892,14 @@ func TestLocalDetachedSidecarCarriesNoValue(t *testing.T) {
 	if err := json.Unmarshal(b, &keys); err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(keys)); !slices.Equal(got, []string{"answered", "chains", "egress", "remove", "secret_names"}) {
+	if got := slices.Sorted(maps.Keys(keys)); !slices.Equal(got, []string{"answered", "chains", "egress", "remove", "seal_key", "secret_names"}) {
 		t.Fatalf("the detached record's keys = %v", got)
 	}
-	if !strings.Contains(string(b), `"S"`) || strings.Contains(string(b), value) {
+	if k, err := hex.DecodeString(keys["seal_key"].(string)); err != nil || len(k) != ed25519.PublicKeySize {
+		t.Fatalf("the detached record's seal key = %v, want an Ed25519 public key", keys["seal_key"])
+	}
+	if !strings.Contains(string(b), `"S"`) || strings.Contains(string(b), value) || strings.Contains(string(b), hex.EncodeToString(priv)) ||
+		strings.Contains(string(b), hex.EncodeToString(priv.Seed())) {
 		t.Fatalf("the detached record:\n%s", b)
 	}
 	back, err := runs.LoadDetached("probe", "sto_1")

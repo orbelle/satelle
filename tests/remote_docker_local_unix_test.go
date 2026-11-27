@@ -75,6 +75,9 @@ case "$cmd" in
       [ -f "$FAKE/fail-run-local" ] && { echo "the node broke" >&2; exit 1; }
       [ -f "$FAKE/crash-run-local" ] && { kill -9 $PPID; exit 1; }
       [ -f "$FAKE/hold-run-local" ] && { : > "$FAKE/held"; exec sleep 120; }
+      if [ -f "$FAKE/hold-detached" ]; then
+        case " $* " in *" --detach "*) cat > "$FAKE/$name/detach.stdin"; echo "node run started detached as process 0"; exit 0 ;; esac
+      fi
     fi
     [ "$prog" = satelle ] && prog=$SATELLE
     n=$#

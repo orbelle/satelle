@@ -15,6 +15,8 @@ const (
 	SessionEnv           = "SATELLE_SESSION"
 	ProjectDirEnv        = "SATELLE_PROJECT_DIR"
 	SubstrateDirEnv      = "SATELLE_SUBSTRATE_DIR"
+	NodeRunEnv           = "SATELLE_NODE_RUN"
+	NodeWithholdEnv      = "SATELLE_NODE_WITHHOLD"
 	WorkerEnv            = "SATELLE_WORKER"
 )
 

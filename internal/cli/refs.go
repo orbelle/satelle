@@ -3,17 +3,28 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
+const ownSubstrateAnnotation = "satelle.own-substrate"
+
+func ownSubstrateOnly(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[ownSubstrateAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 func commandRefs(root, cmd *cobra.Command, dir string) []substrate.Reference {
-	dataDir, ok := config.FindDataDir(dir)
-	if !ok {
+	dataDir, _, err := substrateFor(dir, os.Environ(), !ownSubstrateOnly(cmd))
+	if err != nil {
 		return nil
 	}
 	refs, err := substrate.References(dataDir)

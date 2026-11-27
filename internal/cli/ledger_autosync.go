@@ -24,9 +24,10 @@ const autosyncRepoTimeout = 2 * time.Minute
 
 func ledgerAutosyncCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:    "autosync",
-		Short:  "Run one automatic sync pass over this machine's projects (run by satelle-sync.timer)",
-		Hidden: true,
+		Use:         "autosync",
+		Short:       "Run one automatic sync pass over this machine's projects (run by satelle-sync.timer)",
+		Hidden:      true,
+		Annotations: map[string]string{ownSubstrateAnnotation: "true"},
 		Long: `For each of this machine's projects (~/.satelle/config.toml [projects]) whose
 [ledger] store is not local, push the items this runtime is ahead on, then
 pull the items the store is ahead on, by the rules of satelle ledger push and
@@ -144,7 +145,7 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 		fmt.Fprintf(out, "%s: skipped: no such directory\n", path)
 		return true, nil
 	}
-	r, err := findRepo(path)
+	r, err := findOwnRepo(path)
 	if err != nil {
 		fmt.Fprintf(out, "%s: skipped: %v\n", path, err)
 		return true, nil
@@ -162,7 +163,7 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 		fmt.Fprintf(out, "%s: harness file not refreshed: %s\n", f.Path, f.Err)
 	}
 	pf := &projectFix{path: path, r: r}
-	in := loadDoctorInput(path)
+	in, _ := doctorInputFor(r, nil)
 	fix := func(k *kernel.Kernel, why string, synced func(string) bool) []string {
 		rep, released := unattendedSeats(ctx, in, k, why, synced)
 		pf.seats = rep

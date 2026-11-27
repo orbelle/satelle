@@ -773,7 +773,7 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 
 func itemIDs(t *testing.T) []string {
 	t.Helper()
-	items, err := readItems(loadDoctorInput(""))
+	items, err := readItems(mustDoctorInput(t, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -787,7 +787,7 @@ func itemIDs(t *testing.T) []string {
 
 func newItems(t *testing.T, before []string) []item.Item {
 	t.Helper()
-	items, err := readItems(loadDoctorInput(""))
+	items, err := readItems(mustDoctorInput(t, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
