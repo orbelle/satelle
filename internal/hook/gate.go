@@ -19,6 +19,7 @@ type Gate struct {
 	TempRoots []string
 	SameRepo  func(root, tree string) bool
 	IsFile    func(string) bool
+	Push      func(branch string) Verdict
 }
 
 type Grant struct {
@@ -94,8 +95,23 @@ func (g Gate) Bash(command, cwd string) Verdict {
 			return v
 		}
 	}
+	if g.Push == nil {
+		return allow
+	}
+	for _, d := range t.Pushes {
+		v := Verdict{Reason: fmt.Sprintf(pushUnread, d.Unread)}
+		if d.Unread == "" {
+			v = g.Push(d.Branch)
+		}
+		if !v.Allow {
+			return v
+		}
+	}
 	return allow
 }
+
+const pushUnread = "satelle: git push blocked: %s, so the gate cannot tell which branch it pushes to. " +
+	"Write one literal branch destination: git push origin HEAD:refs/heads/<branch>. See satelle help edit-gate --session <session>."
 
 func (g Gate) judge(abs string, inline bool) Verdict {
 	root := filepath.Clean(g.Root)

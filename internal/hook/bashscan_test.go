@@ -328,7 +328,24 @@ func operatorRecordOracleCorpus() []string {
 	add("{satelle,story,record} sto_1")
 	add("satelle {story,record} sto_1")
 	add("satelle story {record,x}")
+	for _, c := range compoundRecordLines {
+		add(c)
+	}
 	return out
+}
+
+var compoundRecordLines = []string{
+	`time true && echo "$(satelle story rec'ord')"`,
+	`[[ -n x ]] && echo "$(sa'telle' story record)"`,
+}
+
+func TestOperatorRecordCompoundWordsUnchanged(t *testing.T) {
+	noFile := func(string) bool { return false }
+	for _, c := range compoundRecordLines {
+		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: the record rule allows it", c)
+		}
+	}
 }
 
 func TestOperatorRecordRefusesWhatBashWouldRun(t *testing.T) {

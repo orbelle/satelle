@@ -17,6 +17,7 @@ type BashTargets struct {
 	Inline         []string
 	OperatorRecord bool
 	Unreadable     string
+	Pushes         []PushDest
 }
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
@@ -43,6 +44,9 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	}
 	if why != "" && namesGit(command) {
 		t.Unreadable = why
+	}
+	if why == "" {
+		t.Pushes = readPushes(segs)
 	}
 	return t
 }

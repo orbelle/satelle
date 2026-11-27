@@ -71,6 +71,22 @@ Always and never:
 - Another repository's working tree is refused (the fence); a linked worktree of
   this repository is judged by the seat at that worktree.
 - While the configuration is invalid, only `.satelle/` itself may be edited.
+- Pushes. A `git push` whose destination is an item's branch (its id, bare or
+  under `refs/heads/`) is refused unless the session holds a seat on that item
+  in a state whose performer may change the tree. `main`, `release/<exe>` and
+  other branches that are not an item's id are not judged. Only a literal
+  branch destination is read: `git push origin HEAD:refs/heads/<branch>`,
+  `git push origin <branch>` or `git push origin --delete <branch>`. These
+  pushes are refused with that form: no refspec, `HEAD` alone, a `*` pattern, a
+  destination under `refs/` that is not `refs/heads/<name>`, `--all`,
+  `--mirror` or `--tags`, and a git option before `push` other than `-C <dir>`
+  and the globals that take no value. A push is read only on a line the gate
+  reads (see the fail-closed rule below); any other line naming git is refused
+  under that rule.
+- Scope. The push rule catches an agent's mistake, not shell crafted to evade
+  it. It does not judge git run by a program or script, git configuration
+  (aliases, `remote.*.push`), files written and run later, or other indirect
+  execution. Those are bounded at level 0: identity, credentials and sandbox.
 - A seat on an item in an operator state (`performer = { operator = "<type>" }`)
   allows no edits, and the operator's record verb (`satelle <kind> record`) is
   refused for every session. The verb is refused as a command word behind any
