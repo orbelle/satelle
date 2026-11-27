@@ -111,11 +111,6 @@ func diffSubstrate(before, after substrateState) []string {
 	return lines
 }
 
-// sameEntry compares two snapshots of one path. A directory's inode number is
-// not compared: overlayfs gives a merged directory a new inode number when it is
-// evicted from the inode cache, though nothing under it was written. Its mode,
-// device, ctime and link count are still compared, and every other entry is
-// compared whole.
 func sameEntry(b, a substrateEntry) bool {
 	if b.Mode.IsDir() && a.Mode.IsDir() {
 		b.ID.Ino, a.ID.Ino = 0, 0
