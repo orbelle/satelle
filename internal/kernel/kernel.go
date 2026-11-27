@@ -54,11 +54,8 @@ type Kernel struct {
 	Sessions      SessionOwner
 	SessionMeta   func(session string) (harness, model string)
 	Progress      func(item string)
-	// RecordsDir is the parent of record folders; empty means <Root>/runs.
-	RecordsDir string
-	// Guard is copied into every gate run: called before every check,
-	// after-skill, trigger and judge.
-	Guard func() error
+	RecordsDir    string
+	Guard         func() error
 }
 
 func (k *Kernel) SubstrateDir() string { return substrateDir(k.Root) }

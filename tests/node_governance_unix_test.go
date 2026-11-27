@@ -29,8 +29,6 @@ func governedBox(t *testing.T, script, extraDef string, files map[string]string)
 	return b, out
 }
 
-// governProbe adds the gate node-probe, whose check runs script with $out set,
-// to the sandbox's probe workflow, writes files, and returns $out.
 func governProbe(t *testing.T, s *sandbox, script string, files map[string]string) (out string) {
 	t.Helper()
 	out = realDir(t, t.TempDir())
@@ -105,7 +103,6 @@ func TestNodeCheckGovernedByTheNodeDetached(t *testing.T) {
 func TestTrackedNodeShapeDoesNotShadow(t *testing.T) {
 	t.Parallel()
 	stamp := `{"kind":"node","substrate":"/node/work/.satelle/fake/.satelle","tree":"/node/work","digest":"x","process":{"pid":1,"start":"1"}}`
-	// With a checkout, so the tracked node shape is really in /node/work.
 	g := governedNode(t, true, `cd .satelle/fake || exit 1
 satelle workflow show probe > "$out/show" 2>&1
 satelle runtime path > "$out/path" 2>&1`, map[string]string{

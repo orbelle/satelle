@@ -50,7 +50,6 @@ func TestFileIdentity(t *testing.T) {
 	if rewritten.Ino != first.Ino || rewritten.Ctime <= first.Ctime {
 		t.Fatalf("FileIdentity after a rewrite in place = %+v, before %+v", rewritten, first)
 	}
-	// The new file exists before the old is unlinked, so it cannot reuse its inode.
 	next := filepath.Join(dir, "next")
 	if err := os.WriteFile(next, []byte("two"), 0o644); err != nil {
 		t.Fatal(err)

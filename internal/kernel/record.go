@@ -291,9 +291,6 @@ func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]by
 	return dir, nil
 }
 
-// recordsParent is the directory record folders are made in. With RecordsDir
-// set, it and every ancestor from Dir down to it must be a real directory, so a
-// symlink cannot redirect a record write or a sweep.
 func (k *Kernel) recordsParent() (string, error) {
 	if k.RecordsDir == "" {
 		parent := filepath.Join(k.Root, runsDir)

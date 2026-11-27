@@ -141,9 +141,7 @@ type Run struct {
 	Redact       func(string) string
 	Started      func(seq int, gate string) error
 	Finished     func(seq int, res Result)
-	// Guard is called before every check, after-skill, trigger and judge;
-	// an error stops that work from running and makes the gate's result Error.
-	Guard func() error
+	Guard        func() error
 
 	skipWarning string
 	tier        string

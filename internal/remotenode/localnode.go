@@ -175,9 +175,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	guard := &substrateGuard{root: root, sealed: sealed}
-	// The substrate is complete and sealed, so the stamped digest is final:
-	// every satelle that setup, a check or a performer runs from the work tree
-	// opens this substrate and this node's runtime from here on.
 	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
 	if err != nil {
 		return LocalOutcome{}, err

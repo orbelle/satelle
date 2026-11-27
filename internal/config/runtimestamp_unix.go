@@ -7,10 +7,6 @@ import (
 	"syscall"
 )
 
-// FileIdentity is a file's identity as the OS gives it, from an Lstat or Stat
-// result: device, inode, change time in nanoseconds and link count. Writing,
-// replacing, renaming, linking or chmodding an entry changes it, and no user
-// can set its change time back.
 func FileIdentity(info fs.FileInfo) (FileID, bool) {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {

@@ -207,7 +207,6 @@ func plainTree(dir string) error {
 	})
 }
 
-// FileID is what FileIdentity reports of a file.
 type FileID struct {
 	Dev, Ino uint64
 	Ctime    int64

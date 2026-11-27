@@ -24,7 +24,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// checkoutLocally does on a test node what checkoutHead does on a real one.
 func checkoutLocally(t *testing.T, nodeDir, commit string) {
 	t.Helper()
 	gittest.Git(t, nodeDir, "init", "-q", "work")
@@ -103,8 +102,6 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// stampsTheSubstrate proves the node runtime's stamp names the sealed
-// substrate and the work tree apart, with the substrate's digest.
 func stampsTheSubstrate(t *testing.T, nodeDir string) {
 	t.Helper()
 	dir, err := config.CanonicalPath(nodeDir)
@@ -222,9 +219,6 @@ type rejected struct {
 	added int
 }
 
-// runRejected runs a staged node with a seal key and the given secrets, and
-// proves the run was rejected with a sealed outcome whose heads are the emptied
-// runtime ledger's, so the starter imports nothing of it.
 func runRejected(t *testing.T, f taskFixture, nodeDir string, secrets map[string]string) rejected {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -309,8 +303,6 @@ func withSetup(t *testing.T, f taskFixture, onCreate, postStart []string) taskFi
 
 const runScript = "skills/scripts/run.sh"
 
-// substitute swaps run.sh for a script that touches marker, runs it when run
-// is set, and restores the original bytes and mode.
 func substitute(marker string, run bool) string {
 	s := `S="$SATELLE_SUBSTRATE_DIR/` + runScript + `" && cp "$S" ../orig && rm -f "$S" && printf 'touch ` + marker + `\n' > "$S"`
 	if run {
@@ -611,7 +603,6 @@ groups = [{ gates = ["two"] }]
 			} else {
 				nodeDir = f.stage(t, "nod_7a")
 			}
-			// What the node was given: the staged bundle unpacked with the overlay.
 			given := t.TempDir()
 			bundle, err := os.ReadFile(filepath.Join(nodeDir, "in", localDefinition))
 			if err != nil {

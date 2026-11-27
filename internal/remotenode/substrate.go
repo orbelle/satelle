@@ -20,12 +20,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/upgrade"
 )
 
-// nodeSubstrateDir is the directory under a node, apart from its work tree,
-// that its substrate is unpacked into, read-only.
 const nodeSubstrateDir = "substrate"
 
-// substrateFileMode is the mode every regular file of a node's substrate is
-// sealed to, as the kernel's record folders are.
 const substrateFileMode = 0o444
 
 type substrateEntry struct {
@@ -36,8 +32,6 @@ type substrateEntry struct {
 	ID     config.FileID
 }
 
-// substrateState maps each path under the substrate, the root itself as ".",
-// to what was recorded of it.
 type substrateState map[string]substrateEntry
 
 func snapshotSubstrate(root string, hash bool) (substrateState, error) {
@@ -87,8 +81,6 @@ func snapshotSubstrate(root string, hash bool) (substrateState, error) {
 	return st, nil
 }
 
-// diffSubstrate names, sorted, each path added, removed or changed between two
-// states. A hash compares only when both sides carry one.
 func diffSubstrate(before, after substrateState) []string {
 	var lines []string
 	for p, b := range before {
@@ -125,8 +117,6 @@ func (e *substrateChangedError) Error() string {
 	return "the node's substrate was changed: " + strings.Join(e.Lines, ", ")
 }
 
-// substrateGuard compares the substrate with its sealed state. Once it fails it
-// keeps failing, so nothing later in the run proceeds on a changed substrate.
 type substrateGuard struct {
 	root   string
 	sealed substrateState
@@ -158,8 +148,6 @@ func (g *substrateGuard) failures() []string {
 	return append([]string(nil), g.failed...)
 }
 
-// guardDispatcher checks the substrate before every dispatch and dispatches
-// nothing once it has changed.
 type guardDispatcher struct {
 	inner agent.Dispatcher
 	guard *substrateGuard
@@ -172,9 +160,6 @@ func (d guardDispatcher) Dispatch(ctx context.Context, role agent.Role, req agen
 	return d.inner.Dispatch(ctx, role, req)
 }
 
-// hashedDiff compares the substrate's content with its sealed state. It runs the
-// stat-only guard first, so a file made unreadable is named by its path, not
-// reported as a read error.
 func hashedDiff(g *substrateGuard) ([]string, error) {
 	if err := g.check(); err != nil {
 		return g.failures(), nil
@@ -186,8 +171,6 @@ func hashedDiff(g *substrateGuard) ([]string, error) {
 	return diffSubstrate(g.sealed, now), nil
 }
 
-// unpackSubstrate makes every write the substrate gets: the firing tree's
-// bundle, the definition's overlay and, when it has none, an initial config.
 func unpackSubstrate(in, root string, overlay []fileEntry) error {
 	sub, err := os.ReadFile(filepath.Join(in, localSubstrate))
 	if err != nil {
@@ -211,8 +194,6 @@ func unpackSubstrate(in, root string, overlay []fileEntry) error {
 	return nil
 }
 
-// sealSubstrate makes every regular file under root read-only. Directories
-// keep their mode, so whoever ends the node can still remove it.
 func sealSubstrate(root string) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -225,8 +206,6 @@ func sealSubstrate(root string) error {
 	})
 }
 
-// prepareRecords makes <tree>/.satelle/runs for performer record folders,
-// refusing a symlink or anything the commit already put there.
 func prepareRecords(tree string) (string, error) {
 	data := filepath.Join(tree, ".satelle")
 	records := filepath.Join(data, "runs")
@@ -263,9 +242,6 @@ func changedBy(phase string) string {
 	return fmt.Sprintf("the node's substrate was changed by %s; nothing of the run is brought back", phase)
 }
 
-// rejectRun concludes a run as rejected and empties its runtime ledger, so the
-// starter imports nothing of it. The outcome is sealed with the emptied
-// ledger's heads, as an accepted one is with its own.
 func rejectRun(dir string, values []string, priv ed25519.PrivateKey, head string, lines []string, prefix string, steps *stepLog, status string) (LocalOutcome, error) {
 	runtime := filepath.Join(dir, "runtime")
 	for _, name := range []string{"ledger", "blobs"} {

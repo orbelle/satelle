@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// governed is a sandbox whose probe workflow carries node-probe, with a remote
-// that fires it on a node: a command node without a checkout, or a docker-local
-// node (the kind that checks out) with one.
 type governed struct {
 	s       *sandbox
 	out     string
@@ -88,9 +85,6 @@ satelle workflow show probe > "$out/show" 2>&1
 satelle runtime path > "$out/path" 2>&1
 satelle ledger list "$SATELLE_ITEM" > "$out/ledger" 2>&1`, nil)
 			node, out := g.fire(t), g.out
-			// Without a checkout /node/work/.satelle holds only runs/, so walking up
-			// would find no workflow: show naming node-probe proves the node's stamp
-			// names /node/substrate.
 			if show := readOut(t, out, "show"); !strings.Contains(show, "node-probe") {
 				t.Fatalf("satelle workflow show probe inside the node:\n%s", show)
 			}
@@ -111,8 +105,6 @@ func TestNodeCheckoutGovernedByTheFiringSubstrate(t *testing.T) {
 git status --porcelain -- .satelle > "$out/porcelain" 2>&1
 echo done > "$out/node-probe"`, nil)
 	b, out := g.s, g.out
-	// Uncommitted: only the firing tree has this gate, so only the firing
-	// substrate can have governed it.
 	wf := readTree(t, b, ".satelle/workflows/probe.toml")
 	firing := strings.Replace(wf, `"node-probe"]`, `"node-probe", "firing-only"]`, 1)
 	if firing == wf {
