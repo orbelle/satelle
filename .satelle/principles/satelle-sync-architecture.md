@@ -17,7 +17,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 | Data | Model | Source of truth | Transport |
 |---|---|---|---|
 | Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | For satelle.dev, the Chain service: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story). For a `[ledger] store` command, one object per event at `chains/<item>/<seq:012d>.json` written by conditional create and read back verified (`satelle ledger push --session <session>`, `pull`), plus its blobs at `blobs/<sha256>`. Both keep the same rule: a different hash at a sequence is refused, never merged |
-| Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the repo | git | git only; ledger replication never carries it |
+| Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the control repository (in N=1, the repo itself; [[satelle-control-plane-architecture]]) | git | git only; ledger replication never carries it |
 
 - A story row, local or hosted, is a **projection** of its chain, rebuilt from
   the chain wherever the chain is held. The server derives its rows from the
@@ -37,7 +37,10 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 
 - A **location** is one enrolled machine × checkout. Enrollment uses a
   single-use code, and the device generates its own key; the server keeps only
-  the public key.
+  the public key. The checkout is a worktree of a repository its control
+  repository registers, the control repository itself (`self`) included; in
+  N=1 that is the repo's own worktree ([[satelle-control-plane-architecture]]
+  §2, §3).
 - Offline appends wait locally and are pushed by the next automatic pass once
   the store is reachable; an append that forks a chain another location
   extended is refused and reported, never re-based (see the next bullet;
@@ -56,7 +59,13 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   story release` ends it. The edit gate enforces seats: a session's edit is
   allowed only while it holds a seat at that location on an item whose current
   state's performer may change the tree; a seat on a state that allows
-  attachments only (`edits = "attachments"`) refuses every tree edit there. A seat is not a lock: several sessions may hold seats
+  attachments only (`edits = "attachments"`) refuses every tree edit there.
+  The location must be a worktree of the item's target repository (its
+  set-once `repo`): the gate allows a seated target's tree and refuses every
+  other repository's, failing closed. In N=1 the target is the session's own
+  repository, so the rule is the cross-repo fence; for a control repository it
+  is the allowlist of [[satelle-control-plane-architecture]] §6, which
+  sto_5c68f06c brings. A seat is not a lock: several sessions may hold seats
   on one item, and there is no lease. Changes to one area of code run one after
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
@@ -89,10 +98,22 @@ it, or after its history is requested (opened); otherwise the row alone (§1).
 API; it serves no story pages for the local UI to link to.
 
 **Configuration is the repo's.** satelle reads its configuration from the
-repo's `.satelle/` alone (`satelle.toml`, `agents.toml`, `workflows/`,
-`skills/`, `queues/`), in every scope. No hosted or user-level copy layers over
-it, and nothing satelle replicates writes into the tree; a change to the
-configuration reaches other instances, and a team, through the repo's git.
+control repository's `.satelle/` alone (`satelle.toml`, `agents.toml`,
+`workflows/`, `skills/`, `queues/`), in every scope; in N=1 that is the repo's
+own, and a target repository holds none
+([[satelle-control-plane-architecture]] §2). No hosted or user-level copy
+layers over it, and nothing satelle replicates writes into the tree; a change
+to the configuration reaches other instances, and a team, through the control
+repository's git.
+
+**One project, its repositories.** A control repository binds one project.
+The project binds one or more GitHub repositories (each an installation and a
+repository); in N=1 it binds the one. A publish to GitHub names the item, and
+satelle-server takes the repository from the item's set-once `repo`, checks it
+is one the project binds, and acts on that repository alone; an item naming
+none in a project with one binding resolves to that binding. A caller never
+names the repository. This is the rule sto_d9427fec and its satelle-server
+counterpart are held to (§6 rule 4).
 `~/.satelle/config.toml` holds this machine's settings (`satelle settings --session <session>`),
 not process.
 

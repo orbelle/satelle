@@ -105,7 +105,9 @@ are reviewed*).
 - **The binary is read-only on the user's repo, its refs and its remotes.**
   Git it runs in a throwaway scratch repo it creates for one run (a remote
   node's workspace; the docker check gate's node) is not a git action on the
-  repo: "Does not count ... and the rule holds" (operator, 2026-11-08).
+  repo: "Does not count ... and the rule holds" (operator, 2026-11-08). Read
+  against *Git stays read-only in every registered repository* under
+  2026-11-24.
 
 ## 2026-11-13
 
@@ -259,7 +261,8 @@ are reviewed*).
   locked down for the supported agent CLIs: an agent edits it only through a
   seat on a story. That may become an option later; the default is locked
   down. The stop check follows the repo's own workflow configuration
-  (operator, 2026-11-21).
+  (operator, 2026-11-21). Read against *The edit gate allows the seated
+  target only* under 2026-11-24.
 - **Unknown keys are not a blocker.** satelle has a default set of required
   keys and values; "additional keys are not a blocker ... It is however a
   doctor check" (operator, 2026-11-21; sto_9fdace64).
@@ -318,6 +321,28 @@ are reviewed*).
   in the repo. THat is the local approach, later they can come from a supported
   secrets service like infisical, or satelle.dev." (operator, 2026-11-24;
   sto_b01dda27, [[satelle-agent-operates-remotes]]).
+- **One control repository is one trust domain.** "one control repository
+  equals one trust domain: same-trust repositories (satelle and
+  satelle-server) share one control repository and satelle.dev project, while
+  higher-privilege repositories (satelle-server-infra) stay in their own N=1
+  trust domain linked at the workspace level." "In-repo mode collapses to the
+  N=1 case (self implicit when .satelle/repos.toml is absent) so there is only
+  one code path and zero forced migration for existing single-repo users."
+  (operator, 2026-11-24; epic sto_5afbd604,
+  [[satelle-control-plane-architecture]]).
+- **The edit gate allows the seated target only.** "seats and edit-gate invert
+  from cross-repo refusal to seated-target-repo allowlist", and "Item.repo is
+  set-once and read by satelle-server for 1:N GitHub bindings." A session
+  edits only the worktree of the target repository of the item it is seated
+  on; in N=1 that is its own repository, which is the cross-repo fence. The
+  principles are amended before any slice is built (operator, 2026-11-24;
+  sto_14fdf169, [[satelle-control-plane-architecture]]).
+- **Git stays read-only in every registered repository.** The binary reads
+  each repository a control repository registers and writes none of them,
+  their refs or their remotes, and "satelle stays read-only on git and holds
+  no credentials"; a fetch is a step's action or a registry entry's configured
+  fetch command (operator, 2026-11-24; sto_24387c93,
+  [[satelle-control-plane-architecture]] §2).
 
 ## 2026-11-25
 
