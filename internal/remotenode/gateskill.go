@@ -17,10 +17,6 @@ type stagedSkillFile struct {
 	info fs.FileInfo
 }
 
-// stageSkill copies a check skill's directory from the firing substrate into
-// dst, the gate input a remote node runs the check from. It refuses a skill
-// holding a symlink or special file before it copies anything, and leaves out
-// every local-only path.
 func stageSkill(src, dst string) error {
 	fi, err := os.Lstat(src)
 	if err != nil {
