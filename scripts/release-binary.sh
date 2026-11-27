@@ -68,19 +68,9 @@ decide() {
   local yml="$dir/.github/workflows/release.yml"
   [ -f "$yml" ] || doubt "release.yml is missing" "$wfline"
   local entries
-  entries=$(awk '
-    /^[[:space:]]*include:[[:space:]]*$/ { on = 1; next }
-    on && /^[[:space:]]*(#.*)?$/ { next }
-    on && /^[[:space:]]*-[[:space:]]*\{.*\}[[:space:]]*$/ { print; next }
-    on { on = 0 }' "$yml")
-  [ -n "$entries" ] || doubt "release.yml has no matrix include entry this decision reads (- { pkg: ..., goos: ..., goarch: ... })" "$wfline"
-  local field e p o a pkgs=() targets=()
-  field() { printf '%s\n' "$1" | sed -n "s/.*[{,][[:space:]]*$2:[[:space:]]*\\([^,}[:space:]]*\\).*/\\1/p"; }
-  while IFS= read -r e; do
-    p=$(field "$e" pkg); o=$(field "$e" goos); a=$(field "$e" goarch)
-    if [ -z "$p" ] || [ -z "$o" ] || [ -z "$a" ]; then
-      doubt "a release.yml include entry lacks pkg, goos or goarch: $(printf '%s' "$e" | sed 's/^[[:space:]]*//')" "$wfline"
-    fi
+  entries=$(bash "$dir/scripts/release-targets.sh" list "$yml" 2>&1) || doubt "$entries" "$wfline"
+  local p o a pkgs=() targets=()
+  while read -r p o a; do
     case " ${pkgs[*]:-} " in *" $p "*) ;; *) pkgs+=("$p") ;; esac
     case " ${targets[*]:-} " in *" $o/$a "*) ;; *) targets+=("$o/$a") ;; esac
   done <<<"$entries"

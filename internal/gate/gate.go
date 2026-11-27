@@ -67,6 +67,7 @@ type Result struct {
 	PromptBytes  int           `json:"prompt_bytes,omitempty"`
 	Tier         string        `json:"tier,omitempty"`
 	FallbackFrom *FallbackFrom `json:"fallback_from,omitempty"`
+	Staged       *Staged       `json:"staged,omitempty"`
 	At           time.Time     `json:"-"`
 
 	judges []judgeAnswer
@@ -152,6 +153,8 @@ type Run struct {
 	Redact       func(string) string
 	Started      func(seq int, gate string) error
 	Finished     func(seq int, res Result)
+	Guard        func() error
+	Staged       *Staged
 
 	skipWarning string
 	tier        string
@@ -164,6 +167,13 @@ func (r Run) started(seq int, name string) error {
 		return nil
 	}
 	return r.Started(seq, name)
+}
+
+func (r Run) guard() error {
+	if r.Guard == nil {
+		return nil
+	}
+	return r.Guard()
 }
 
 func (r Run) finished(seq int, res Result) {
@@ -287,6 +297,10 @@ func (r Run) one(ctx context.Context, name string) Result {
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
 		res.Changed = r.Changed
 	}
+	if res.Staged == nil && r.Staged != nil {
+		s := *r.Staged
+		res.Staged = &s
+	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	res.Notes, res.Answer, res.Warning = r.clean(res.Notes), r.clean(res.Answer), r.clean(res.Warning)
 	if res.FallbackFrom != nil {
@@ -305,6 +319,11 @@ func (r Run) after(ctx context.Context, name string, g workflow.Gate, res Result
 	judged := res.verdict || res.Result == Carried
 	refusedBy := ""
 	for _, skillName := range g.After {
+		if err := r.guard(); err != nil {
+			res.Result = Error
+			res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: not run: %v", skillName, err))
+			return res
+		}
 		if s, ok := r.Skills[skillName]; ok && s.AfterAlways() {
 			r.afterAlways(ctx, name, g, skillName, s, &res)
 			continue
@@ -459,6 +478,9 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		if !ok {
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger skill %q is missing", g.Trigger)}
 		}
+		if err := r.guard(); err != nil {
+			return Result{Result: Error, Notes: fmt.Sprintf("trigger %s: not run: %v", g.Trigger, err)}
+		}
 		code, out, err := RunCheckCode(ctx, trig.Script, r.Dir, r.envFor(trig), limit)
 		switch {
 		case err != nil:
@@ -506,6 +528,9 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 	}
 	if !ok {
 		return Result{Result: Reject, Notes: fmt.Sprintf("skill %q is missing", g.Skill), Coverage: coverage}
+	}
+	if err := r.guard(); err != nil {
+		return Result{Result: Error, Notes: err.Error(), Coverage: coverage}
 	}
 	var res Result
 	switch {

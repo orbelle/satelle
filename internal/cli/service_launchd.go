@@ -15,6 +15,7 @@ import (
 const (
 	daemonLabel = "dev.satelle.satelled"
 	syncLabel   = "dev.satelle.sync"
+	followLabel = "dev.satelle.follow"
 )
 
 func launchAgentPath(label string) string {
@@ -33,6 +34,11 @@ func renderDaemonPlist(daemon, addr string, port int) string {
 func renderSyncPlist(cli string) string {
 	return renderPlist(syncLabel, []string{cli, "ledger", "autosync"},
 		fmt.Sprintf("\t<key>StartInterval</key>\n\t<integer>%d</integer>\n\t<key>RunAtLoad</key>\n\t<true/>\n", int(mirror.SyncPeriod/time.Second)))
+}
+
+func renderFollowPlist(cli string) string {
+	return renderPlist(followLabel, []string{cli, "ledger", "follow"},
+		"\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>KeepAlive</key>\n\t<true/>\n")
 }
 
 func renderPlist(label string, args []string, tail string) string {

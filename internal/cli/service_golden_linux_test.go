@@ -15,17 +15,19 @@ import (
 )
 
 const (
-	goldenSVC     = "[Unit]\nDescription=satelled (satelle local web UI)\nAfter=network.target\n\n[Service]\nExecStart=%BIN% --addr %ADDR% --port %PORT%\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
-	goldenSYNC    = "[Unit]\nDescription=satelle ledger sync pass (push then pull each project on this machine)\nAfter=network-online.target\n\n[Service]\nType=oneshot\nExecStart=%CLI% ledger autosync\nTimeoutStartSec=300\n"
-	goldenTIMER   = "[Unit]\nDescription=satelle ledger sync every 30 s\n\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=30s\nAccuracySec=1s\nUnit=satelle-sync.service\n\n[Install]\nWantedBy=timers.target\n"
-	goldenENABLED = "satelle.service enabled and (re)started\n"
-	goldenTIMERON = "satelle-sync.timer enabled and started: each project on this machine syncs every 30s\n"
+	goldenSVC      = "[Unit]\nDescription=satelled (satelle local web UI)\nAfter=network.target\n\n[Service]\nExecStart=%BIN% --addr %ADDR% --port %PORT%\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+	goldenSYNC     = "[Unit]\nDescription=satelle ledger sync pass (push then pull each project on this machine)\nAfter=network-online.target\n\n[Service]\nType=oneshot\nExecStart=%CLI% ledger autosync\nTimeoutStartSec=300\n"
+	goldenTIMER    = "[Unit]\nDescription=satelle ledger sync every 30 s\n\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=30s\nAccuracySec=1s\nUnit=satelle-sync.service\n\n[Install]\nWantedBy=timers.target\n"
+	goldenENABLED  = "satelle.service enabled and (re)started\n"
+	goldenTIMERON  = "satelle-sync.timer enabled and started: each project on this machine syncs every 30s\n"
+	goldenFOLLOW   = "[Unit]\nDescription=satelle ledger follow (push this machine's writes and pull other locations' changes within seconds)\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=%CLI% ledger follow\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+	goldenFOLLOWON = "satelle-follow.service enabled and (re)started: writes push and other locations' changes pull within seconds\n"
 )
 
 var (
-	goldenApplyD  = []string{"--user show-environment", "--user daemon-reload", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer"}
-	goldenApplyND = []string{"--user show-environment", "--user daemon-reload", "--user enable --now satelle-sync.timer"}
-	goldenStatusC = []string{"--user is-active satelle.service", "--user is-active satelle-sync.timer"}
+	goldenApplyD  = []string{"--user show-environment", "--user daemon-reload", "--user enable satelle.service", "--user restart satelle.service", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenApplyND = []string{"--user show-environment", "--user daemon-reload", "--user enable --now satelle-sync.timer", "--user enable satelle-follow.service", "--user restart satelle-follow.service"}
+	goldenStatusC = []string{"--user is-active satelle.service", "--user is-active satelle-sync.timer", "--user is-active satelle-follow.service"}
 )
 
 func goldenSvc(bin, addr, port string) string {
@@ -34,12 +36,13 @@ func goldenSvc(bin, addr, port string) string {
 
 type goldenEnv struct {
 	home, cfg, sat, cli, log string
-	u, ss, tm                string
+	u, ss, tm, fl            string
 }
 
 func (g *goldenEnv) statusO() string {
 	return "unit      " + g.u + " (unknown)\n" +
 		"sync      satelle-sync.timer (unknown)\n" +
+		"follow    satelle-follow.service (unknown)\n" +
 		"config    " + g.cfg + " (port 1, addr 0.0.0.0)\n" +
 		"satelled  not answering at http://127.0.0.1:1/healthz\n"
 }
@@ -110,13 +113,14 @@ func newGoldenEnv(t *testing.T) *goldenEnv {
 	g.u = filepath.Join(unitDir, "satelle.service")
 	g.ss = filepath.Join(unitDir, "satelle-sync.service")
 	g.tm = filepath.Join(unitDir, "satelle-sync.timer")
+	g.fl = filepath.Join(unitDir, "satelle-follow.service")
 	return g
 }
 
 func (g *goldenEnv) install(t *testing.T) {
 	t.Helper()
 	out, calls := g.run(t, "service", "install", "--satelled", "/x/satelled")
-	want := "wrote " + g.u + "\nwrote " + g.ss + "\nwrote " + g.tm + "\n" + goldenENABLED + goldenTIMERON
+	want := "wrote " + g.u + "\nwrote " + g.ss + "\nwrote " + g.tm + "\nwrote " + g.fl + "\n" + goldenENABLED + goldenTIMERON + goldenFOLLOWON
 	if out != want {
 		t.Fatalf("install output:\n%q\nwant\n%q", out, want)
 	}
@@ -185,6 +189,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 		goldenEq(t, "renderUnit", renderUnit("/x/satelled", "127.0.0.1", 8787), goldenSvc("/x/satelled", "127.0.0.1", "8787"))
 		goldenEq(t, "renderSyncService", renderSyncService("/x/satelle"), strings.ReplaceAll(goldenSYNC, "%CLI%", "/x/satelle"))
 		goldenEq(t, "renderSyncTimer", renderSyncTimer(), goldenTIMER)
+		goldenEq(t, "renderFollowService", renderFollowService("/x/satelle"), strings.ReplaceAll(goldenFOLLOW, "%CLI%", "/x/satelle"))
 	})
 	t.Run("install", func(t *testing.T) {
 		g := newGoldenEnv(t)
@@ -192,6 +197,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 		goldenFile(t, g.u, goldenSvc("/x/satelled", "0.0.0.0", "1"))
 		goldenFile(t, g.ss, strings.ReplaceAll(goldenSYNC, "%CLI%", g.cli))
 		goldenFile(t, g.tm, goldenTIMER)
+		goldenFile(t, g.fl, strings.ReplaceAll(goldenFOLLOW, "%CLI%", g.cli))
 	})
 	t.Run("status", func(t *testing.T) {
 		g := newGoldenEnv(t)
@@ -206,7 +212,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 		g.putDaemon(t)
 		writeFile(t, g.u, goldenSvc(g.sat, "0.0.0.0", "1"))
 		out, calls := g.run(t, "service", "refresh")
-		goldenEq(t, "refresh", out, "kept "+g.u+"\nkept "+g.ss+"\nkept "+g.tm+"\n"+goldenENABLED+goldenTIMERON+g.statusO())
+		goldenEq(t, "refresh", out, "kept "+g.u+"\nkept "+g.ss+"\nkept "+g.tm+"\nkept "+g.fl+"\n"+goldenENABLED+goldenTIMERON+goldenFOLLOWON+g.statusO())
 		goldenCalls(t, "refresh", calls, goldenApplyD, goldenStatusC)
 	})
 	t.Run("refresh, missing and repointed", func(t *testing.T) {
@@ -218,13 +224,13 @@ func TestLinuxServiceGolden(t *testing.T) {
 		}
 		writeFile(t, g.u, goldenSvc("/old/satelled", "0.0.0.0", "1"))
 		out, calls := g.run(t, "service", "refresh")
-		goldenEq(t, "refresh", out, "wrote "+g.u+" (was /old/satelled)\nkept "+g.ss+"\nwrote "+g.tm+" (missing)\n"+goldenENABLED+goldenTIMERON+g.statusO())
+		goldenEq(t, "refresh", out, "wrote "+g.u+" (was /old/satelled)\nkept "+g.ss+"\nwrote "+g.tm+" (missing)\nkept "+g.fl+"\n"+goldenENABLED+goldenTIMERON+goldenFOLLOWON+g.statusO())
 		goldenCalls(t, "refresh", calls, goldenApplyD, goldenStatusC)
 	})
 	t.Run("refresh, no satelled and no unit", func(t *testing.T) {
 		g := newGoldenEnv(t)
 		out, calls := g.run(t, "service", "refresh")
-		goldenEq(t, "refresh", out, "satelled: no binary beside satelle or on PATH; its unit was not installed\nwrote "+g.ss+" (missing)\nwrote "+g.tm+" (missing)\n"+goldenTIMERON+g.statusO())
+		goldenEq(t, "refresh", out, "satelled: no binary beside satelle or on PATH; its unit was not installed\nwrote "+g.ss+" (missing)\nwrote "+g.tm+" (missing)\nwrote "+g.fl+" (missing)\n"+goldenTIMERON+goldenFOLLOWON+g.statusO())
 		goldenCalls(t, "refresh", calls, goldenApplyND, goldenStatusC)
 	})
 	t.Run("refresh, existing unreadable unit", func(t *testing.T) {
@@ -233,7 +239,7 @@ func TestLinuxServiceGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, calls := g.run(t, "service", "refresh")
-		goldenEq(t, "refresh", out, "wrote "+g.ss+" (missing)\nwrote "+g.tm+" (missing)\n"+goldenENABLED+goldenTIMERON+g.statusO())
+		goldenEq(t, "refresh", out, "wrote "+g.ss+" (missing)\nwrote "+g.tm+" (missing)\nwrote "+g.fl+" (missing)\n"+goldenENABLED+goldenTIMERON+goldenFOLLOWON+g.statusO())
 		goldenCalls(t, "refresh", calls, goldenApplyD, goldenStatusC)
 		issues, notes := checkVersions(t.Context(), nil)
 		if len(issues) != 0 || !slices.Equal(notes, []string{"versions: no satelled unit or binary is installed on this machine (satelle service install)"}) {
@@ -250,8 +256,8 @@ func TestLinuxServiceGolden(t *testing.T) {
 		g := newGoldenEnv(t)
 		g.install(t)
 		out, calls := g.run(t, "service", "uninstall")
-		goldenEq(t, "uninstall", out, "removed "+g.tm+"\nremoved "+g.ss+"\nremoved "+g.u+"\n")
-		goldenCalls(t, "uninstall", calls, []string{"--user disable --now satelle-sync.timer", "--user disable --now satelle.service", "--user daemon-reload"})
+		goldenEq(t, "uninstall", out, "removed "+g.fl+"\nremoved "+g.tm+"\nremoved "+g.ss+"\nremoved "+g.u+"\n")
+		goldenCalls(t, "uninstall", calls, []string{"--user disable --now satelle-follow.service", "--user disable --now satelle-sync.timer", "--user disable --now satelle.service", "--user daemon-reload"})
 	})
 	t.Run("doctor, nothing installed", func(t *testing.T) {
 		g := newGoldenEnv(t)

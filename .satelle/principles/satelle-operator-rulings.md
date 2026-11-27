@@ -385,3 +385,27 @@ are reviewed*).
   or more industry aligned name is satelle-factory" (operator, 2026-11-27): it
   replaces satelle-substrate in the ruling above; the stories of epics
   sto_5afbd604 and sto_540e3431 name it so.
+- **The edit gate is a level-1 guard against honest mistakes.** It reads git as
+  the command word of a segment, after an optional literal cd, in a line of
+  plain literal words and the operators &&, ||, ; and |; any other token makes
+  the line unread, and an unread line that would change a tree or push is
+  refused. Git run by another program, git options or configuration that run
+  programs, files a git command writes and a later command runs, and glob
+  spellings of git are out of its scope: deliberate evasion is answered at
+  level 0 ([[satelle-control-plane-architecture]]), and the security judges
+  judge sto_1efcc7eb and sto_da6dddb9 against this scope (operator,
+  2026-11-27).
+
+## 2026-11-28
+
+- **A done substrate story lands on a moved main when main never touched its
+  files.** When every file the story changes is unchanged on main since its
+  merge base, the lander merges origin/main into the story's branch, re-runs
+  satelle validate on the merged tree, and pushes the merge to main as a
+  fast-forward. When main changed any of the story's files, the landing stops
+  and goes to the operator as before. The rule is interim: it bridges until
+  the substrate lives in satelle-factory, apart from the product repositories,
+  and retires with that move. `.satelle/skills/substrate.md` step 6 carries
+  the procedure (operator, 2026-11-28, sto_28f13c51; after sto_b592fad9,
+  sto_fe08d97e and sto_acd247f2 each stopped at landing because main had
+  moved).

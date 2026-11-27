@@ -71,6 +71,22 @@ Always and never:
 - Another repository's working tree is refused (the fence); a linked worktree of
   this repository is judged by the seat at that worktree.
 - While the configuration is invalid, only `.satelle/` itself may be edited.
+- Pushes. A `git push` whose destination is an item's branch (its id, bare or
+  under `refs/heads/`) is refused unless the session holds a seat on that item
+  in a state whose performer may change the tree. `main`, `release/<exe>` and
+  other branches that are not an item's id are not judged. Only a literal
+  branch destination is read: `git push origin HEAD:refs/heads/<branch>`,
+  `git push origin <branch>` or `git push origin --delete <branch>`. These
+  pushes are refused with that form: no refspec, `HEAD` alone, a `*` pattern, a
+  destination under `refs/` that is not `refs/heads/<name>`, `--all`,
+  `--mirror` or `--tags`, and a git option before `push` other than `-C <dir>`
+  and the globals that take no value. A push is read only on a line the gate
+  reads (see the fail-closed rule below); any other line naming git is refused
+  under that rule.
+- Scope. The push rule catches an agent's mistake, not shell crafted to evade
+  it. It does not judge git run by a program or script, git configuration
+  (aliases, `remote.*.push`), files written and run later, or other indirect
+  execution. Those are bounded at level 0: identity, credentials and sandbox.
 - A seat on an item in an operator state (`performer = { operator = "<type>" }`)
   allows no edits, and the operator's record verb (`satelle <kind> record`) is
   refused for every session. The verb is refused as a command word behind any
@@ -86,6 +102,23 @@ Always and never:
 A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to
 the working directory of any interpreter running inline program text.
+
+A git command that is not read-only, run after a `cd` to one literal path on
+the same line, is judged at every directory the line could be in; `-C` values,
+a glued `-C<dir>` included, are followed in order. The gate reads a line only
+when every token is a plain literal word (letters, digits, `-_./,:+@^=%`, plain
+single quotes, or double quotes without `$`, a backquote or `!`) or one of
+`&&`, `||`, `;`, `|`. A segment's command may not be an assignment, or a
+builtin or keyword other than `cd` (`echo`, `printf`, `true` and `pwd`
+included), and a `cd` takes one literal path. A line holding anything else, a
+redirection, a line continuation or `$(…)` included, is unread: under the
+fail-closed rule it is refused when it holds the word git, whatever the git
+subcommand and whatever the seat. Rewrite it in plain form (`git -C <dir>`, a
+commit message with `-m '<text>'` or `-F <file>`, separate commands). The gate
+does not read git run by another program (`xargs`, `env`, `bash -c`, a
+script), or git options, configuration or environment that run programs: those
+are level 0's concern, the operator's identity, credential and sandbox
+controls.
 
 ## The stop check
 

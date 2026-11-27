@@ -26,7 +26,15 @@ is rejected, or this page is amended first, as [[satelle-sync-architecture]]
   repository of its own: it holds the substrate, the code repositories are
   its targets and hold no `.satelle/`, and its own `self` target is that
   substrate. A registered repository that had a substrate of its own has it
-  merged in as that repository's specific part.
+  merged in as that repository's specific part, under
+  `.satelle/repos/<repo>/`. Whether that layout stays is for the epic's
+  stories to decide (`satelle story list --parent sto_5afbd604 --session
+  <session>`).
+- On 2026-11-28 sto_8e8b56f7 seeded `orbelle/satelle-factory`, created
+  private, as the control repository [[satelle-operator-rulings]] named on
+  2026-11-27. Its visibility is `gh repo view orbelle/satelle-factory --json
+  visibility`. Where each seeded file came from is
+  `satelle story attachment sto_8e8b56f7 seed-report --session <session>`.
 - A substrate is process scope, never a security boundary. Choosing a
   repository's constitution or skills for a run is for relevance, not
   isolation.

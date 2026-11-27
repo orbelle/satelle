@@ -5,6 +5,7 @@ package remotenode
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
@@ -199,6 +202,11 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	}
 	if seen, err := os.ReadFile(filepath.Join(dir, "substrate-seen")); err != nil || string(seen) != substrate+"\n" {
 		t.Fatalf("setup saw SATELLE_SUBSTRATE_DIR %q (%v), want %q", seen, err, substrate)
+	}
+	for _, s := range stagedGateRuns(t, dir, "nod_9") {
+		if s.Head != "" {
+			t.Fatalf("a node with no fetched substrate repo recorded head %q", s.Head)
+		}
 	}
 
 	got := strings.Join(methods(l.srv, "node-tok"), " ")
@@ -473,4 +481,53 @@ func envValue(env []string, key string) (string, bool) {
 		}
 	}
 	return v, ok
+}
+
+func stagedGateRuns(t *testing.T, nodeDir, node string) []gate.Staged {
+	t.Helper()
+	dir, err := config.CanonicalPath(nodeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := filepath.Join(dir, "runtime")
+	stamp, err := config.ReadRuntimeStamp(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := kernel.SubstrateDigest(stamp.Substrate)
+	if err != nil || digest != stamp.Digest {
+		t.Fatalf("substrate digest %s (%v), runtime stamp %s", digest, err, stamp.Digest)
+	}
+	st, err := ledger.Open(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := st.Items()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []gate.Staged
+	for _, id := range ids {
+		events, err := st.Read(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range events {
+			if e.Kind != gate.KindRun || e.Actor != "node:"+node {
+				continue
+			}
+			var g gate.Result
+			if err := json.Unmarshal(e.Payload, &g); err != nil {
+				t.Fatal(err)
+			}
+			if g.Staged == nil || g.Staged.Digest != stamp.Digest {
+				t.Fatalf("gate %s recorded staged %+v, want digest %s", g.Gate, g.Staged, stamp.Digest)
+			}
+			out = append(out, *g.Staged)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("node %s recorded no gate.run", node)
+	}
+	return out
 }

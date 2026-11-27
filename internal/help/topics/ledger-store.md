@@ -193,10 +193,23 @@ pass; its page reads `upgrade needed` with `satelle upgrade --archive --session 
 command to run in it. With
 no systemd, `install.sh`, `satelle update --session <session>` and `satelle service install --session <session>` print
 the units instead: run `satelle ledger autosync --session <session>` every 30 seconds yourself.
-On macOS the same commands install two launchd agents in the `gui/<uid>` domain
+On macOS the same commands install three launchd agents in the `gui/<uid>` domain
 instead: `~/Library/LaunchAgents/dev.satelle.satelled.plist` runs satelled, and
 `dev.satelle.sync.plist` runs `satelle ledger autosync --session <session>` every
 30 seconds.
+
+The same commands also install `satelle-follow.service` (on macOS the
+`dev.satelle.follow` launch agent), which keeps `satelle ledger follow --session <session>`
+running. For each project on this machine whose store is satelle.dev and which
+is bound, it keeps a subscription to the store open and watches the local
+ledger: a local write, an event another location appended, and each
+reconnect run the same pass, so a story created, updated or moved at one
+location reaches every other online, bound location within seconds, and a
+location coming back online catches up within seconds of reconnecting. It
+never applies a streamed event itself, and leaves seat releases and queue
+wakes to the timer. A dropped subscription is re-dialled within 2 seconds;
+`satelle-sync.timer` stays the fallback, and its next pass pushes and pulls
+whatever the follower missed.
 
 Each pass also confirms satelled's mirror of every project it visits, local
 store or not: it sends the digest of the project's full snapshot, satelled
@@ -219,6 +232,13 @@ never installs or updates satelle. Each fix is one line of
 release or a build-skew restart only when the last pass, within 6 minutes,
 left it or did not clear it; `satelle doctor --session <session>` still lists
 every issue.
+
+After its seat fixes the pass wakes each queue `[[wake]]` in this machine's
+`~/.satelle/config.toml` names for the project (off unless listed; see
+`satelle help queues --session <session>`): where the store is local or the whole pass was
+proven in sync (one diverged, refused or unsynced item anywhere holds every
+wake), it fires the queue when it has members and no open run, and
+pushes the fire in the same pass. An unreached store wakes nothing.
 
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever
