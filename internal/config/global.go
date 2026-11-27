@@ -39,15 +39,11 @@ type GlobalConfig struct {
 	Wake     []WakeConfig       `toml:"wake"`
 }
 
-// WakeConfig names a queue of a project that this machine's sync pass fires
-// when it has members and no open run.
 type WakeConfig struct {
 	Project string `toml:"project"`
 	Queue   string `toml:"queue"`
 }
 
-// WakeQueues returns the queues [[wake]] names for repoRoot, in file order
-// and without repeats, matching the project as StartCleanFor does.
 func (gc GlobalConfig) WakeQueues(repoRoot string) []string {
 	want := resolvedRoot(repoRoot)
 	var out []string

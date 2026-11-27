@@ -37,8 +37,6 @@ from = ["*"]
 to = "cancelled"
 `
 
-// wakeFixture writes a release queue file whose filter takes approved
-// stories, triggered on a task, and returns the task id.
 func wakeFixture(t *testing.T, dir string) string {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, ".satelle", "workflows", "default.toml"), []byte(wakeWorkflow), 0o644); err != nil {

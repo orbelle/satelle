@@ -8,10 +8,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// wakeQueues fires each queue [[wake]] names for this project, as satelle
-// queue fire does, when it has members and no open run. It fires only a queue
-// proven in sync this pass, makes no write but the fire, never fails the pass,
-// and returns the queue and run ids written, for the pass's follow push.
 func wakeQueues(out io.Writer, path string, k *kernel.Kernel, names []string, synced func(string) bool) []string {
 	var written []string
 	for _, name := range names {

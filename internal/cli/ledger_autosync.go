@@ -186,8 +186,6 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	return true, pf
 }
 
-// queueWake fires the project's [[wake]] queues proven in sync and returns the
-// ids it wrote; nil wakes nothing.
 type queueWake func(k *kernel.Kernel, synced func(string) bool) []string
 
 func syncPass(ctx context.Context, r repo, fix seatFix, wake queueWake) (syncstate.Pass, string) {
