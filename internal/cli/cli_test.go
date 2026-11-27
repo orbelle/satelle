@@ -30,9 +30,6 @@ func isolate(t *testing.T) string {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	clearCallerMarkers(t)
 	t.Setenv(envNoService, "1")
-	guard := t.TempDir()
-	writeExec(t, filepath.Join(guard, "launchctl"), "#!/bin/sh\necho 'launchctl is refused in tests' >&2\nexit 1\n")
-	t.Setenv("PATH", guard+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

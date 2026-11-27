@@ -56,6 +56,7 @@ type Kernel struct {
 	Progress      func(item string)
 	RecordsDir    string
 	Guard         func() error
+	Staged        *gate.Staged
 }
 
 func (k *Kernel) SubstrateDir() string { return substrateDir(k.Root) }

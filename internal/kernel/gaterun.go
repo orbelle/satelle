@@ -48,6 +48,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		Logs:         k.Logs,
 		Redact:       k.Redact,
 		Guard:        k.Guard,
+		Staged:       k.Staged,
 	}
 	if k.Git != nil {
 		run.Span = k.runSpan(events, sp)

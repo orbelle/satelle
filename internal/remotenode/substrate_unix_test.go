@@ -769,3 +769,63 @@ func TestSubstrateGuardNamesAChangedFile(t *testing.T) {
 		t.Fatalf("hashedDiff = %v, want it to name changed a/b/f.md", lines)
 	}
 }
+
+func TestRunLocalStampsEachGateRunWithTheStagedSubstrate(t *testing.T) {
+	run := func(t *testing.T, nodeDir, node string) []gate.Staged {
+		t.Helper()
+		var log strings.Builder
+		out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log})
+		if err != nil || out.Verdict != kernel.VerdictAccept {
+			t.Fatalf("RunLocal = %+v, %v\n%s", out, err, log.String())
+		}
+		return stagedGateRuns(t, nodeDir, node)
+	}
+	t.Run("checkout", func(t *testing.T) {
+		f := setupFixture(t, "echo ok", nil)
+		commit := gittest.Git(t, f.tree, "rev-parse", "HEAD")
+		first := run(t, stageCheckout(t, f, "nod_d1"), "nod_d1")
+		for _, s := range first {
+			if s.Head != commit {
+				t.Fatalf("staged head %q, want %q", s.Head, commit)
+			}
+		}
+		second := run(t, stageCheckout(t, f, "nod_d2"), "nod_d2")
+		if second[0].Digest != first[0].Digest {
+			t.Fatalf("identical staged substrate gave %s then %s", first[0].Digest, second[0].Digest)
+		}
+		commitTree(t, f.tree, map[string]string{"skills/extra.md": "---\ntype: check\n---\n```sh\necho extra\n```\n"})
+		third := run(t, stageCheckout(t, f, "nod_d3"), "nod_d3")
+		if third[0].Digest == second[0].Digest {
+			t.Fatal("a changed tracked substrate file left the digest unchanged")
+		}
+	})
+	t.Run("no checkout and an overlay change", func(t *testing.T) {
+		f := setupFixture(t, "echo ok", nil)
+		first := run(t, f.stage(t, "nod_d4"), "nod_d4")
+		for _, s := range first {
+			if s.Head != "" {
+				t.Fatalf("a run with no checkout recorded head %q", s.Head)
+			}
+		}
+		root := filepath.Join(f.tree, ".satelle")
+		writeFiles(t, root, map[string]string{"remotes/tprobe/skills/overlay-note.md": "overlay one\n"})
+		d, bundle, err := LoadLocal(root, "tprobe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.def.Definition, f.def.Bundle = d, bundle
+		second := run(t, f.stage(t, "nod_d5"), "nod_d5")
+		if second[0].Digest == first[0].Digest {
+			t.Fatal("an added overlay file left the digest unchanged")
+		}
+		writeFiles(t, root, map[string]string{"remotes/tprobe/skills/overlay-note.md": "overlay two\n"})
+		if d, bundle, err = LoadLocal(root, "tprobe"); err != nil {
+			t.Fatal(err)
+		}
+		f.def.Definition, f.def.Bundle = d, bundle
+		third := run(t, f.stage(t, "nod_d6"), "nod_d6")
+		if third[0].Digest == second[0].Digest {
+			t.Fatal("a changed overlay file left the digest unchanged")
+		}
+	})
+}

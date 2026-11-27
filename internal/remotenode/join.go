@@ -14,6 +14,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -210,7 +211,7 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 		return Outcome{}, err
 	}
 	j.say("fetched %d repos read-only", len(fetched))
-	tree, root := j.tree(reposDir, fetched)
+	tree, root, commit := j.tree(reposDir, fetched)
 	if err := os.MkdirAll(tree, 0o755); err != nil {
 		return Outcome{}, err
 	}
@@ -242,6 +243,7 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 	}
 	defer nr.Restore()
 	j.nr = nr
+	k.Staged = &gate.Staged{Digest: nr.Digest(), Head: commit}
 	actor := "node:" + o.NodeID
 	report := Report{Version: o.Version, DefinitionVersion: version, Allow: def.Allow(), Repos: fetched,
 		Bindings: k.Agents.Names(), Now: time.Now().UnixNano()}
@@ -282,15 +284,15 @@ func (j *joiner) secrets(ctx context.Context, def remotedef.Definition) ([]strin
 	return env, nil
 }
 
-func (j *joiner) tree(reposDir string, fetched []FetchedRepo) (tree, root string) {
+func (j *joiner) tree(reposDir string, fetched []FetchedRepo) (tree, root, commit string) {
 	for _, r := range fetched {
 		t := filepath.Join(reposDir, r.Name)
 		if st, err := os.Stat(filepath.Join(t, ".satelle")); err == nil && st.IsDir() {
-			return t, filepath.Join(t, ".satelle")
+			return t, filepath.Join(t, ".satelle"), r.Commit
 		}
 	}
 	t := filepath.Join(j.o.Dir, "work")
-	return t, filepath.Join(t, ".satelle")
+	return t, filepath.Join(t, ".satelle"), ""
 }
 
 func (j *joiner) runSetup(ctx context.Context, dir, root string, def remotedef.Definition, prov provider.Provider, env []string) error {

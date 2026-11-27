@@ -67,6 +67,7 @@ type Result struct {
 	PromptBytes  int           `json:"prompt_bytes,omitempty"`
 	Tier         string        `json:"tier,omitempty"`
 	FallbackFrom *FallbackFrom `json:"fallback_from,omitempty"`
+	Staged       *Staged       `json:"staged,omitempty"`
 	At           time.Time     `json:"-"`
 
 	judges []judgeAnswer
@@ -153,6 +154,7 @@ type Run struct {
 	Started      func(seq int, gate string) error
 	Finished     func(seq int, res Result)
 	Guard        func() error
+	Staged       *Staged
 
 	skipWarning string
 	tier        string
@@ -294,6 +296,10 @@ func (r Run) one(ctx context.Context, name string) Result {
 	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
 		res.Changed = r.Changed
+	}
+	if res.Staged == nil && r.Staged != nil {
+		s := *r.Staged
+		res.Staged = &s
 	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	res.Notes, res.Answer, res.Warning = r.clean(res.Notes), r.clean(res.Answer), r.clean(res.Warning)

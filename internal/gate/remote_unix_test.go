@@ -4,6 +4,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -131,4 +132,57 @@ func TestRemoteCheckFailuresReject(t *testing.T) {
 	r, f = remoteSetup(t, workflow.Gate{Placement: "remote:box", Timeout: "2s"})
 	f.out, f.err = RemoteOutcome{Node: "nod_4", Output: "cut while running the check on node nod_4"}, &TimeoutError{Bound: 2 * time.Second}
 	check("timeout", r, "remote box: timed out after 2s (gates.suite timeout)", "cut while running the check")
+}
+
+func TestRemoteCheckRecordsTheStagedSubstrate(t *testing.T) {
+	want := &Staged{Digest: "abc", Head: headSHA}
+	for _, exit := range []int{0, 3} {
+		r, f := remoteSetup(t, workflow.Gate{Placement: "remote:box"})
+		f.out = RemoteOutcome{Node: "nod_1", Exit: exit, SubstrateDigest: "abc"}
+		rs, _ := r.Execute(context.Background())
+		if rs[0].Staged == nil || *rs[0].Staged != *want {
+			t.Fatalf("exit %d: staged %+v", exit, rs[0].Staged)
+		}
+	}
+	r, f := remoteSetup(t, workflow.Gate{Placement: "remote:box"})
+	f.out, f.err = RemoteOutcome{Node: "nod_2", SubstrateDigest: "abc"}, errors.New("copy failed")
+	rs, _ := r.Execute(context.Background())
+	if rs[0].Result != Reject || rs[0].Staged == nil || *rs[0].Staged != *want {
+		t.Fatalf("error: %+v", rs[0])
+	}
+	r, f = remoteSetup(t, workflow.Gate{Placement: "remote:box"})
+	f.out = RemoteOutcome{Node: "nod_3", Exit: 0}
+	if rs, _ := r.Execute(context.Background()); rs[0].Staged != nil {
+		t.Fatalf("no digest: staged %+v", rs[0].Staged)
+	}
+}
+
+func TestRunStagedStampsEveryGateAndYieldsToTheRemoteOne(t *testing.T) {
+	r, f := remoteSetup(t, workflow.Gate{Placement: "local"})
+	r.Staged = &Staged{Digest: "node", Head: "h"}
+	rs, _ := r.Execute(context.Background())
+	if rs[0].Staged == nil || *rs[0].Staged != *r.Staged || rs[0].Staged == r.Staged || len(f.checks) != 0 {
+		t.Fatalf("local: %+v", rs[0])
+	}
+	r, f = remoteSetup(t, workflow.Gate{Placement: "remote:box"})
+	r.Staged = &Staged{Digest: "node", Head: "h"}
+	f.out = RemoteOutcome{Node: "nod_1", Exit: 0, SubstrateDigest: "abc"}
+	rs, _ = r.Execute(context.Background())
+	if rs[0].Staged == nil || rs[0].Staged.Digest != "abc" || rs[0].Staged.Head != headSHA {
+		t.Fatalf("remote: %+v", rs[0].Staged)
+	}
+}
+
+func TestResultWithoutStagedKeepsItsShape(t *testing.T) {
+	b, err := json.Marshal(Result{Gate: "g", Result: Accept})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "staged") {
+		t.Fatalf("payload %s carries staged", b)
+	}
+	b, _ = json.Marshal(Result{Gate: "g", Result: Accept, Staged: &Staged{Digest: "d"}})
+	if !strings.Contains(string(b), `"staged":{"digest":"d"}`) {
+		t.Fatalf("payload %s", b)
+	}
 }

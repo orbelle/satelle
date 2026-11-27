@@ -222,6 +222,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	}
 	k.RecordsDir = records
 	k.Guard = guard.check
+	k.Staged = &gate.Staged{Digest: nr.Digest(), Head: run.WorkCommit}
 	var closeOnce sync.Once
 	closeKernel := func() { closeOnce.Do(func() { k.Close() }) }
 	defer closeKernel()

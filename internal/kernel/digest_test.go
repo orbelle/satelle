@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeDigestFile(t *testing.T, root, rel, body string) {
@@ -74,5 +75,85 @@ func TestSubstrateDigestFollowsLinks(t *testing.T) {
 	}
 	if _, err := SubstrateDigest(root); err == nil {
 		t.Fatal("a directory link back into the substrate was not refused")
+	}
+}
+
+func mustDigestOf(t *testing.T, root string) string {
+	t.Helper()
+	d, err := SubstrateDigestOf(root, "check", "skill")
+	if err != nil {
+		t.Fatalf("SubstrateDigestOf: %v", err)
+	}
+	if len(d) != 64 {
+		t.Fatalf("digest %q is not a SHA-256 hex", d)
+	}
+	return d
+}
+
+func TestSubstrateDigestOfIgnoresOrderTimesModesAndUnnamedEntries(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	writeDigestFile(t, a, "check", "echo ok")
+	writeDigestFile(t, a, "skill/x.md", "x")
+	writeDigestFile(t, a, "skill/sub/y.sh", "y")
+	writeDigestFile(t, a, "payload.json", `{"item":"one"}`)
+	writeDigestFile(t, b, "skill/sub/y.sh", "y")
+	writeDigestFile(t, b, "skill/x.md", "x")
+	writeDigestFile(t, b, "check", "echo ok")
+	writeDigestFile(t, b, "payload.json", `{"item":"two"}`)
+	writeDigestFile(t, b, "run-check", "env")
+	old := time.Unix(1000, 0)
+	if err := os.Chtimes(filepath.Join(b, "check"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(b, "skill", "x.md"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if mustDigestOf(t, a) != mustDigestOf(t, b) {
+		t.Fatal("identical staged bytes gave different digests")
+	}
+}
+
+func TestSubstrateDigestOfChangesWithEveryNamedFile(t *testing.T) {
+	root := t.TempDir()
+	writeDigestFile(t, root, "check", "echo ok")
+	writeDigestFile(t, root, "skill/x.md", "x")
+	base := mustDigestOf(t, root)
+	writeDigestFile(t, root, "payload.json", "changed")
+	if mustDigestOf(t, root) != base {
+		t.Fatal("an unnamed entry changed the digest")
+	}
+	steps := []struct {
+		name string
+		do   func()
+	}{
+		{"a changed check byte", func() { writeDigestFile(t, root, "check", "echo oK") }},
+		{"a changed skill file", func() { writeDigestFile(t, root, "skill/x.md", "y") }},
+		{"an added skill file", func() { writeDigestFile(t, root, "skill/new.md", "n") }},
+		{"a removed skill file", func() {
+			if err := os.Remove(filepath.Join(root, "skill", "x.md")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, s := range steps {
+		s.do()
+		d := mustDigestOf(t, root)
+		if d == base {
+			t.Fatalf("%s left the digest unchanged", s.name)
+		}
+		base = d
+	}
+}
+
+func TestSubstrateDigestOfKeepsANamedRunsEntry(t *testing.T) {
+	root := t.TempDir()
+	writeDigestFile(t, root, "runs/x", "a")
+	d, err := SubstrateDigestOf(root, "runs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDigestFile(t, root, "runs/x", "b")
+	if d2, _ := SubstrateDigestOf(root, "runs"); d2 == d {
+		t.Fatal("a named runs entry was skipped")
 	}
 }
