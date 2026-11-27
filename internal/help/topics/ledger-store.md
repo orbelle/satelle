@@ -127,8 +127,11 @@ The rules are the same for every store:
   are already there; a different hash at a sequence is a divergence,
   `diverged: <item> at event <seq>: ...; not pushed past it`, that item's push
   stops, other items continue, and push exits 1. A store chain that already
-  extends the local one needs nothing. A rerun is safe: every append is
-  conditional.
+  extends the local one needs nothing. A store's refusal of one item (a read,
+  an append or an attachment the store rejects) is named by item, that item is
+  left untouched, other items continue, and push, pull or the pass exits 1;
+  only a store that cannot be reached or used ends them. A rerun is safe:
+  every append is conditional.
 - Pull compares the store's event at the last sequence both chains hold,
   whatever their lengths, and finds the fork point when it differs. A chain
   that forked, in a longer, an equal-length or a shorter store chain, is
@@ -180,8 +183,8 @@ pass over this machine's projects (`~/.satelle/config.toml [projects]`;
 `satelle project bind` adds the repo): for each project whose store is not
 local, it pushes the items this runtime is ahead on, then pulls the items the
 store is ahead on, by the same rules as push and pull. An item in sync is not
-touched. One that diverged or was refused is left on both sides and named,
-never merged, except a fork whose local events past the fork point are only a
+touched. One that diverged or was refused does not stop the pass for any
+other item; it is left on both sides and named, never merged, except a fork whose local events past the fork point are only a
 queue file's mirror events: it is pulled, the store's chain replacing it, and its mirror event is
 pushed in the same pass. `satelle ledger adopt <item> --session <session>` resolves any other fork. A write made while the store is unreachable stays in the local
 ledger and is pushed by the next pass that reaches it. A change on one machine

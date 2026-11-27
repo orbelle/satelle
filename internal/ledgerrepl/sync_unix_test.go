@@ -131,3 +131,36 @@ func TestSyncLeavesInSyncAndDivergedAlone(t *testing.T) {
 		t.Errorf("the in-sync item was replicated:\n%s", out.String())
 	}
 }
+
+func TestSyncOneDivergedItemStillSyncsTheRest(t *testing.T) {
+	forEach(t, func(t *testing.T, open func() Store) {
+		a, b := newStore(t), newStore(t)
+		add(t, a, "it", "a", 2)
+		add(t, a, "theirs", "t", 2)
+		pushOn(t, a, open())
+		add(t, b, "it", "b", 2)
+		add(t, b, "mine", "m", 3)
+		before := chainFile(t, b, "it")
+		storeBefore := held(t, open(), "it")
+
+		res := syncOnce(t, b, open())
+		if len(res.Unsynced) != 1 || res.Unsynced[0].Item != "it" || !strings.HasPrefix(res.Unsynced[0].State, divergedAt) {
+			t.Fatalf("unsynced %+v", res.Unsynced)
+		}
+		if !slices.Contains(res.Push.Written, "mine") || !slices.Contains(res.Pull.Written, "theirs") {
+			t.Fatalf("push wrote %v, pull wrote %v", res.Push.Written, res.Pull.Written)
+		}
+		if got, want := held(t, open(), "mine"), hashesOf(chain(t, b, "mine")); !slices.Equal(got, want) {
+			t.Errorf("the store holds mine as %v, want B's %v", got, want)
+		}
+		if got, want := hashesOf(chain(t, b, "theirs")), hashesOf(chain(t, a, "theirs")); !slices.Equal(got, want) {
+			t.Errorf("B holds theirs as %v, want A's %v", got, want)
+		}
+		if !bytes.Equal(before, chainFile(t, b, "it")) {
+			t.Error("B's diverged chain changed")
+		}
+		if got := held(t, open(), "it"); !slices.Equal(got, storeBefore) {
+			t.Errorf("the store's diverged chain changed: %v", got)
+		}
+	})
+}

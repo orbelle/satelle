@@ -24,6 +24,7 @@ type Summaries interface {
 type Listing struct {
 	Chains  map[string]Chain
 	Skipped []string
+	Refused map[string]string
 }
 
 type Chain struct {
