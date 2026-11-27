@@ -19,6 +19,15 @@ type refusal struct{ line string }
 
 func (e *refusal) Error() string { return e.line }
 
+func (r *Replicator) absorb(res *Result, err error) error {
+	var ref *refusal
+	if errors.As(err, &ref) {
+		r.refuse(res, ref.line)
+		return nil
+	}
+	return err
+}
+
 func (r *Replicator) Pull(ctx context.Context, items ...string) (Result, error) {
 	res, err := r.pull(ctx, items)
 	if r.Cache != nil {
@@ -56,6 +65,10 @@ func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
 		sort.Strings(ids)
 	}
 	for _, item := range ids {
+		if line, ok := lst.Refused[item]; ok {
+			r.refuse(&res, line)
+			continue
+		}
 		c, ok := lst.Chains[item]
 		if !ok {
 			r.refuse(&res, fmt.Sprintf("the store holds no chain %s", item))
@@ -70,7 +83,7 @@ func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
 			return res, err
 		}
 		if pulled && r.Choose != nil {
-			if err := r.place(ctx, &res, item); err != nil {
+			if err := r.absorb(&res, r.place(ctx, &res, item)); err != nil {
 				return res, err
 			}
 		}
@@ -85,14 +98,9 @@ func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
 }
 
 func (r *Replicator) pullOne(ctx context.Context, res *Result, item string, c Chain) (ok bool, err error) {
-	diverged := len(res.Diverged)
-	err = r.pullItem(ctx, res, item, c)
-	var ref *refusal
-	if errors.As(err, &ref) {
-		r.refuse(res, ref.line)
-		return false, nil
-	}
-	return err == nil && len(res.Diverged) == diverged, err
+	diverged, refused := len(res.Diverged), len(res.Refused)
+	err = r.absorb(res, r.pullItem(ctx, res, item, c))
+	return err == nil && len(res.Diverged) == diverged && len(res.Refused) == refused, err
 }
 
 func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c Chain) error {
@@ -271,6 +279,10 @@ func (r *Replicator) fillBlobs(ctx context.Context, res *Result, items []string)
 
 func (r *Replicator) fetchBlob(ctx context.Context, item string, ref ledger.BlobRef) (string, error) {
 	body, found, err := r.Store.GetBlob(ctx, item, ref)
+	var refused *refusal
+	if errors.As(err, &refused) {
+		return refused.line, nil
+	}
 	if err != nil {
 		return "", err
 	}

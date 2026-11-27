@@ -639,6 +639,35 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 	}
 }
 
+func TestAutosyncDivergedItemDoesNotStopTheRest(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	a, _, _ := legacyA(t, srv)
+	b, _ := mirrorOnB(t, srv, releaseFile)
+	worked := createID(t, "story", "create", "--title", "worked on b", "--criteria", "c")
+	must(t, "queue", "add", "release", worked)
+	a.use(t)
+	theirs := createID(t, "story", "create", "--title", "from a", "--criteria", "c")
+	autosync(t, a)
+	b.use(t)
+	mine := createID(t, "story", "create", "--title", "from b", "--criteria", "c")
+	if _, err := run(t, "", "ledger", "autosync"); err == nil {
+		t.Fatal("autosync with a diverged item succeeded")
+	}
+	st := syncStateOf(t)
+	if !strings.Contains(st.SyncReason, "que_release (diverged at 0)") {
+		t.Fatalf("B's pass reason: %q", st.SyncReason)
+	}
+	if st.SyncPushed < 1 || st.SyncPulled < 1 {
+		t.Fatalf("B's pass pushed %d and pulled %d", st.SyncPushed, st.SyncPulled)
+	}
+	if len(srv.Events("shared", mine)) == 0 {
+		t.Fatalf("satelle.dev does not hold B's %s", mine)
+	}
+	if it := storyOn(t, b, theirs); it.ID != theirs {
+		t.Fatalf("B does not hold A's %s", theirs)
+	}
+}
+
 const draftFile = "title = \"Draft\"\n[filter]\nkind = \"story\"\n"
 
 func mirrorTailFork(t *testing.T, srv *fakeserver.Server) (b machine, k int, store []ledger.Event) {

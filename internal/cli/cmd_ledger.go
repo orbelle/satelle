@@ -133,8 +133,11 @@ With the local store push says so and makes no store or network call.
 An event already in the store with the same hash is already there; a different
 hash at a sequence is a divergence: that item's push stops there, naming the
 item and sequence, other items continue, and push exits 1. A blob neither this
-runtime nor the store holds is a gap: named, never fatal. A store error ends
-the push with its cause and exit 1; a rerun is safe.`,
+runtime nor the store holds is a gap: named, never fatal. A store's refusal of
+one item (a read, an append or an attachment the store rejects) is named by
+item, that item is left untouched, other items continue, and push exits 1. A
+store that cannot be reached or used ends the push with its cause and exit 1;
+a rerun is safe.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			return withStore(out, out, "push", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
