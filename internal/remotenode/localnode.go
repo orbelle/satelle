@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
@@ -174,9 +175,17 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	guard := &substrateGuard{root: root, sealed: sealed}
+	// The substrate is complete and sealed, so the stamped digest is final:
+	// every satelle that setup, a check or a performer runs from the work tree
+	// opens this substrate and this node's runtime from here on.
+	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	defer nr.Restore()
 	reject := func(head string, lines []string, prefix, status string) (LocalOutcome, error) {
 		fmt.Fprintln(o.Log, "node: "+head)
-		return rejectRun(o.Dir, *values, head, lines, prefix, steps, status)
+		return rejectRun(o.Dir, *values, priv, head, lines, prefix, steps, status)
 	}
 	for _, phase := range []struct {
 		name string
@@ -189,7 +198,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		for i, c := range phase.cmds {
 			steps.setup(phase.name, i+1, len(phase.cmds))
 			err := RunSetup(ctx, tree, phase.name, []string{c}, []string{kernel.SubstrateVar(root)}, localSetupTimeout, o.Log)
-			if gerr := guard.check(); gerr != nil {
+			if guard.check() != nil {
 				return reject(changedBy(fmt.Sprintf("setup %s command %d", phase.name, i+1)), guard.failures(), "", "setup")
 			}
 			if err != nil {
@@ -201,10 +210,9 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 			}
 		}
 	}
-	if lines, err := compareSubstrate(root, sealed); err != nil || len(lines) > 0 {
-		if err != nil {
-			return LocalOutcome{}, err
-		}
+	if lines, err := hashedDiff(guard); err != nil {
+		return LocalOutcome{}, err
+	} else if len(lines) > 0 {
 		return reject(changedBy("setup"), lines, "", "setup")
 	}
 	records, err := prepareRecords(tree)
@@ -217,17 +225,9 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	}
 	k.RecordsDir = records
 	k.Guard = guard.check
-	closed := false
-	defer func() {
-		if !closed {
-			k.Close()
-		}
-	}()
-	nr, err := MarkNodeRun(o.Dir, run.NodeID, root, tree, secretNames(def))
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	defer nr.Restore()
+	var closeOnce sync.Once
+	closeKernel := func() { closeOnce.Do(func() { k.Close() }) }
+	defer closeKernel()
 
 	if err := importIn(k.Ledger, in, run.Run.ItemID); err != nil {
 		return LocalOutcome{}, err
@@ -258,8 +258,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	res, err := k.DriveSteps(ctx, target, actor, run.Steps)
 	if err != nil {
 		if lines := guard.failures(); len(lines) > 0 {
-			closed = true
-			k.Close()
+			closeKernel()
 			return reject(changedBy("the run"), lines, prefix, "")
 		}
 		return LocalOutcome{}, err
@@ -273,16 +272,12 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	if warn != "" {
 		out.Notes += "\n" + warn
 	}
-	lines, err := compareSubstrate(root, sealed)
+	lines, err := hashedDiff(guard)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
-	if len(lines) == 0 {
-		lines = guard.failures()
-	}
 	if len(lines) > 0 {
-		closed = true
-		k.Close()
+		closeKernel()
 		return reject(changedBy("the run"), lines, out.Notes+"\n", res.Item.Status)
 	}
 	out.Notes = redact(out.Notes, *values)
@@ -302,16 +297,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	return out, writeOutcome(outDir, out)
-}
-
-// compareSubstrate is the hashed comparison of the substrate with its sealed
-// state.
-func compareSubstrate(root string, sealed substrateState) ([]string, error) {
-	now, err := snapshotSubstrate(root, true)
-	if err != nil {
-		return nil, err
-	}
-	return diffSubstrate(sealed, now), nil
 }
 
 func runGateNotes(l *ledger.Store, target, actor string) (string, error) {

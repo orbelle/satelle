@@ -36,10 +36,6 @@ import (
 
 const LocalNodeDir = "/node"
 
-// nodeSubstrateDir is the directory under a node, apart from its work tree,
-// that its substrate is unpacked into, read-only.
-const nodeSubstrateDir = "substrate"
-
 const RemotesDir = kernel.RemotesDir
 
 const (
@@ -49,7 +45,7 @@ const (
 	localOutcome    = "outcome.json"
 )
 
-const NodeLayout = 2
+const NodeLayout = 3
 
 const (
 	RunRunning   = "running"

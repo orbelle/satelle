@@ -206,3 +206,15 @@ func plainTree(dir string) error {
 		return fmt.Errorf("%s is %w (%s)", p, errNotPlain, m.Type())
 	})
 }
+
+// FileID is what FileIdentity reports of a file.
+type FileID struct {
+	Dev, Ino uint64
+	Ctime    int64
+	Nlink    uint64
+}
+
+func extraLinks(info fs.FileInfo) bool {
+	id, ok := FileIdentity(info)
+	return ok && id.Nlink > 1
+}

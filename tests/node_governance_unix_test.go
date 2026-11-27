@@ -21,26 +21,33 @@ import (
 func governedBox(t *testing.T, script, extraDef string, files map[string]string) (b *commandBox, out string) {
 	t.Helper()
 	b = commandSandbox(t, "run")
+	out = governProbe(t, b.s, script, files)
+	b.s.write(".satelle/remotes/command-governed/remote.toml", commandDefinition("command-governed", b.task, "run", extraDef))
+	b.s.write(".satelle/remotes/command-governed/satelle.toml", "[workflows]\ndefault = \"probe\"\n")
+	b.s.git("add", "-f", ".satelle")
+	b.s.git("commit", "-q", "-m", "governed probe")
+	return b, out
+}
+
+// governProbe adds the gate node-probe, whose check runs script with $out set,
+// to the sandbox's probe workflow, writes files, and returns $out.
+func governProbe(t *testing.T, s *sandbox, script string, files map[string]string) (out string) {
+	t.Helper()
 	out = realDir(t, t.TempDir())
-	s := b.s
 	probe, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "workflows", "probe.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	wf := strings.Replace(string(probe), `gates = ["change-judged", "probe-version"]`, `gates = ["change-judged", "probe-version", "node-probe"]`, 1)
 	if wf == string(probe) {
-		t.Fatal("the probe workflow's gate group moved; update governedBox")
+		t.Fatal("the probe workflow's gate group moved; update governProbe")
 	}
 	s.write(".satelle/workflows/probe.toml", wf+"\n[gates.node-probe]\nskill = \"node-probe-check\"\n")
 	s.write(".satelle/skills/node-probe-check.md", "---\nname: node-probe-check\ntype: check\ndescription: probe\n---\n\n```sh\nout='"+out+"'\n"+script+"\nexit 0\n```\n")
-	s.write(".satelle/remotes/command-governed/remote.toml", commandDefinition("command-governed", b.task, "run", extraDef))
-	s.write(".satelle/remotes/command-governed/satelle.toml", "[workflows]\ndefault = \"probe\"\n")
 	for rel, body := range files {
 		s.write(rel, body)
 	}
-	s.git("add", "-f", ".satelle")
-	s.git("commit", "-q", "-m", "governed probe")
-	return b, out
+	return out
 }
 
 func readOut(t *testing.T, out, name string) string {
@@ -98,18 +105,19 @@ func TestNodeCheckGovernedByTheNodeDetached(t *testing.T) {
 func TestTrackedNodeShapeDoesNotShadow(t *testing.T) {
 	t.Parallel()
 	stamp := `{"kind":"node","substrate":"/node/work/.satelle/fake/.satelle","tree":"/node/work","digest":"x","process":{"pid":1,"start":"1"}}`
-	b, out := governedBox(t, `cd .satelle/fake || exit 1
+	// With a checkout, so the tracked node shape is really in /node/work.
+	g := governedNode(t, true, `cd .satelle/fake || exit 1
 satelle workflow show probe > "$out/show" 2>&1
-satelle runtime path > "$out/path" 2>&1`, "", map[string]string{
+satelle runtime path > "$out/path" 2>&1`, map[string]string{
 		".satelle/fake/.satelle/satelle.toml":     "",
 		".satelle/fake/runtime/runtime.json":      stamp + "\n",
 		".satelle/fake/node/runtime/runtime.json": stamp + "\n",
 	})
-	node := fireGoverned(t, b)
-	if show := readOut(t, out, "show"); !strings.Contains(show, "node-probe") {
+	node := g.fire(t)
+	if show := readOut(t, g.out, "show"); !strings.Contains(show, "node-probe") {
 		t.Fatalf("satelle workflow show probe in a tracked node-shaped directory:\n%s", show)
 	}
-	if got, want := readOut(t, out, "path"), filepath.Join(b.root, node, "node", "runtime"); got != want {
+	if got, want := readOut(t, g.out, "path"), g.runtime(node); got != want {
 		t.Fatalf("satelle runtime path in a tracked node-shaped directory = %q, want %s", got, want)
 	}
 }

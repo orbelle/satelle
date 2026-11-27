@@ -4,6 +4,10 @@ package remotenode
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -13,6 +17,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
@@ -97,6 +103,27 @@ func exists(p string) bool {
 	return err == nil
 }
 
+// stampsTheSubstrate proves the node runtime's stamp names the sealed
+// substrate and the work tree apart, with the substrate's digest.
+func stampsTheSubstrate(t *testing.T, nodeDir string) {
+	t.Helper()
+	dir, err := config.CanonicalPath(nodeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := config.ReadRuntimeStamp(filepath.Join(dir, "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := kernel.SubstrateDigest(filepath.Join(dir, nodeSubstrateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Substrate != filepath.Join(dir, nodeSubstrateDir) || s.Tree != filepath.Join(dir, "work") || s.Digest != digest {
+		t.Fatalf("stamp = %+v, want substrate %s, tree %s, digest %s", s, filepath.Join(dir, nodeSubstrateDir), filepath.Join(dir, "work"), digest)
+	}
+}
+
 func TestRunLocalUnpacksASealedSubstrateApartFromTheWorkTree(t *testing.T) {
 	setup := []string{`ls -ln "$SATELLE_SUBSTRATE_DIR/satelle.toml" "$SATELLE_SUBSTRATE_DIR/skills/chk.md" | cut -c1-10 > ../modes && printf '%s\n' "$SATELLE_SUBSTRATE_DIR" >> ../modes`}
 	check := `echo "pwd=$(pwd)"; echo "substrate=$SATELLE_SUBSTRATE_DIR"`
@@ -128,6 +155,10 @@ func TestRunLocalUnpacksASealedSubstrateApartFromTheWorkTree(t *testing.T) {
 				t.Fatalf("the check did not run in the work tree with the substrate apart: %s", out.Notes)
 			}
 			allSealed(t, root)
+			stampsTheSubstrate(t, nodeDir)
+			if exists(filepath.Join(work, ".satelle", "remotes", "tprobe", "satelle.toml")) {
+				t.Fatal("the overlay was written into the work tree")
+			}
 			if got := filesUnder(t, filepath.Join(work, ".satelle")); !slices.Equal(got, tracked) {
 				t.Fatalf("the work tree's .satelle holds %v, want %v", got, tracked)
 			}
@@ -191,11 +222,21 @@ type rejected struct {
 	added int
 }
 
-func runRejected(t *testing.T, f taskFixture, nodeDir string, o LocalOptions) rejected {
+// runRejected runs a staged node with a seal key and the given secrets, and
+// proves the run was rejected with a sealed outcome whose heads are the emptied
+// runtime ledger's, so the starter imports nothing of it.
+func runRejected(t *testing.T, f taskFixture, nodeDir string, secrets map[string]string) rejected {
 	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := map[string]string{sealPayloadKey: hex.EncodeToString(priv)}
+	for k, v := range secrets {
+		given[k] = v
+	}
 	var log strings.Builder
-	o.Dir, o.Version, o.Log = nodeDir, "1.0.0", &log
-	out, err := RunLocal(context.Background(), o)
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log, Secrets: secretPayload(t, given)})
 	r := rejected{out: out, err: err, log: log.String(), node: nodeDir}
 	if err != nil || out.Verdict != kernel.VerdictReject {
 		t.Fatalf("RunLocal = %+v, %v\n%s", out, err, r.log)
@@ -204,7 +245,17 @@ func runRejected(t *testing.T, f taskFixture, nodeDir string, o LocalOptions) re
 	if err != nil || !strings.Contains(string(b), `"verdict": "reject"`) {
 		t.Fatalf("outcome.json = %s, %v", b, err)
 	}
+	var written LocalOutcome
+	if err := json.Unmarshal(b, &written); err != nil {
+		t.Fatal(err)
+	}
 	runtime := filepath.Join(nodeDir, "runtime")
+	if err := checkSeal(hex.EncodeToString(pub), written); err != nil {
+		t.Fatalf("the rejection's seal: %v", err)
+	}
+	if err := checkHeads(runtime, written.Heads); err != nil {
+		t.Fatalf("the rejection's heads: %v", err)
+	}
 	if got := nodeCreated(t, runtime, f.chains(), "node:nod_7a"); len(got) != 0 {
 		t.Fatalf("the node's runtime holds created items %v", got)
 	}
@@ -271,7 +322,7 @@ func substitute(marker string, run bool) string {
 func TestRunLocalRejectsAChangedSubstrate(t *testing.T) {
 	t.Run("setup changes a file", func(t *testing.T) {
 		f := setupFixture(t, "echo checked", []string{`rm -f "$SATELLE_SUBSTRATE_DIR/skills/chk.md" && echo changed > "$SATELLE_SUBSTRATE_DIR/skills/chk.md"`})
-		r := runRejected(t, f, f.stage(t, "nod_7a"), LocalOptions{})
+		r := runRejected(t, f, f.stage(t, "nod_7a"), nil)
 		r.names(t, "changed by setup on_create command 1", "changed skills/chk.md")
 		r.noGates(t)
 	})
@@ -293,7 +344,7 @@ func TestRunLocalRejectsAChangedSubstrate(t *testing.T) {
 			t.Run(c.name, func(t *testing.T) {
 				f := scripted(t, c.onCreate, c.postStart)
 				nodeDir := f.stage(t, "nod_7a")
-				r := runRejected(t, f, nodeDir, LocalOptions{})
+				r := runRejected(t, f, nodeDir, nil)
 				r.names(t, "changed by setup on_create command 1", "changed "+runScript)
 				r.noGates(t)
 				for _, m := range []string{"ran-setup-two", "substituted-setup"} {
@@ -308,7 +359,7 @@ func TestRunLocalRejectsAChangedSubstrate(t *testing.T) {
 		const value = "s3cr3t-substrate-name"
 		f := secretFixture(t, "echo checked", []string{`touch "$SATELLE_SUBSTRATE_DIR/$` + probeSecret + `"`}, "")
 		nodeDir := f.stage(t, "nod_7a")
-		r := runRejected(t, f, nodeDir, LocalOptions{Secrets: secretPayload(t, map[string]string{probeSecret: value})})
+		r := runRejected(t, f, nodeDir, map[string]string{probeSecret: value})
 		b, err := os.ReadFile(filepath.Join(nodeDir, "out", localOutcome))
 		if err != nil || strings.Contains(string(b), value) || !strings.Contains(string(b), "added [secret]") {
 			t.Fatalf("outcome.json = %s, %v", b, err)
@@ -319,13 +370,27 @@ func TestRunLocalRejectsAChangedSubstrate(t *testing.T) {
 	})
 	t.Run("the run adds a file", func(t *testing.T) {
 		f := setupFixture(t, `echo x > "$SATELLE_SUBSTRATE_DIR/added.md"`, nil)
-		r := runRejected(t, f, f.stage(t, "nod_7a"), LocalOptions{})
+		r := runRejected(t, f, f.stage(t, "nod_7a"), nil)
 		r.names(t, "changed by the run", "added added.md")
 	})
 	t.Run("the run removes a file", func(t *testing.T) {
 		f := setupFixture(t, `rm -f "$SATELLE_SUBSTRATE_DIR/workflows/chk.toml"`, nil)
-		r := runRejected(t, f, f.stage(t, "nod_7a"), LocalOptions{})
+		r := runRejected(t, f, f.stage(t, "nod_7a"), nil)
 		r.names(t, "changed by the run", "removed workflows/chk.toml")
+	})
+	t.Run("setup chmods a file 0000", func(t *testing.T) {
+		f := setupFixture(t, "echo checked", []string{`chmod 000 "$SATELLE_SUBSTRATE_DIR/skills/chk.md"`})
+		r := runRejected(t, f, f.stage(t, "nod_7a"), nil)
+		r.names(t, "changed by setup on_create command 1", "changed skills/chk.md")
+		r.noGates(t)
+	})
+	t.Run("as root", func(t *testing.T) {
+		if os.Geteuid() != 0 {
+			t.Skip("needs root: proves a user the file mode does not stop is still rejected")
+		}
+		f := setupFixture(t, `echo x > "$SATELLE_SUBSTRATE_DIR/added.md"`, nil)
+		r := runRejected(t, f, f.stage(t, "nod_7a"), nil)
+		r.names(t, "changed by the run", "added added.md")
 	})
 	t.Run("a passing check that tampers cannot pass its gate", func(t *testing.T) {
 		f := newTaskFixture(t, `echo x > "$SATELLE_SUBSTRATE_DIR/added.md"`)
@@ -346,7 +411,7 @@ groups = [{ gates = ["chk"] }]
 		})
 		t.Setenv("HOME", t.TempDir())
 		nodeDir := f.stage(t, "nod_7a")
-		r := runRejected(t, f, nodeDir, LocalOptions{})
+		r := runRejected(t, f, nodeDir, nil)
 		r.names(t, "gate chk error:", "added added.md", "changed by the run")
 		if strings.Contains(r.out.Notes, "gate chk accept") || !strings.Contains(r.out.Notes, "backlog → done rejected") {
 			t.Fatalf("the gate passed:\n%s", r.out.Notes)
@@ -376,7 +441,7 @@ groups = [{ gates = ["chk", "two"] }]
 		})
 		t.Setenv("HOME", t.TempDir())
 		nodeDir := f.stage(t, "nod_7a")
-		r := runRejected(t, f, nodeDir, LocalOptions{})
+		r := runRejected(t, f, nodeDir, nil)
 		r.names(t, "changed "+runScript, "changed skills/scripts", "changed by the run", "gate two error:")
 		if !exists(filepath.Join(nodeDir, "substituted")) {
 			t.Fatal("gate one's own replacement did not run; the test proves nothing")
@@ -496,7 +561,7 @@ func TestRunLocalRefusesAPlantedRecordsPath(t *testing.T) {
 			}
 			c.plant(t, f.tree, outside)
 			nodeDir := stageCheckout(t, f, "nod_7a")
-			r := runRejected(t, f, nodeDir, LocalOptions{})
+			r := runRejected(t, f, nodeDir, nil)
 			r.names(t, c.named)
 			r.noGates(t)
 			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 1 || !exists(victim) {
@@ -504,6 +569,130 @@ func TestRunLocalRefusesAPlantedRecordsPath(t *testing.T) {
 			}
 			if _, err := os.Lstat(filepath.Join(nodeDir, "work", ".satelle", "runs", "unowned")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRunLocalWorkTreeSatelleWritesDoNotGovern(t *testing.T) {
+	plant := `mkdir -p .satelle/workflows && printf '[workflows]\ndefault = "other"\n' > .satelle/satelle.toml && ` +
+		`sed 's/gates.two/gates.planted/; s/"two"/"planted"/' "$SATELLE_SUBSTRATE_DIR/workflows/chk.toml" > .satelle/workflows/chk.toml`
+	for _, c := range []struct {
+		name     string
+		checkout bool
+	}{{"no checkout", false}, {"checkout", true}} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newTaskFixture(t, plant)
+			commitTree(t, f.tree, map[string]string{
+				"skills/two.md": "---\ntype: check\n---\n```sh\necho two-ran\n```\n",
+				"workflows/chk.toml": `[states.backlog]
+start = true
+[states.mid]
+[states.done]
+terminal = true
+[gates.chk]
+skill = "chk"
+[gates.two]
+skill = "two"
+[[transition]]
+from = ["backlog"]
+to = "mid"
+groups = [{ gates = ["chk"] }]
+[[transition]]
+from = ["mid"]
+to = "done"
+groups = [{ gates = ["two"] }]
+`,
+			})
+			t.Setenv("HOME", t.TempDir())
+			var nodeDir string
+			if c.checkout {
+				nodeDir = stageCheckout(t, f, "nod_7a")
+			} else {
+				nodeDir = f.stage(t, "nod_7a")
+			}
+			// What the node was given: the staged bundle unpacked with the overlay.
+			given := t.TempDir()
+			bundle, err := os.ReadFile(filepath.Join(nodeDir, "in", localDefinition))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, overlay, err := ReadBundle(bundle)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := unpackSubstrate(filepath.Join(nodeDir, "in"), given, overlay); err != nil {
+				t.Fatal(err)
+			}
+			want, err := kernel.SubstrateDigest(given)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var log strings.Builder
+			out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log,
+				Secrets: secretPayload(t, map[string]string{sealPayloadKey: hex.EncodeToString(priv)})})
+			if err != nil || out.Verdict != kernel.VerdictAccept {
+				t.Fatalf("RunLocal = %+v, %v\n%s", out, err, log.String())
+			}
+			if !strings.Contains(out.Notes, "gate two accept:") || !strings.Contains(out.Notes, "two-ran") || strings.Contains(out.Notes, "planted") {
+				t.Fatalf("the work tree's .satelle governed the run:\n%s", out.Notes)
+			}
+			if !exists(filepath.Join(nodeDir, "work", ".satelle", "workflows", "chk.toml")) {
+				t.Fatal("the check did not plant its workflow; the test proves nothing")
+			}
+			root := filepath.Join(nodeDir, nodeSubstrateDir)
+			got, err := kernel.SubstrateDigest(root)
+			if err != nil || got != want {
+				t.Fatalf("the substrate's digest = %s, %v; the node was given %s", got, err, want)
+			}
+			stampsTheSubstrate(t, nodeDir)
+			for _, rel := range filesUnder(t, given) {
+				a, aerr := os.ReadFile(filepath.Join(given, rel))
+				b, berr := os.ReadFile(filepath.Join(root, rel))
+				if aerr != nil || berr != nil || string(a) != string(b) {
+					t.Fatalf("%s differs from what the node was given: %v, %v", rel, aerr, berr)
+				}
+			}
+			if !slices.Equal(filesUnder(t, given), filesUnder(t, root)) {
+				t.Fatalf("the substrate holds %v, the node was given %v", filesUnder(t, root), filesUnder(t, given))
+			}
+			runtime := filepath.Join(nodeDir, "runtime")
+			if err := checkSeal(hex.EncodeToString(pub), out); err != nil {
+				t.Fatal(err)
+			}
+			if err := checkHeads(runtime, out.Heads); err != nil {
+				t.Fatal(err)
+			}
+			res, err := importBack(f.k, runtime, f.chains(), "nod_7a", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, err := f.k.Ledger.Items()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ran []string
+			for _, id := range ids {
+				events, err := f.k.Ledger.Read(id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, e := range events {
+					if e.Kind == gate.KindRun && e.Actor == "node:nod_7a" {
+						var g gate.Result
+						if err := json.Unmarshal(e.Payload, &g); err != nil {
+							t.Fatal(err)
+						}
+						ran = append(ran, g.Gate)
+					}
+				}
+			}
+			if res.Added == 0 || !slices.Equal(ran, []string{"chk", "two"}) {
+				t.Fatalf("brought back %d events with gate runs %v, want chk and two", res.Added, ran)
 			}
 		})
 	}

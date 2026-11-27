@@ -2,6 +2,7 @@ package remotenode
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,30 +13,27 @@ import (
 	"sync"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/filebundle"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/upgrade"
 )
 
+// nodeSubstrateDir is the directory under a node, apart from its work tree,
+// that its substrate is unpacked into, read-only.
+const nodeSubstrateDir = "substrate"
+
 // substrateFileMode is the mode every regular file of a node's substrate is
 // sealed to, as the kernel's record folders are.
 const substrateFileMode = 0o444
-
-// statID is a file's identity as the OS gives it: replacing, writing,
-// renaming, linking or chmodding an entry changes it, and no user can set it
-// back.
-type statID struct {
-	Dev, Ino, Nlink uint64
-	Ctime           int64
-}
 
 type substrateEntry struct {
 	Mode   fs.FileMode
 	Size   int64
 	SHA256 string
 	Link   string
-	ID     statID
+	ID     config.FileID
 }
 
 // substrateState maps each path under the substrate, the root itself as ".",
@@ -65,9 +63,7 @@ func snapshotSubstrate(root string, hash bool) (substrateState, error) {
 		case info.Mode().IsRegular():
 			e.Size = info.Size()
 		}
-		if e.ID, err = identity(p); err != nil {
-			return err
-		}
+		e.ID, _ = config.FileIdentity(info)
 		st[filepath.ToSlash(rel)] = e
 		return nil
 	})
@@ -176,6 +172,20 @@ func (d guardDispatcher) Dispatch(ctx context.Context, role agent.Role, req agen
 	return d.inner.Dispatch(ctx, role, req)
 }
 
+// hashedDiff compares the substrate's content with its sealed state. It runs the
+// stat-only guard first, so a file made unreadable is named by its path, not
+// reported as a read error.
+func hashedDiff(g *substrateGuard) ([]string, error) {
+	if err := g.check(); err != nil {
+		return g.failures(), nil
+	}
+	now, err := snapshotSubstrate(g.root, true)
+	if err != nil {
+		return nil, err
+	}
+	return diffSubstrate(g.sealed, now), nil
+}
+
 // unpackSubstrate makes every write the substrate gets: the firing tree's
 // bundle, the definition's overlay and, when it has none, an initial config.
 func unpackSubstrate(in, root string, overlay []fileEntry) error {
@@ -239,8 +249,12 @@ func prepareRecords(tree string) (string, error) {
 	if err := os.Mkdir(records, 0o755); err != nil {
 		return "", fmt.Errorf("refused: %w", err)
 	}
-	if real, err := filepath.EvalSymlinks(records); err != nil || real != records {
-		return "", fmt.Errorf("refused: %s does not resolve to itself", records)
+	evalTree, err := filepath.EvalSymlinks(tree)
+	if err != nil {
+		return "", fmt.Errorf("refused: %w", err)
+	}
+	if real, err := filepath.EvalSymlinks(records); err != nil || real != filepath.Join(evalTree, ".satelle", "runs") {
+		return "", fmt.Errorf("refused: %s does not resolve inside the work tree", records)
 	}
 	return records, nil
 }
@@ -250,22 +264,30 @@ func changedBy(phase string) string {
 }
 
 // rejectRun concludes a run as rejected and empties its runtime ledger, so the
-// starter imports nothing of it.
-func rejectRun(dir string, values []string, head string, lines []string, prefix string, steps *stepLog, status string) (LocalOutcome, error) {
+// starter imports nothing of it. The outcome is sealed with the emptied
+// ledger's heads, as an accepted one is with its own.
+func rejectRun(dir string, values []string, priv ed25519.PrivateKey, head string, lines []string, prefix string, steps *stepLog, status string) (LocalOutcome, error) {
 	runtime := filepath.Join(dir, "runtime")
 	for _, name := range []string{"ledger", "blobs"} {
 		if err := os.RemoveAll(filepath.Join(runtime, name)); err != nil {
 			return LocalOutcome{}, err
 		}
 	}
-	if _, err := ledger.Open(runtime); err != nil {
+	l, err := ledger.Open(runtime)
+	if err != nil {
 		return LocalOutcome{}, err
 	}
 	notes := prefix + head
-	for _, l := range lines {
-		notes += "\n" + l
+	for _, line := range lines {
+		notes += "\n" + line
 	}
 	out := LocalOutcome{Verdict: kernel.VerdictReject, Notes: redact(notes, values)}
+	if out.Heads, err = ledgerHeads(l); err != nil {
+		return LocalOutcome{}, err
+	}
+	if out.Seal, err = sealOutcome(priv, out); err != nil {
+		return LocalOutcome{}, err
+	}
 	steps.concluded(kernel.VerdictReject, status)
 	return out, writeOutcome(filepath.Join(dir, "out"), out)
 }

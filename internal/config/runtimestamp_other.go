@@ -4,4 +4,5 @@ package config
 
 import "io/fs"
 
-func extraLinks(fs.FileInfo) bool { return false }
+// FileIdentity reports no identity on a system without unix stat.
+func FileIdentity(fs.FileInfo) (FileID, bool) { return FileID{}, false }
