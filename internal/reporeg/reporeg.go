@@ -357,6 +357,9 @@ func reduce(s string) (string, bool) {
 }
 
 func reduceParts(s string) (candidate, host, path string, ok bool) {
+	if !urlChars(s) {
+		return "", "", "", false
+	}
 	var prefix, authority, rest string
 	if scheme, after, found := strings.Cut(s, "://"); found {
 		switch scheme {
@@ -397,6 +400,19 @@ func reduceParts(s string) (candidate, host, path string, ok bool) {
 	}
 	host, _, _ = strings.Cut(hostPort, ":")
 	return candidate, host, rest[1:], true
+}
+
+func urlChars(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("-._~:/?#[]@!$&'()*+,;=%", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func DisplayOrigin(s string) string {

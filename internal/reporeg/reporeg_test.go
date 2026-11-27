@@ -37,6 +37,10 @@ var originBypasses = []bypass{
 	{"evil.com:a/b/@github.com:acme/payments", Unparseable, true},
 	{"file:///tmp/evil@github.com:acme/payments", Unparseable, true},
 	{"git://evil.com/x@github.com:acme/payments", Unparseable, true},
+	{`https://evil.com\@github.com/acme/payments`, Unparseable, true},
+	{`ssh://evil.com\@github.com/acme/payments`, Unparseable, true},
+	{`evil.com\@github.com:acme/payments`, Unparseable, true},
+	{"https://evil.com @github.com/acme/payments", Unparseable, true},
 }
 
 var secrets = []string{"tok3n", "s3cret", "1234", "q7x", "pw9"}
@@ -91,8 +95,11 @@ func TestNormaliseAndDisplayOrigin(t *testing.T) {
 			t.Errorf("NormaliseOrigin(%q) compares equal to github.com/o/r", s)
 		}
 	}
-	if got := DisplayOrigin("https://x‮@github.com/o/r"); got != "https://github.com/o/r" {
+	if got := DisplayOrigin("https://x@github.com/o/r"); got != "https://github.com/o/r" {
 		t.Errorf("http(s) userinfo is not dropped: %q", got)
+	}
+	if got := DisplayOrigin("https://x‮@github.com/o/r"); got != Unparseable {
+		t.Errorf("a non-URL character must make the origin unreadable: %q", got)
 	}
 	for _, in := range []string{"git:tok3n", "not a url", "ssh://git@h‮/o/r"} {
 		if got := DisplayOrigin(in); got != Unparseable {
@@ -154,9 +161,9 @@ func TestRegistryRefusesCredentialedOrigin(t *testing.T) {
 }
 
 func authorityHost(x string) string {
-	rest, stop := x, "/?#:"
+	rest, stop := x, "/?#:\\"
 	if _, after, ok := strings.Cut(x, "://"); ok {
-		rest, stop = after, "/?#"
+		rest, stop = after, "/?#\\"
 	}
 	if i := strings.IndexAny(rest, stop); i >= 0 {
 		rest = rest[:i]
