@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,19 +115,45 @@ func TestCapacityReportsTheMachine(t *testing.T) {
 	}
 }
 
-func TestCapacitySamplesOnce(t *testing.T) {
+func TestCapacityReusesItsSampleWithinTheCadence(t *testing.T) {
 	isolate(t)
 	must(t, "init")
+	fakeTable(t, procgroup.Entry{PID: 1, PPID: 0, Argv: []string{"/sbin/init"}, Comm: "init"})
 	calls := 0
-	old := takeSample
-	t.Cleanup(func() { takeSample = old })
-	takeSample = func(k capacity.Known, tab func() ([]procgroup.Entry, error)) capacity.Sample {
+	old := readMachine
+	t.Cleanup(func() { readMachine = old })
+	readMachine = func(tab func() ([]procgroup.Entry, error)) capacity.Snapshot {
 		calls++
-		return old(k, tab)
+		return old(tab)
 	}
-	out := must(t, "capacity")
+	first := must(t, "capacity")
+	second := must(t, "capacity")
 	if calls != 1 {
-		t.Errorf("capacity sampled %d times, want 1:\n%s", calls, out)
+		t.Errorf("two runs within the cadence sampled %d times, want 1:\n%s\n%s", calls, first, second)
+	}
+	if a, b := capacityLine(t, first, "sampled"), capacityLine(t, second, "sampled"); a != b {
+		t.Errorf("second run's sampled line %q, want the first run's %q", b, a)
+	}
+
+	path := filepath.Join(config.GlobalDir(), capacitySampleFile)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no kept sample: %v", err)
+	}
+	var sn capacity.Snapshot
+	if err := json.Unmarshal(b, &sn); err != nil {
+		t.Fatalf("kept sample: %v", err)
+	}
+	sn.TakenAt = sn.TakenAt.Add(-capacity.Cadence)
+	if b, err = json.Marshal(sn); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	third := must(t, "capacity")
+	if calls != 2 {
+		t.Errorf("a run after the cadence sampled %d times in all, want 2:\n%s", calls, third)
 	}
 }
 
@@ -140,7 +167,10 @@ func TestCapacityStartsNoProcess(t *testing.T) {
 	if after := children(t); !slices.Equal(after, kids) {
 		t.Errorf("children %v after the run, want %v:\n%s", after, kids, out)
 	}
-	if diff := sameDigest(before, digest(t, home)); len(diff) != 0 {
-		t.Errorf("capacity wrote under the satelle home: %v:\n%s", diff, out)
+	kept := filepath.Join(home, capacitySampleFile)
+	for _, p := range sameDigest(before, digest(t, home)) {
+		if p != home && p != kept && p != kept+" (new)" {
+			t.Errorf("capacity wrote %s under the satelle home:\n%s", p, out)
+		}
 	}
 }

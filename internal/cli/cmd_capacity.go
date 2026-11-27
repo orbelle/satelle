@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/capacity"
@@ -18,19 +20,25 @@ import (
 )
 
 var (
-	takeSample   = capacity.Take
+	readMachine  = capacity.Read
 	processTable = procgroup.Table
 )
+
+const capacitySampleFile = "capacity-sample.json"
 
 func capacityCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "capacity",
 		Short: "Show this machine's cores, memory, load, running agent sessions and engaged seats",
-		Long: `capacity reads this machine's figures once, when asked, and prints them:
-cores (the CPUs this process may use), total and available memory, the 1, 5
-and 15 minute load average, the coding-agent sessions running per harness
-across every project on this machine, and the satelle seats engaged here
-across every registered project. Nothing is stored and no process is started.
+		Long: `capacity prints this machine's figures: cores (the CPUs this process may
+use), total and available memory, the 1, 5 and 15 minute load average, the
+coding-agent sessions running per harness across every project on this
+machine, and the satelle seats engaged here across every registered project.
+
+The machine figures are read at most once per 30 second cadence and kept in the
+satelle home as capacity-sample.json, readable by this user only, so every
+project on the machine reuses them; the sampled line says when they were read.
+Seats are read on every run. No process is started.
 
 Agent sessions are counted from the process table by the harness commands
 satelle knows: each integrated harness's CLI and the command of each
@@ -39,9 +47,16 @@ parent is a session of the same harness is counted with that session.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			repos, reposErr := capacityRepos()
-			s := takeSample(knownHarnesses(repos), processTable)
-			seats, seatErrs := machineSeats(repos)
-			printCapacity(cmd.OutOrStdout(), s, seats, append(seatErrs, reposErr))
+			sn, keepErr := capacity.Reuse(filepath.Join(config.GlobalDir(), capacitySampleFile), time.Now(), func() capacity.Snapshot {
+				return readMachine(processTable)
+			})
+			s := sn.Sample(knownHarnesses(repos))
+			seats, errs := machineSeats(repos)
+			errs = append(errs, reposErr)
+			if keepErr != nil {
+				errs = append(errs, fmt.Errorf("sample not kept: %w", keepErr))
+			}
+			printCapacity(cmd.OutOrStdout(), s, seats, errs)
 			return nil
 		},
 	}
@@ -117,6 +132,7 @@ func printCapacity(w io.Writer, s capacity.Sample, seats []engagedSeat, errs []e
 		id = "no machine id"
 	}
 	fmt.Fprintf(w, "machine   %s (%s)\n", host, id)
+	fmt.Fprintf(w, "sampled   %s (reused for %s)\n", s.TakenAt.UTC().Format(time.RFC3339), capacity.Cadence)
 	fmt.Fprintf(w, "cores     %d\n", s.Cores)
 	if err := s.Errs[capacity.FigMemory]; err != nil {
 		fmt.Fprintf(w, "memory    unavailable: %v\n", err)
