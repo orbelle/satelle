@@ -58,7 +58,9 @@ ledger or a commit. Locally the source is the control repository's own
 secrets file, `.satelle/.env` (in N=1, the repo's): untracked and ignored by
 git, written by the user, and the one place a value rests on the firing
 machine. A target repository holds no secrets file; a value in the control
-repository's may reach a run against any repository of its trust domain. Later a supported secrets service
+repository's may reach a run against any repository it governs, since a
+substrate is not a security boundary ([[satelle-control-plane-architecture]]
+§1). Later a supported secrets service
 (Infisical, satelle.dev) is a source in its place. The value reaches the node
 only over the connection the fire opens, and the node holds it in its process
 environment for its one run (operator, 2026-11-24, [[satelle-operator-rulings]]).

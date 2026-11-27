@@ -17,7 +17,8 @@ skill), **surface it and stop**.
 
 **A block is never worked around:** when a gate, hook deny, the edit gate, the
 cross-repo fence or a harness refusal blocks an action, raise the work as a story
-in the repo it belongs to, in the category whose route fits. Never do the blocked
+in the control repository (in a single-repo project, the repo itself), its `repo`
+naming the repository the work belongs to, in the category whose route fits. Never do the blocked
 work another way or hand the user a command that does it. When no category or
 workflow fits, propose one and create it only with the user's approval.
 

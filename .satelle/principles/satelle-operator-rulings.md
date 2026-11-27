@@ -321,22 +321,15 @@ are reviewed*).
   in the repo. THat is the local approach, later they can come from a supported
   secrets service like infisical, or satelle.dev." (operator, 2026-11-24;
   sto_b01dda27, [[satelle-agent-operates-remotes]]).
-- **One control repository is one trust domain.** "one control repository
-  equals one trust domain: same-trust repositories (satelle and
-  satelle-server) share one control repository and satelle.dev project, while
-  higher-privilege repositories (satelle-server-infra) stay in their own N=1
-  trust domain linked at the workspace level." "In-repo mode collapses to the
-  N=1 case (self implicit when .satelle/repos.toml is absent) so there is only
-  one code path and zero forced migration for existing single-repo users."
-  (operator, 2026-11-24; epic sto_5afbd604,
-  [[satelle-control-plane-architecture]]).
 - **The edit gate allows the seated target only.** "seats and edit-gate invert
   from cross-repo refusal to seated-target-repo allowlist", and "Item.repo is
   set-once and read by satelle-server for 1:N GitHub bindings." A session
   edits only the worktree of the target repository of the item it is seated
   on; in N=1 that is its own repository, which is the cross-repo fence. The
   principles are amended before any slice is built (operator, 2026-11-24;
-  sto_14fdf169, [[satelle-control-plane-architecture]]).
+  sto_14fdf169, [[satelle-control-plane-architecture]]). A protected
+  repository adds its own seat rule: see *A substrate is process scope, never a
+  security boundary* under 2026-11-27.
 - **Git stays read-only in every registered repository.** The binary reads
   each repository a control repository registers and writes none of them,
   their refs or their remotes, and "satelle stays read-only on git and holds
@@ -371,3 +364,20 @@ are reviewed*).
   fallback judge of sto_eef1d36a could not ship with its independence rule
   because a test requires the two copies to be equal
   ([[satelle-split-authored-process]]; sto_aabc85ad).
+
+## 2026-11-27
+
+- **A substrate is process scope, never a security boundary.** This replaces
+  the 2026-11-24 ruling that one control repository is one trust domain, which
+  was recorded only in sto_5afbd604. "one substrate repository,
+  satelle-substrate, governs satelle, satelle-server and satelle-server-infra,
+  whose existing substrate is merged in as its repo-specific part." "Each
+  registered repository has a tier (standard or protected). satelle enforces a
+  protected tier at level 1: no dispatched write grant, a seat only for a
+  session on an item that targets it, changes only through a pull request the
+  operator approves. Level 0 (identity, credentials, host, sandbox) is
+  provisioned by the operator outside satelle and needs no substrate change."
+  "Every agent may read every repository's ledger: awareness across
+  repositories is intended." "satelle-substrate starts on a clean ledger;
+  importing the old one is a later, optional step." (operator, 2026-11-27;
+  epic sto_5afbd604, [[satelle-control-plane-architecture]] §1).

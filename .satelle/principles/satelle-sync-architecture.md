@@ -65,7 +65,9 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   other repository's, failing closed. In N=1 the target is the session's own
   repository, so the rule is the cross-repo fence; for a control repository it
   is the allowlist of [[satelle-control-plane-architecture]] §6, which
-  sto_5c68f06c brings. A seat is not a lock: several sessions may hold seats
+  sto_5c68f06c brings; a protected repository is seated only by an
+  interactive session on an item that targets it (§1 there). A seat is not a
+  lock: several sessions may hold seats
   on one item, and there is no lease. Changes to one area of code run one after
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
