@@ -113,7 +113,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.integration-check]
 skill = "satelle-integration-check"
-placement = "remote:integration"
 timeout = "40m"
 
 [gates.pr-pending]
