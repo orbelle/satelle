@@ -19,13 +19,17 @@ type Repo struct {
 	Env []string
 }
 
-func (r Repo) git(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", r.Dir}, args...)...)
+func (r Repo) environ() []string {
 	env := r.Env
 	if env == nil {
 		env = os.Environ()
 	}
-	cmd.Env = append(slices.Clone(env), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	return append(slices.Clone(env), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+}
+
+func (r Repo) git(args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.Env = r.environ()
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -127,7 +131,7 @@ func (r Repo) Resolve(ref string) (string, error) {
 
 func (r Repo) IsAncestor(a, b string) (bool, error) {
 	cmd := exec.Command("git", "-C", r.Dir, "merge-base", "--is-ancestor", a, b)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	cmd.Env = r.environ()
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	err := cmd.Run()
@@ -146,7 +150,7 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 		return out, nil
 	}
 	cmd := exec.Command("git", append([]string{"-C", r.Dir, "check-ignore", "-v", "--"}, paths...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	cmd.Env = r.environ()
 	var stdout, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &errb
 	if err := cmd.Run(); err != nil {
@@ -172,9 +176,26 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 	return out, nil
 }
 
+// ErrNoRemote is RemoteURL's answer when the remote has no url configured.
+var ErrNoRemote = errors.New("no such remote")
+
+// RemoteURL reads remote.<name>.url from the repository's config: no network,
+// no fetch, no write.
+func (r Repo) RemoteURL(name string) (string, error) {
+	out, err := r.git("config", "--get", "remote."+name+".url")
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return "", ErrNoRemote
+		}
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (r Repo) Branch() (string, error) {
 	cmd := exec.Command("git", "-C", r.Dir, "symbolic-ref", "--short", "-q", "HEAD")
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	cmd.Env = r.environ()
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()

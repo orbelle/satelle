@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/pack"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
@@ -170,10 +170,13 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
-func packTarget(verb string, prospective bool) (string, pack.Names, func(string) error, func(), error) {
+// treeEditCheck resolves the repo and builds the edit gate a satelle command
+// that writes tracked files passes for each path: resolveInTree, then
+// hook.Gate.Edit (seat, locked paths, other repositories).
+func treeEditCheck(verb string, prospective bool) (repo, func(string) error, func(), error) {
 	r, err := findRepo("")
 	if err != nil {
-		return "", pack.Names{}, nil, nil, err
+		return repo{}, nil, nil, err
 	}
 	session := sessionFromEnv()
 	g := hook.Gate{Root: r.Tree, TempRoots: []string{}}
@@ -181,26 +184,21 @@ func packTarget(verb string, prospective bool) (string, pack.Names, func(string)
 	if prospective && len(kernel.Validate(r.DataDir)) > 0 {
 		st, err := kernel.LoadSettings(r.DataDir)
 		if err != nil {
-			return "", pack.Names{}, nil, nil, err
+			return repo{}, nil, nil, err
 		}
 		g.Locked = st.Gate.LockedPaths
 		g.Grant = func(tree string) hook.Grant { return seatGrantUnconfigured(r, session, tree) }
 	} else {
 		k, err := r.open()
 		if err != nil {
-			return "", pack.Names{}, nil, nil, err
+			return repo{}, nil, nil, err
 		}
 		closeFn = func() { k.Close() }
 		g.Locked = k.Settings.Gate.LockedPaths
 		g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
 	}
-	fail := func(err error) (string, pack.Names, func(string) error, func(), error) {
-		closeFn()
-		return "", pack.Names{}, nil, nil, err
-	}
-	resolve := func(p string) (string, error) { return resolveInTree(verb, r.Tree, p) }
 	check := func(p string) error {
-		c, err := resolve(p)
+		c, err := resolveInTree(verb, r.Tree, p)
 		if err != nil {
 			return err
 		}
@@ -212,7 +210,19 @@ func packTarget(verb string, prospective bool) (string, pack.Names, func(string)
 		}
 		return nil
 	}
-	data, err := resolve(r.DataDir)
+	return r, check, closeFn, nil
+}
+
+func packTarget(verb string, prospective bool) (string, pack.Names, func(string) error, func(), error) {
+	r, check, closeFn, err := treeEditCheck(verb, prospective)
+	if err != nil {
+		return "", pack.Names{}, nil, nil, err
+	}
+	fail := func(err error) (string, pack.Names, func(string) error, func(), error) {
+		closeFn()
+		return "", pack.Names{}, nil, nil, err
+	}
+	data, err := resolveInTree(verb, r.Tree, r.DataDir)
 	if err != nil {
 		return fail(err)
 	}
@@ -512,7 +522,7 @@ func newestOf(ref, version string, resp *satellepb.PackVersion, err error) (stri
 }
 
 func quoteControl(s string) string {
-	if strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }) >= 0 {
+	if reporeg.HasUnsafe(s) {
 		return strconv.Quote(s)
 	}
 	return s

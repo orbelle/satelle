@@ -192,6 +192,14 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 		"remotenode/fetch.go":    true,
 		"uipush/client.go":       true,
 	}
+	// The target-repository registry names a git remote and the repos.toml key
+	// "origin" (a repository URL), never the ledger's provenance origin; only
+	// that literal is exempt there, every other needle still applies.
+	gitRemote := map[string]bool{
+		"reporeg/reporeg.go":  true,
+		"cli/cmd_repo.go":     true,
+		"cli/doctor_repos.go": true,
+	}
 	needles := []string{"OriginKey", ".Origin", "ledger.Origin", "EnvRole", "WorkerFromEnv", "WorkerEnv", `"origin"`}
 	root := ".."
 	var hits []string
@@ -215,6 +223,9 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 			return err
 		}
 		for _, n := range needles {
+			if n == `"origin"` && gitRemote[rel] {
+				continue
+			}
 			if strings.Contains(string(b), n) {
 				hits = append(hits, rel+": "+n)
 			}
