@@ -69,8 +69,8 @@ func TestEditGateTable(t *testing.T) {
 		{name: "bash sed -i unseated", bash: "sed -i 's/a/b/' main.go", allow: false},
 		{name: "bash inline interpreter unseated", bash: `python3 -c 'open("x","w").write("y")'`, allow: false},
 		{name: "bash inline interpreter seated", seated: []string{root}, bash: `python3 -c 'print(1)'`, allow: true},
-		{name: "bash git read", bash: "git -C " + foreign + " status", allow: true},
-		{name: "bash git -C write foreign", seated: []string{root}, bash: "git -C " + foreign + " commit -m x", allow: false},
+		{name: "bash git read", bash: "git -C " + filepath.ToSlash(foreign) + " status", allow: true},
+		{name: "bash git -C write foreign", seated: []string{root}, bash: "git -C " + filepath.ToSlash(foreign) + " commit -m x", allow: false},
 		{name: "bash sh -c program judged by its writes", bash: `sh -c 'echo hi > y.txt'`, allow: false},
 		{name: "bash chmod scratch file unseated", bash: "chmod +x " + filepath.Join(temp, "x.sh"), allow: true},
 		{name: "bash chmod repo file unseated", bash: "chmod +x main.go", allow: false},
@@ -201,7 +201,7 @@ func TestGateGitDirQuoted(t *testing.T) {
 	root := newRepo(t)
 	g := Gate{Root: root, TempRoots: []string{}, Grant: func(string) Grant { return Grant{} }}
 	for _, verb := range []string{"log --oneline -1", "status", "diff"} {
-		if v := g.Bash("git -C "+root+" "+verb, root); !v.Allow {
+		if v := g.Bash("git -C "+filepath.ToSlash(root)+" "+verb, root); !v.Allow {
 			t.Errorf("unquoted %q: denied (%s), want allowed", verb, v.Reason)
 		}
 		for _, q := range []string{"'", "\""} {
@@ -645,10 +645,22 @@ func TestGateRefusesOperatorRecord(t *testing.T) {
 			t.Errorf("%q: %+v", c, v)
 		}
 	}
+	unread := 0
 	for _, c := range append(append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...), operatorRecordStoryTextCases...) {
-		if v := g.Bash(c, root); !v.Allow {
+		v := g.Bash(c, root)
+		if ScanBash(c, root, root, nil).Unreadable != "" {
+			unread++
+			if v.Allow || v.Reason == OperatorRecordDenied || !strings.Contains(v.Reason, "fail-closed rule") {
+				t.Errorf("%q: unread line naming git, want the fail-closed refusal: %+v", c, v)
+			}
+			continue
+		}
+		if !v.Allow {
 			t.Errorf("%q denied: %s", c, v.Reason)
 		}
+	}
+	if unread == 0 {
+		t.Error("no data case is an unread line naming git; the fail-closed pin is not exercised")
 	}
 }
 
@@ -739,6 +751,186 @@ func TestGateEmptyTempRootsDoesNotAllowTemp(t *testing.T) {
 	} {
 		if got := Within(c.root, c.target); got != c.want || got != within(c.root, c.target) {
 			t.Errorf("Within(%q, %q) = %v, want %v", c.root, c.target, got, c.want)
+		}
+	}
+}
+
+type gitAfterCdFixture struct {
+	root, wt string
+}
+
+func newGitAfterCdFixture(t *testing.T) gitAfterCdFixture {
+	t.Helper()
+	root := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	gittest.Git(t, root, "worktree", "add", "-q", wt)
+	wt, err := filepath.EvalSymlinks(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{filepath.Join(wt, "sub"), filepath.Join(root, "sub")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return gitAfterCdFixture{root: root, wt: wt}
+}
+
+func (f gitAfterCdFixture) expand(cmd string) string {
+	rel, _ := filepath.Rel(f.root, f.wt)
+	return strings.NewReplacer("<wt>", filepath.ToSlash(f.wt), "<root>", filepath.ToSlash(f.root), "<rel>", filepath.ToSlash(rel)).Replace(cmd)
+}
+
+func TestGateGitAfterCd(t *testing.T) {
+	f := newGitAfterCdFixture(t)
+	g := Gate{Root: f.root, TempRoots: []string{}, Grant: func(tree string) Grant { return Grant{Tree: tree == f.root} }}
+	for _, c := range []string{
+		"cd <wt> && git merge x",
+		"cd <wt>; git merge x",
+		"cd <wt> || ls && git merge x",
+		"cd <wt> | cat; git merge x",
+		"cd <wt> && git reset --hard",
+		"cd <wt> && git commit -m x",
+		"cd <wt> && git rebase main",
+		"cd '<wt>' && git merge x",
+		`cd "<wt>" && git merge x`,
+		"cd <rel> && git merge x",
+		"cd <wt> && git -C sub merge x",
+		"cd <wt> && git -Csub merge x",
+		"git -C<wt> merge x",
+		"cd <wt> && ls && git merge x",
+		"'cd' <wt> && 'git' merge x",
+		"cd <wt> && /usr/bin/git merge x",
+	} {
+		cmd := f.expand(c)
+		v := g.Bash(cmd, f.root)
+		if v.Allow {
+			t.Errorf("%q: allowed, want refused naming the worktree", cmd)
+			continue
+		}
+		if !within(f.wt, v.Path) || !strings.Contains(v.Reason, "local:"+f.wt) {
+			t.Errorf("%q: refused at %q (%s), want a path under %s naming local:%s", cmd, v.Path, v.Reason, f.wt, f.wt)
+		}
+	}
+
+	done := Gate{Root: f.root, TempRoots: []string{}, Grant: func(tree string) Grant {
+		if tree == f.wt {
+			return Grant{AttachOnly: true, Item: "sto_112075bb", State: "done"}
+		}
+		return Grant{Tree: tree == f.root}
+	}}
+	cmd := f.expand("cd <wt> && git merge x")
+	if v := done.Bash(cmd, f.root); v.Allow || !v.AttachOnly || !strings.Contains(v.Reason, "local:"+f.wt) || !strings.Contains(v.Reason, "sto_112075bb") {
+		t.Errorf("%q at a done item's worktree: %+v, want refused naming local:%s and sto_112075bb", cmd, v, f.wt)
+	}
+
+	for _, c := range []string{
+		"cd <wt> && git status",
+		"cd <wt> && git log --oneline -1",
+		"cd <wt> && git diff",
+		"cd <wt>; git show HEAD",
+		"cd <wt> && git rev-parse HEAD",
+		"cd <wt> && git ls-files",
+		"cd <wt> && git -C sub status",
+		"cd <wt> && git --no-pager log -1",
+		"cd <wt> && git diff HEAD~1",
+		"cd <wt> && git log --format='%H %s' -3 | head -1",
+	} {
+		cmd := f.expand(c)
+		if v := g.Bash(cmd, f.root); !v.Allow {
+			t.Errorf("%q: refused (%s), want allowed: the git only reads", cmd, v.Reason)
+		}
+	}
+
+	for _, c := range []string{
+		"git commit -m x",
+		"git merge x",
+		"git add . && git commit -m 'fix: x'",
+		`git commit -m "it's fixed (scope)"`,
+		"git -C <root> commit -m x",
+		"cd <root> && git merge x",
+		"cd sub && git commit -m x",
+		"cd <root>; git reset --hard",
+		"git merge x | tail -5",
+		"git reset --hard HEAD~1",
+		"git commit -m 'line one\nline two'",
+		"git add -A && git commit -m x && ls",
+	} {
+		cmd := f.expand(c)
+		if v := g.Bash(cmd, f.root); !v.Allow {
+			t.Errorf("%q: refused (%s), want allowed: the session is seated at its own worktree", cmd, v.Reason)
+		}
+	}
+}
+
+func TestGateRefusesUnreadGit(t *testing.T) {
+	f := newGitAfterCdFixture(t)
+	g := Gate{Root: f.root, TempRoots: []string{}, Grant: func(tree string) Grant { return Grant{Tree: tree == f.root} }}
+	const cdForm = "a cd whose target is not one plain literal path"
+	for _, c := range []struct{ cmd, want string }{
+		{"cd $WT && git merge x", ""},
+		{`cd "$WT" && git merge x`, ""},
+		{`cd <wt> && git merge "$b"`, ""},
+		{`git -C <wt> merge "$(cat msg)"`, ""},
+		{"cd <wt> && git merge `cat b`", ""},
+		{`cd $WT && git -C "$(pwd)" merge x`, ""},
+		{`cd - && git -C "$(pwd)" merge x`, cdForm},
+		{"cd <wt> && git\\\n merge x", "a line continuation"},
+		{"cd <wt> && git --no-pager\\\n merge x", "a line continuation"},
+		{"cd <wt> && git \\\n  merge x", "a line continuation"},
+		{"cd <wt> && git >/dev/null merge x", "a redirection"},
+		{"cd <wt> && git diff 2>&1 --output=x", "a redirection"},
+		{"cd <wt> && git merge x 2>&1", "a redirection"},
+		{"cd <wt> && git merge x > log", "a redirection"},
+		{"cd <wt> && git merge x # done", "#"},
+		{"cd <wt> & git merge x", "a lone &"},
+		{"(cd <wt> && git merge x)", "("},
+		{"{ cd <wt>; git merge x; }", "{"},
+		{"cd <wt>\ngit merge x", "a newline"},
+		{"cd <wt>/s* && git merge x", "*"},
+		{"cd <wt> && g\\it merge x", `\`},
+		{`cd <wt> && git commit -m "fix!"`, "!"},
+		{"cd - && git merge x", cdForm},
+		{"cd ~/wt && git merge x", "~"},
+		{"cd -P <wt> && git merge x", cdForm},
+		{"cd <wt> extra && git merge x", cdForm},
+		{"X=1 cd <wt> && git merge x", "an assignment"},
+		{"X+=1 cd <wt> && git merge x", "an assignment"},
+		{"printf -v d %s <wt>; cd <wt> && git merge x", "the builtin or keyword printf"},
+		{"cd <wt> && echo hi && git merge x", "the builtin or keyword echo"},
+		{"true && cd <wt> && git merge x", "the builtin or keyword true"},
+		{"pwd; cd <wt> && git merge x", "the builtin or keyword pwd"},
+		{"pushd <wt> && git merge x", "the builtin or keyword pushd"},
+		{"builtin cd <wt> && git merge x", "the builtin or keyword builtin"},
+		{"command cd <wt> && git merge x", "the builtin or keyword command"},
+		{"if cd <wt>; then git merge x; fi", "the builtin or keyword if"},
+		{"time git -C <wt> merge x", "the builtin or keyword time"},
+		{"cd <wt> && git status 2>&1", ""},
+		{"cd $WT && git log -1", ""},
+		{"git diff 2>&1 | head", ""},
+		{"git -C <wt> commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\"", ""},
+	} {
+		cmd := f.expand(c.cmd)
+		v := g.Bash(cmd, f.root)
+		if v.Allow || !strings.Contains(v.Reason, "fail-closed rule") || !strings.Contains(v.Reason, c.want) {
+			t.Errorf("%q: %+v, want refused under the fail-closed rule naming %q", cmd, v, c.want)
+		}
+		if ScanBash(cmd, f.root, f.root, nil).Unreadable == "" {
+			t.Errorf("%q: Unreadable is empty", cmd)
+		}
+	}
+
+	temp, _ := filepath.EvalSymlinks(t.TempDir())
+	tg := Gate{Root: f.root, TempRoots: []string{temp}, Grant: func(tree string) Grant { return Grant{Tree: tree == f.root} }}
+	for _, cmd := range []string{
+		"echo done # note",
+		"(make test)",
+		"ls *.go",
+		"cd $D && make test",
+		"cat .gitignore > " + filepath.ToSlash(filepath.Join(temp, "x")),
+	} {
+		if v := tg.Bash(cmd, f.root); !v.Allow {
+			t.Errorf("%q: refused (%s), want allowed: an unread line that names no git is judged as before", cmd, v.Reason)
 		}
 	}
 }

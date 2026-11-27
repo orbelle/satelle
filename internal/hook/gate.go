@@ -40,6 +40,14 @@ var allow = Verdict{Allow: true}
 const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
 	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
+func unreadReason(what string) string {
+	return "satelle: refused under the edit gate's fail-closed rule: the gate reads a shell line only when every token is a plain literal word or one of &&, ||, ; and |, " +
+		"with git as a command word after an optional cd to one literal path; this line holds " + what + " and names git, " +
+		"so the gate cannot tell which tree it changes or whether it only reads. " +
+		"Rewrite it in plain form: git -C <dir> or cd <dir> with a literal path, a commit message with -m '<text>' or -F <file>, " +
+		"no redirections, no other builtins, or separate commands. See `satelle help edit-gate --session <session>`."
+}
+
 func (g Gate) Edit(target string) Verdict {
 	return g.judge(native(resolvePath(g.Root, target)), false)
 }
@@ -70,6 +78,9 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	t := ScanBash(command, cwd, g.Root, func(p string) bool { return isFile(native(p)) })
 	if t.OperatorRecord {
 		return Verdict{Reason: OperatorRecordDenied}
+	}
+	if t.Unreadable != "" {
+		return Verdict{Reason: unreadReason(t.Unreadable)}
 	}
 	for _, p := range t.Paths {
 		if v := g.judge(native(p), false); !v.Allow {
