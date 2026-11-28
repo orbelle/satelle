@@ -1,7 +1,7 @@
 ---
 name: cross-repo-underway
 type: skill
-description: The underway performer of a cross-repo story, bound to the interactive session. It drives the children in their depends-on order, each through its own repository's workflow and release, then attaches combined-change (every done child's frozen change and its diff) and presents done. Edits no tree of the parent.
+description: The underway performer of a cross-repo story, bound to the interactive session. It drives the children in their depends-on order, each through its own repository's workflow and release, then attaches combined-change (every done child's frozen change and its diff) and presents done. A further child the judge's findings need is created while the parent stays underway. Edits no tree of the parent.
 ---
 
 # Cross-repository underway (underway performer)
@@ -53,6 +53,18 @@ satelle story set <id> --status done --session <session>
 The gates refuse while a child is open, while `combined-change` lacks a
 child's current frozen change, and when a judge finds that the children's
 combined change does not meet the parent's criteria. A judge's reject names
-the criterion. The fix is a further child: return to `split` only with the
-operator's word. After the round cap the story is held at `blocked`: follow
+the criterion or seam.
+
+## 4. A further child, staying underway
+
+The fix for a criterion or seam the children miss is a further child, and the
+parent stays `underway`: the workflow has no move back to `split`. With the
+operator's word, create it as `cross-repo-split` step 2 says, with the next
+split number and `depends-on:` tags on the children it follows. Append its
+`- <n> <child id> <repo>` line to a new version of the `split` attachment.
+Drive it as in step 1, then write `combined-change` again and present done.
+`children-closed` and `satelle-cross-repo-combined-check` read every child, the
+further one included.
+
+After the round cap the story is held at `blocked`: follow
 `.satelle/session.md`.
