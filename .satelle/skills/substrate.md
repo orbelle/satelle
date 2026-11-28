@@ -61,8 +61,10 @@ satelle validate --session <session>
 
 It must report the configuration valid with no substrate finding and no
 volatile line. Commit on the item's branch with a conventional subject ending
-in the item id. Push the branch (`git push -u origin <id>`) so the work is
-not only local.
+in the item id. Push the branch with an explicit destination
+(`git push -u origin HEAD:refs/heads/<id>`) so the work is not only local: the
+edit gate refuses a push whose destination is not written
+(`satelle help edit-gate --session <session>`).
 
 ## 5. Present done
 
