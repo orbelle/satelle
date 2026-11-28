@@ -155,7 +155,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	g.Push = func(branch string) hook.Verdict {
 		return pushVerdict(session, branch, k.Cache.Item,
 			func() ([]item.Seat, error) { return k.Cache.Seats(session, "") },
-			func(it item.Item) (string, error) { return editScope(k.Workflows, it), nil })
+			func(it item.Item) (string, error) { return editScope(k.Resolver(), it) })
 	}
 	v := judgeHook(g, in)
 	if !v.Allow && session == "" {
@@ -206,7 +206,11 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 		if err != nil || !ok {
 			continue
 		}
-		switch editScope(k.Workflows, it) {
+		scope, err := editScope(k.Resolver(), it)
+		if err != nil {
+			return hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status, Unread: err.Error()}
+		}
+		switch scope {
 		case workflow.EditsTree:
 			if it.Target() == reporeg.Self {
 				g.Tree = true
@@ -277,7 +281,12 @@ func seatedTargets(k *kernel.Kernel, r repo, session string) []hook.Target {
 			continue
 		}
 		var gr hook.Grant
-		switch editScope(k.Workflows, it) {
+		scope, err := editScope(k.Resolver(), it)
+		if err != nil {
+			problems = append(problems, hook.Target{Names: []string{name}, Item: it.ID, Problem: err.Error()})
+			continue
+		}
+		switch scope {
 		case workflow.EditsTree:
 			gr.Tree = true
 		case workflow.EditsAttachments:

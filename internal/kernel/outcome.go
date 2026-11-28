@@ -35,7 +35,7 @@ func (k *Kernel) ItemOutcome(id string) (ItemOutcome, error) {
 	if err != nil {
 		return ItemOutcome{}, err
 	}
-	w := k.Workflows[it.Workflow]
+	w := k.servedWorkflow(it)
 	terminal := w != nil && w.IsTerminal(it.Status)
 	return itemOutcome(it, events, terminal), nil
 }

@@ -232,7 +232,7 @@ func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatS
 func withProgress(rows []rowVM, byItem map[string][]Entry, bySeat map[string][]mirror.Seat, workflows map[string]*mirror.Workflow, standing seatStanding) {
 	for i := range rows {
 		it := rows[i].Item
-		rows[i].Progress = progressOf(workflows[it.Workflow], it, byItem[it.ID], bySeat[it.ID], standing, rows[i].Engaged)
+		rows[i].Progress = progressOf(itemWorkflow(workflows, it), it, byItem[it.ID], bySeat[it.ID], standing, rows[i].Engaged)
 	}
 }
 
@@ -258,7 +258,7 @@ func itemRows(items []Item, workflows map[string]*mirror.Workflow) []rowVM {
 	}
 	out := make([]rowVM, len(items))
 	for i, it := range items {
-		out[i] = rowVM{Item: it, StateClass: stateClass(workflows[it.Workflow], it.Status), Lineage: lineageTags(it, byID)}
+		out[i] = rowVM{Item: it, StateClass: stateClass(itemWorkflow(workflows, it), it.Status), Lineage: lineageTags(it, byID)}
 	}
 	return out
 }
@@ -429,7 +429,7 @@ func engagements(seats []mirror.Seat, stories []Item, workflows map[string]*mirr
 	for _, seat := range held {
 		id := seatItem(seat)
 		it, ok := byID[id]
-		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" {
+		if id == "" || !ok || stateClass(itemWorkflow(workflows, it), it.Status) == "terminal" {
 			continue
 		}
 		st, ev := standing(seat)
@@ -519,7 +519,7 @@ func seatSession(seat mirror.Seat) string {
 }
 
 func panelOf(workflows map[string]*mirror.Workflow, it Item) string {
-	if w := workflows[it.Workflow]; w != nil {
+	if w := itemWorkflow(workflows, it); w != nil {
 		return w.Panel
 	}
 	return ""
@@ -582,7 +582,7 @@ func splitPanels(rows []rowVM, workflows map[string]*mirror.Workflow) ([]rowVM, 
 func backlogCount(stories []Item, workflows map[string]*mirror.Workflow) int {
 	n := 0
 	for _, it := range stories {
-		if s, ok := workflowState(workflows[it.Workflow], it.Status); ok && s.Start {
+		if s, ok := workflowState(itemWorkflow(workflows, it), it.Status); ok && s.Start {
 			n++
 		}
 	}
@@ -663,7 +663,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	}
 
 	idMeta := mirrorIdentity(ctx, s, repoKey)
-	route := buildRoute(workflows[it.Workflow], it.Workflow, it.Status, events)
+	route := buildRoute(itemWorkflow(workflows, it), it.Workflow, it.Status, events)
 	backTab := ""
 	if p := panelOf(workflows, it); p != "" {
 		backTab = panelTopic(p)
@@ -675,7 +675,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	assignees := assigneeVMs(assigneesOf(it, itemSeats, standing))
 	var progress []stageVM
 	if group == "story" {
-		progress = progressOf(workflows[it.Workflow], it, events, itemSeats, standing, engagements(itemSeats, []Item{it}, workflows, standing)[it.ID])
+		progress = progressOf(itemWorkflow(workflows, it), it, events, itemSeats, standing, engagements(itemSeats, []Item{it}, workflows, standing)[it.ID])
 	}
 	return detailData{
 		Item:          it,
@@ -683,7 +683,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		Progress:      progress,
 		Assignees:     assignees,
 		BackTab:       backTab,
-		StateClass:    stateClass(workflows[it.Workflow], it.Status),
+		StateClass:    stateClass(itemWorkflow(workflows, it), it.Status),
 		ParentKind:    parentKind,
 		Children:      children,
 		Route:         route,
