@@ -1513,14 +1513,6 @@ func expandShellPath(p string) string {
 	return val + rest
 }
 
-func resolvePath(cwd, p string) string {
-	raw := JoinRaw(cwd, p)
-	if raw == "" {
-		return ""
-	}
-	return path.Clean(raw)
-}
-
 func JoinRaw(cwd, p string) string {
 	p = expandShellPath(strings.TrimSpace(p))
 	if p == "" {

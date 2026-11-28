@@ -3,6 +3,7 @@ package hook
 import (
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -267,7 +268,7 @@ func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
 	}
 }
 
-func TestResolvePathForms(t *testing.T) {
+func TestJoinRawCleanForms(t *testing.T) {
 	rows := []struct{ cwd, p, want string }{
 		{"/w", "a.txt", "/w/a.txt"},
 		{"/w", "/tmp/x.sh", "/tmp/x.sh"},
@@ -284,8 +285,12 @@ func TestResolvePathForms(t *testing.T) {
 		)
 	}
 	for _, r := range rows {
-		if got := resolvePath(r.cwd, r.p); got != r.want {
-			t.Errorf("resolvePath(%q, %q) = %q, want %q", r.cwd, r.p, got, r.want)
+		got := JoinRaw(r.cwd, r.p)
+		if got != "" {
+			got = path.Clean(got)
+		}
+		if got != r.want {
+			t.Errorf("path.Clean(JoinRaw(%q, %q)) = %q, want %q", r.cwd, r.p, got, r.want)
 		}
 	}
 }
