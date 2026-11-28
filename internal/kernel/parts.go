@@ -29,6 +29,7 @@ type Part struct {
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	RuleFiles RuleFiles
+	Inject    []string
 	Problems  []error
 }
 
@@ -245,11 +246,12 @@ func (c *Config) loadPart(dir, x string) {
 	}
 	c.loadPartSkills(p, partDir)
 	c.loadPartRuleFiles(p, partDir)
-	rules, err := loadPartRules(partDir, rel)
+	st, err := loadPartRules(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)
-	} else if rules != nil {
-		p.Rules = *rules
+	} else if st != nil {
+		p.Rules = st.Rules
+		c.checkPartInject(p, st.Inject)
 	}
 	wfs, errs := loadPartWorkflows(partDir, rel, x)
 	p.Problems = append(p.Problems, errs...)
@@ -283,7 +285,12 @@ func (c *Config) resolvePart(p *Part) []error {
 	return errs
 }
 
-func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
+type partSettings struct {
+	Rules  workflow.Rules
+	Inject []string
+}
+
+func loadPartRules(partDir, rel string) (*partSettings, error) {
 	file := rel + "/" + SettingsFile
 	data, err := reporeg.ReadRegular(filepath.Join(partDir, SettingsFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -294,6 +301,9 @@ func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
 	}
 	var st struct {
 		Workflows workflow.Rules `toml:"workflows"`
+		Hook      struct {
+			Inject []string `toml:"inject"`
+		} `toml:"hook"`
 	}
 	unknown, err := workflow.DecodeData(file, data, &st)
 	if err != nil {
@@ -301,14 +311,16 @@ func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
 	}
 	var keys []string
 	for _, u := range unknown {
-		if u.Table == "workflows" || strings.HasPrefix(u.Table, "workflows.") {
-			keys = append(keys, strictKeyName(u))
+		for _, table := range []string{"workflows", "hook"} {
+			if u.Table == table || strings.HasPrefix(u.Table, table+".") {
+				keys = append(keys, strictKeyName(u))
+			}
 		}
 	}
 	if len(keys) > 0 {
 		return nil, partErr("%s: unknown key %s", file, strings.Join(keys, ", "))
 	}
-	return &st.Workflows, nil
+	return &partSettings{Rules: st.Workflows, Inject: st.Hook.Inject}, nil
 }
 
 func loadPartWorkflows(partDir, rel, x string) (map[string]*workflow.Workflow, []error) {

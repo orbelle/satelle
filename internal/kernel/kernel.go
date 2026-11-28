@@ -41,6 +41,7 @@ type Kernel struct {
 	PartSkills    map[string]map[string]workflow.Skill
 	RuleFiles     RuleFiles
 	PartRuleFiles map[string]RuleFiles
+	PartInject    map[string][]string
 	Packs         map[string]workflow.Pack
 	Agents        agent.Catalog
 	Overrides     []agent.Override
@@ -128,7 +129,7 @@ func Open(o Options) (*Kernel, error) {
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Packs: cfg.Packs, Agents: cfg.Agents, Overrides: cfg.Overrides,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness, Repos: cfg.Repos,
-		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Parts: cfg.Parts, PartSkills: cfg.PartSkills(), RuleFiles: cfg.RuleFiles, PartRuleFiles: cfg.PartRuleFiles(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
+		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Parts: cfg.Parts, PartSkills: cfg.PartSkills(), RuleFiles: cfg.RuleFiles, PartRuleFiles: cfg.PartRuleFiles(), PartInject: cfg.PartInject(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
 	k.targetEnv = config.TargetGitEnv(os.Environ())
 	repo := gitfacts.Repo{Dir: o.Dir}

@@ -518,6 +518,9 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 			seats, _ := seatsOf(k, session)
 			return seats
 		}
+		if inject {
+			src.Inject, src.InjectNote = seatedInject(k, r, src.Session)
+		}
 	}
 	text, notice, _ = renderSession(r, src, harness, inject)
 	return text, notice, true
@@ -538,6 +541,9 @@ func mappedSessionContext(v targetView, in hook.Input, harness string, inject bo
 	src.Seats = func(session string) []seatView {
 		seats, _ := seatsOf(k, session)
 		return seats
+	}
+	if inject {
+		src.Inject, src.InjectNote = seatedInject(k, r, src.Session)
 	}
 	text, notice, _ = renderSession(r, src, harness, inject)
 	return targetLine(v) + text, notice, true
@@ -564,12 +570,15 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 		return b.String(), notice, nil
 	}
 	if inject {
-		b.WriteString(framingLines(r, k.Settings.Hook.Inject))
+		b.WriteString(framingLines(r, k.injectFiles()))
 	}
 	b.WriteString(sessionLine(session))
 	if session != "" {
 		seats := k.Seats(session)
 		printSeats(&b, seats)
+		if k.InjectNote != "" {
+			b.WriteString(k.InjectNote + "\n")
+		}
 	}
 	if g := sessionGuidance(r); g != "" {
 		b.WriteString(g)
@@ -582,7 +591,8 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 			notice = n
 		}
 		preface := b.String()
-		for _, f := range k.Settings.Hook.Inject {
+		files := k.injectFiles()
+		for _, f := range files {
 			body, err := contextFile(r, f)
 			if err != nil {
 				fmt.Fprintf(&b, "\nsatelle: [hook] inject file %s: %v\n", f, err)
@@ -590,8 +600,8 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 			}
 			fmt.Fprintf(&b, "\n%s\n", body)
 		}
-		if overLimit(harness, b.String(), notice, k.Harness[harness].ContextLimitBytes, len(k.Settings.Hook.Inject)) {
-			entries := injectIndex(r, k.Settings.Hook.Inject)
+		if overLimit(harness, b.String(), notice, k.Harness[harness].ContextLimitBytes, len(files)) {
+			entries := injectIndex(r, files)
 			return indexForm(preface, entries, r.Tree, harness), notice, &indexedContext{InlineBytes: emittedBytes(harness, b.String(), notice), Limit: k.Harness[harness].ContextLimitBytes, Entries: entries}
 		}
 	}

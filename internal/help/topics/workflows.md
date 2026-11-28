@@ -176,6 +176,9 @@ subdirectory, a symlink) fails loudly: as a config load error in the shared
 `.satelle/`, and as a problem listed under the part that refuses X's stories.
 Changing a story's repo to or from one with rule files of its own ends any
 accept a gate would carry.
+A part may also name its own constitution and principles for session-start
+injection, in `[hook] inject` of `.satelle/repos/X/satelle.toml`; see
+`satelle help configuration --session <session>`.
 
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:

@@ -2,21 +2,98 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/hook"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 type sessionSource struct {
-	Session  string
-	Dir      string
-	Settings kernel.Settings
-	Harness  map[string]kernel.HarnessSettings
-	Seats    func(session string) []seatView
-	Invalid  error
-	NoDoctor bool
+	Session    string
+	Dir        string
+	Settings   kernel.Settings
+	Harness    map[string]kernel.HarnessSettings
+	Seats      func(session string) []seatView
+	Inject     []string
+	InjectNote string
+	Invalid    error
+	NoDoctor   bool
+}
+
+func (k *sessionSource) injectFiles() []string {
+	if k.Inject != nil {
+		return k.Inject
+	}
+	return k.Settings.Hook.Inject
+}
+
+const injectNotePrefix = "satelle: [hook] inject: "
+
+func noInjectNote(cause string) string {
+	return injectNotePrefix + "no files are given: " + cause
+}
+
+func mixedSeatsNote(targets []string) string {
+	t := slices.Clone(targets)
+	slices.Sort(t)
+	t = slices.Compact(t)
+	return fmt.Sprintf("%sthis session's seats target several repositories (%s), so the shared files are given", injectNotePrefix, reporeg.Literals(t))
+}
+
+func partInjectNote(dataDir, x string) string {
+	return fmt.Sprintf("%srepository %s's part names its own files in %s/%s/%s/%s; they are given in place of the shared [hook] inject files",
+		injectNotePrefix, reporeg.Literal(x), filepath.Base(dataDir), kernel.PartsDir, reporeg.Literal(x), kernel.SettingsFile)
+}
+
+func seatedInject(k *kernel.Kernel, r repo, session string) (files []string, note string) {
+	if session == "" {
+		return nil, ""
+	}
+	seats, err := k.Cache.Seats(session, "")
+	if err != nil {
+		return []string{}, noInjectNote("this session's seats cannot be read: " + reporeg.Literal(err.Error()))
+	}
+	var items []item.Item
+	for _, s := range seats {
+		it, ok, err := k.Cache.Item(s.Item)
+		if err != nil {
+			return []string{}, noInjectNote("this session's seats cannot be read: " + reporeg.Literal(err.Error()))
+		}
+		if ok {
+			items = append(items, it)
+		}
+	}
+	var targets []string
+	var owner string
+	for _, it := range items {
+		f, err := k.InjectFor(it)
+		if err != nil {
+			return []string{}, noInjectNote(reporeg.Literal(err.Error()))
+		}
+		if f != nil {
+			files, owner = f, it.Target()
+		}
+		targets = append(targets, it.Target())
+	}
+	if files == nil {
+		return nil, ""
+	}
+	if slices.ContainsFunc(targets, func(t string) bool { return t != owner }) {
+		return nil, mixedSeatsNote(targets)
+	}
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = f
+		if rel, err := filepath.Rel(r.Tree, f); err == nil && filepath.IsLocal(rel) {
+			out[i] = rel
+		}
+	}
+	return out, partInjectNote(r.DataDir, owner)
 }
 
 type indexedContext struct {

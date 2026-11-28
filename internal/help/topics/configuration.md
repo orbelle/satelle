@@ -204,6 +204,16 @@ its `commands` key.
   `framing: true` is printed first, in inject order, read from the file. A
   repo with its own copy of the principle adds `framing: true` to get the
   line.
+- A registered repository's part may set its own `[hook] inject` in
+  `.satelle/repos/<repo>/satelle.toml`, naming only its own `constitution.md`
+  and `principles/<name>.md`, relative to the part; any other entry, a
+  repeated entry or another key under `[hook]` is a problem that refuses the
+  repository's stories. A session whose seats all target that repository is
+  given those files, at session start, in place of the whole shared
+  `[hook] inject` list, with a line saying so. A session with seats on
+  several repositories, or with no session id, is given the shared list; a
+  session seated on a broken part, or whose seats cannot be read, is given
+  none, with a line naming why.
 - `doctor.toml` — the repo's own checks and open-item lists
   `satelle doctor --session <session>` runs beside its kernel checks, and the
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).
