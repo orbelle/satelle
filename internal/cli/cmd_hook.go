@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -19,6 +21,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/procgroup"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/seatlife"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -148,6 +151,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	g.Exempt = k.Settings.Gate.EditExemptPaths
 	g.Locked = k.Settings.Gate.LockedPaths
 	g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
+	g.Targets = sync.OnceValue(func() []hook.Target { return seatedTargets(k, r, session) })
 	g.Push = func(branch string) hook.Verdict {
 		return pushVerdict(session, branch, k.Cache.Item,
 			func() ([]item.Seat, error) { return k.Cache.Seats(session, "") },
@@ -204,7 +208,9 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 		}
 		switch editScope(k.Workflows, it) {
 		case workflow.EditsTree:
-			g.Tree = true
+			if it.Target() == reporeg.Self {
+				g.Tree = true
+			}
 		case workflow.EditsAttachments:
 			if !g.AttachOnly {
 				g.AttachOnly, g.Item, g.State = true, it.ID, it.Status
@@ -212,6 +218,95 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 		}
 	}
 	return g
+}
+
+func seatedTargets(k *kernel.Kernel, r repo, session string) []hook.Target {
+	if session == "" {
+		return nil
+	}
+	unread := func(err error) hook.Target {
+		return hook.Target{Problem: "this session's seats cannot be read: " + err.Error()}
+	}
+	seats, err := k.Cache.Seats(session, "")
+	if err != nil {
+		return []hook.Target{unread(err)}
+	}
+	type resolved struct{ tree, problem string }
+	names := map[string]resolved{}
+	resolve := func(name string) resolved {
+		if v, ok := names[name]; ok {
+			return v
+		}
+		var v resolved
+		if !slices.Contains(k.Repos.Targets(), name) {
+			v.problem = "it is not registered in .satelle/" + kernel.ReposFile
+		} else if co := checkoutOf(k.Repos, name, r.gitEnv); co.state == repoOK {
+			v.tree = canonical(co.path)
+		} else {
+			v.problem = checkoutProblem(k.Repos, name, co)
+		}
+		names[name] = v
+		return v
+	}
+	byTree := map[string]*hook.Target{}
+	var problems []hook.Target
+	seen := map[string]bool{}
+	want := kernel.LocalLocation(r.Tree)
+	for _, s := range seats {
+		if s.Location != want {
+			continue
+		}
+		it, ok, err := k.Cache.Item(s.Item)
+		if err != nil {
+			problems = append(problems, unread(err))
+			continue
+		}
+		if !ok {
+			continue
+		}
+		name := it.Target()
+		if name == reporeg.Self {
+			continue
+		}
+		v := resolve(name)
+		if v.problem != "" {
+			if !seen[name] {
+				seen[name] = true
+				problems = append(problems, hook.Target{Names: []string{name}, Item: it.ID, Problem: v.problem})
+			}
+			continue
+		}
+		var gr hook.Grant
+		switch editScope(k.Workflows, it) {
+		case workflow.EditsTree:
+			gr.Tree = true
+		case workflow.EditsAttachments:
+			gr = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status}
+		default:
+			continue
+		}
+		t := byTree[v.tree]
+		if t == nil {
+			t = &hook.Target{Tree: v.tree, Item: it.ID}
+			byTree[v.tree] = t
+		}
+		if !slices.Contains(t.Names, name) {
+			t.Names = append(t.Names, name)
+		}
+		switch {
+		case gr.AttachOnly && !t.Grant.AttachOnly:
+			t.Grant, t.Item = gr, it.ID
+		case gr.Tree && !t.Grant.AttachOnly:
+			t.Grant.Tree = true
+		}
+	}
+	var out []hook.Target
+	for _, tree := range slices.Sorted(maps.Keys(byTree)) {
+		t := byTree[tree]
+		slices.Sort(t.Names)
+		out = append(out, *t)
+	}
+	return append(out, problems...)
 }
 
 func grantUnconfigured(r repo, session, tree string) hook.Grant {
@@ -255,7 +350,7 @@ func seatGrantUnconfigured(r repo, session, tree string) hook.Grant {
 		case scope == workflow.EditsAttachments:
 			g = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status}
 		case scope == workflow.EditsTree:
-			g.Tree = true
+			g.Tree = g.Tree || it.Target() == reporeg.Self
 		}
 	}
 	return g
