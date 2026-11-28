@@ -15,8 +15,6 @@ import (
 type BashTargets struct {
 	Paths          []string
 	Inline         []string
-	Raw            []string
-	InlineRaw      []string
 	OperatorRecord bool
 	Unreadable     string
 	Pushes         []PushDest
@@ -24,33 +22,24 @@ type BashTargets struct {
 
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
-	seen := map[*[]string]map[string]bool{&t.Paths: {}, &t.Inline: {}, &t.Raw: {}, &t.InlineRaw: {}}
-	put := func(dst *[]string, p string) {
-		if seen[dst][p] {
+	seen := map[*[]string]map[string]bool{&t.Paths: {}, &t.Inline: {}}
+	add := func(dst *[]string, p string) {
+		p = path.Clean(p)
+		if p == "" || p == "." || seen[dst][p] {
 			return
 		}
 		seen[dst][p] = true
 		*dst = append(*dst, p)
 	}
-	add := func(dst, raw *[]string, p string) {
-		c := path.Clean(p)
-		if c == "" || c == "." {
-			return
-		}
-		put(dst, c)
-		put(raw, p)
-	}
 	base := path.Clean(filepath.ToSlash(cwd))
-	for _, logical := range []bool{true, false} {
-		scanBash(command, base, root, isFile, logical, 0, func(p string) { add(&t.Paths, &t.Raw, p) }, func(p string) { add(&t.Inline, &t.InlineRaw, p) })
-	}
+	scanBash(command, base, root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
 	t.OperatorRecord = operatorRecordCommand(command, 0)
 	segs, why := readPlainLine(command)
 	if why == "" {
 		var dirs []string
 		dirs, why = plainGitDirs(segs, base)
 		for _, d := range dirs {
-			add(&t.Paths, &t.Raw, d)
+			add(&t.Paths, d)
 		}
 	}
 	if why != "" && namesGit(command) {
@@ -62,9 +51,9 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	return t
 }
 
-func scanBash(command, cwd, root string, isFile func(string) bool, logical bool, depth int, path, inline func(string)) {
+func scanBash(command, cwd, root string, isFile func(string) bool, depth int, path, inline func(string)) {
 	var segs []bashSegment
-	forEachSegment(command, cwd, logical, func(s bashSegment) { segs = append(segs, s) })
+	forEachSegment(command, cwd, func(s bashSegment) { segs = append(segs, s) })
 	for j, sg := range segs {
 		for _, r := range redirectTargets(sg.Tokens, sg.Cwd) {
 			path(r)
@@ -75,7 +64,7 @@ func scanBash(command, cwd, root string, isFile func(string) bool, logical bool,
 		}
 		if depth < maxShellProgramDepth {
 			if prog, ok := shellProgram(sg); ok {
-				scanBash(prog, sg.Cwd, root, isFile, logical, depth+1, path, inline)
+				scanBash(prog, sg.Cwd, root, isFile, depth+1, path, inline)
 				continue
 			}
 		}
@@ -89,7 +78,7 @@ func scanBash(command, cwd, root string, isFile func(string) bool, logical bool,
 				for i := 1; i < len(args); i++ {
 					for _, f := range flags {
 						if args[i] == f && i+1 < len(args) {
-							path(JoinRaw(sg.Cwd, args[i+1]))
+							path(resolvePath(sg.Cwd, args[i+1]))
 							i++
 							break
 						}
@@ -122,7 +111,7 @@ func scanBash(command, cwd, root string, isFile func(string) bool, logical bool,
 					text = t.Raw
 				}
 				for _, run := range pathRefs(text, []string{root}) {
-					if abs := JoinRaw(p.Cwd, run); abs != "" {
+					if abs := resolvePath(p.Cwd, run); abs != "" {
 						path(abs)
 					}
 				}
@@ -296,14 +285,8 @@ func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
 		}
 		if values[0] == "cd" {
 			for _, c := range slices.Clone(cands) {
-				raw := JoinRaw(c, values[1])
-				if raw == "" {
-					continue
-				}
-				for _, d := range []string{path.Clean(raw), raw} {
-					if !slices.Contains(cands, d) {
-						cands = append(cands, d)
-					}
+				if d := resolvePath(c, values[1]); d != "" && !slices.Contains(cands, d) {
+					cands = append(cands, d)
 				}
 			}
 			if len(cands) > maxPlainDirs {
@@ -319,7 +302,7 @@ func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
 			d, moved := c, false
 			for _, g := range gitDirs {
 				if g != "" {
-					d, moved = JoinRaw(d, g), true
+					d, moved = resolvePath(d, g), true
 				}
 			}
 			if moved || c != base {
@@ -768,7 +751,7 @@ type bashSegment struct {
 	Piped  bool
 }
 
-func forEachSegment(command, base string, logical bool, fn func(s bashSegment)) {
+func forEachSegment(command, base string, fn func(s bashSegment)) {
 	cwd := base
 	for _, ps := range splitSegments(tokenizeBash(command)) {
 		seg := ps.Toks
@@ -779,38 +762,10 @@ func forEachSegment(command, base string, logical bool, fn func(s bashSegment)) 
 		idx := leadingAssignments(all)
 		words := all[idx:]
 		fn(bashSegment{Tokens: seg, Words: words, Idx: idx, Cwd: cwd, Piped: ps.Piped})
-		if len(words) > 0 && filepath.Base(words[0]) == "cd" {
-			cwd = cdDir(cwd, words[1:], logical)
+		if len(words) >= 2 && filepath.Base(words[0]) == "cd" {
+			cwd = resolvePath(cwd, words[1])
 		}
 	}
-}
-
-func cdDir(cwd string, args []string, logical bool) string {
-	physical := false
-	for len(args) > 0 && len(args[0]) > 1 && strings.HasPrefix(args[0], "-") {
-		if args[0] == "--" {
-			args = args[1:]
-			break
-		}
-		if strings.Trim(args[0][1:], "LPe@") != "" {
-			break
-		}
-		if i := strings.LastIndexAny(args[0], "LP"); i > 0 {
-			physical = args[0][i] == 'P'
-		}
-		args = args[1:]
-	}
-	if len(args) == 0 {
-		return cwd
-	}
-	d := JoinRaw(cwd, args[0])
-	switch {
-	case d == "" || !logical:
-		return d
-	case physical:
-		return filepath.ToSlash(CanonicalPath(native(d)))
-	}
-	return path.Clean(d)
 }
 
 func leadingAssignments(words []string) int {
@@ -951,7 +906,7 @@ func interpreterInlineProgram(seg bashSegment, isFile func(string) bool) bool {
 			takesValue = true
 		case w == "--":
 		case !strings.HasPrefix(w, "-"):
-			if isFile != nil && isFile(JoinRaw(seg.Cwd, w)) {
+			if isFile != nil && isFile(resolvePath(seg.Cwd, w)) {
 				return false
 			}
 			continue
@@ -1195,7 +1150,7 @@ func mutationPathArgs(words []string, cwd string) []string {
 	if cmd == "dd" {
 		for _, w := range words[1:] {
 			if strings.HasPrefix(w, "of=") {
-				out = append(out, JoinRaw(cwd, strings.TrimPrefix(w, "of=")))
+				out = append(out, resolvePath(cwd, strings.TrimPrefix(w, "of=")))
 			}
 		}
 		return out
@@ -1216,7 +1171,7 @@ func mutationPathArgs(words []string, cwd string) []string {
 			if strings.HasPrefix(w, "-") {
 				if w == "-t" || w == "--target-directory" {
 					if i+1 < len(words) {
-						out = append(out, JoinRaw(cwd, words[i+1]))
+						out = append(out, resolvePath(cwd, words[i+1]))
 						skipNext = true
 					}
 					continue
@@ -1238,9 +1193,9 @@ func mutationPathArgs(words []string, cwd string) []string {
 			return nil
 		}
 		if len(positionals) == 1 {
-			return []string{JoinRaw(cwd, positionals[0])}
+			return []string{resolvePath(cwd, positionals[0])}
 		}
-		return []string{JoinRaw(cwd, positionals[len(positionals)-1])}
+		return []string{resolvePath(cwd, positionals[len(positionals)-1])}
 	}
 
 	skipNext := false
@@ -1257,7 +1212,7 @@ func mutationPathArgs(words []string, cwd string) []string {
 			}
 			continue
 		}
-		out = append(out, JoinRaw(cwd, w))
+		out = append(out, resolvePath(cwd, w))
 	}
 	return out
 }
@@ -1286,10 +1241,10 @@ func chmodPathArgs(args []string, cwd string) []string {
 		case !slotClosed:
 			slotClosed = true
 			if !chmodMode.MatchString(w) {
-				out = append(out, JoinRaw(cwd, w))
+				out = append(out, resolvePath(cwd, w))
 			}
 		default:
-			out = append(out, JoinRaw(cwd, w))
+			out = append(out, resolvePath(cwd, w))
 		}
 	}
 	return out
@@ -1376,7 +1331,7 @@ func sedPathArgs(toks []bashTok, cwd string) []string {
 	}
 	out := make([]string, 0, len(positionals))
 	for _, p := range positionals {
-		out = append(out, JoinRaw(cwd, p))
+		out = append(out, resolvePath(cwd, p))
 	}
 	return out
 }
@@ -1410,7 +1365,7 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 				}
 			}
 			if p, ok := target(a); ok {
-				out = append(out, JoinRaw(cwd, p))
+				out = append(out, resolvePath(cwd, p))
 			}
 		}
 	}
@@ -1422,7 +1377,7 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 		w := t.Value
 		if strings.Contains(w, ">") && !isRedirectOp(w) {
 			if p := gluedRedirectPath(w); p != "" {
-				out = append(out, JoinRaw(cwd, p))
+				out = append(out, resolvePath(cwd, p))
 			}
 		}
 		if !isRedirectOp(w) || i+1 >= len(seg) {
@@ -1439,7 +1394,7 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 					continue
 				}
 				if p, ok := target(seg[i+2]); ok {
-					out = append(out, JoinRaw(cwd, p))
+					out = append(out, resolvePath(cwd, p))
 					i += 2
 					continue
 				}
@@ -1452,7 +1407,7 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 			continue
 		}
 		if p, ok := target(next); ok {
-			out = append(out, JoinRaw(cwd, p))
+			out = append(out, resolvePath(cwd, p))
 			i++
 		}
 	}
@@ -1542,22 +1497,14 @@ func expandShellPath(p string) string {
 }
 
 func resolvePath(cwd, p string) string {
-	raw := JoinRaw(cwd, p)
-	if raw == "" {
-		return ""
-	}
-	return path.Clean(raw)
-}
-
-func JoinRaw(cwd, p string) string {
 	p = expandShellPath(strings.TrimSpace(p))
 	if p == "" {
 		return ""
 	}
-	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) || cwd == "" {
-		return filepath.ToSlash(p)
+	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) {
+		return path.Clean(filepath.ToSlash(p))
 	}
-	return filepath.ToSlash(cwd) + "/" + filepath.ToSlash(p)
+	return path.Clean(path.Join(filepath.ToSlash(cwd), filepath.ToSlash(p)))
 }
 
 func isShellIdent(s string) bool {

@@ -266,43 +266,6 @@ func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
 	}
 }
 
-func TestScanBashCdLogicalAndPhysical(t *testing.T) {
-	d, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(d, "sub", "d2"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(d, "sub", "d2"), filepath.Join(d, "deep")); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	w := filepath.ToSlash(d)
-	noFile := func(string) bool { return false }
-	for _, c := range []struct {
-		cmd       string
-		want, not []string
-	}{
-		{"cd deep && cd .. && touch g", []string{w + "/g", w + "/deep/../g"}, []string{w + "/sub/g"}},
-		{"cd -L deep && cd .. && touch g", []string{w + "/g"}, []string{w + "/sub/g"}},
-		{"cd -P deep && cd .. && touch g", []string{w + "/sub/g", w + "/deep/../g"}, []string{w + "/g"}},
-		{"cd -LP deep && cd .. && touch g", []string{w + "/sub/g"}, []string{w + "/g"}},
-		{"cd -- deep && touch g", []string{w + "/deep/g"}, nil},
-	} {
-		got := ScanBash(c.cmd, d, "", noFile).Raw
-		for _, p := range c.want {
-			if !slices.Contains(got, p) {
-				t.Errorf("%q: raw %v lacks %s", c.cmd, got, p)
-			}
-		}
-		for _, p := range c.not {
-			if slices.Contains(got, p) {
-				t.Errorf("%q: raw %v holds %s", c.cmd, got, p)
-			}
-		}
-	}
-}
-
 func TestResolvePathForms(t *testing.T) {
 	rows := []struct{ cwd, p, want string }{
 		{"/w", "a.txt", "/w/a.txt"},
