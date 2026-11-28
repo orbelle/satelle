@@ -702,22 +702,19 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	here, _ := config.ReadMachineID(home)
 	var out []doctorIssue
 	engaged := map[string]bool{}
+	for _, e := range engagedHere(items, in.cfg.Workflows, home, here) {
+		engaged[e.Item] = true
+	}
 	var elsewhere, gone, unverified []string
 	seen := 0
 	for _, ri := range items {
-		terminal := false
-		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
-			terminal = true
-		}
+		terminal := itemTerminal(ri.it, in.cfg.Workflows)
 		for _, s := range ri.seats {
 			seen++
 			rec, ok := seatlife.Load(home, s.Session)
 			st, ev := seatlife.Classify(here, s, rec, ok)
 			switch st {
 			case seatlife.Here:
-				if !terminal {
-					engaged[ri.it.ID] = true
-				}
 			case seatlife.Elsewhere:
 				elsewhere = append(elsewhere, fmt.Sprintf("%s %s %s", ri.it.ID, s.Session, ev))
 			case seatlife.Gone:
@@ -794,8 +791,33 @@ type readItem struct {
 	seats []item.Seat
 }
 
-func readItems(in *doctorInput) ([]readItem, error) {
-	st, err := ledger.OpenExisting(in.r.Runtime)
+type engagedSeat struct{ Item, Session, Location string }
+
+func itemTerminal(it item.Item, workflows map[string]*workflow.Workflow) bool {
+	w := workflows[it.Workflow]
+	return w != nil && w.IsTerminal(it.Status)
+}
+
+func engagedHere(items []readItem, workflows map[string]*workflow.Workflow, home, here string) []engagedSeat {
+	var out []engagedSeat
+	for _, ri := range items {
+		if itemTerminal(ri.it, workflows) {
+			continue
+		}
+		for _, s := range ri.seats {
+			rec, ok := seatlife.Load(home, s.Session)
+			if st, _ := seatlife.Classify(here, s, rec, ok); st == seatlife.Here {
+				out = append(out, engagedSeat{Item: ri.it.ID, Session: s.Session, Location: s.Location})
+			}
+		}
+	}
+	return out
+}
+
+func readItems(in *doctorInput) ([]readItem, error) { return readItemsAt(in.r.Runtime) }
+
+func readItemsAt(runtime string) ([]readItem, error) {
+	st, err := ledger.OpenExisting(runtime)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
