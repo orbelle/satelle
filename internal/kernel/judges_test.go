@@ -181,3 +181,70 @@ func TestJudgeRowsAttributeMemberTokens(t *testing.T) {
 		t.Errorf("empty median %d, want 0", got)
 	}
 }
+
+func TestUsageRowsCountPerHarnessModelAndGate(t *testing.T) {
+	fell := &gate.FallbackFrom{Binding: "agy-rev", Command: "agy", Model: "gemini-x"}
+	one := func(cmd, model, result string, ms int64, fb *gate.FallbackFrom) gate.Result {
+		return gate.Result{Gate: "code", Binding: "b", Command: cmd, Model: model, Result: result, DurationMS: ms, FallbackFrom: fb}
+	}
+	panel := gate.Result{Gate: "sec", Binding: "p1,p2", Result: gate.Reject, DurationMS: 99000, Members: []gate.Member{
+		{Binding: "p1", Command: "agy", Model: "gemini-x", Result: gate.Reject, DurationMS: 3000},
+		{Binding: "p2", Command: "cursor-agent", Model: "gemini-x", Result: gate.Accept, DurationMS: 5000, FallbackFrom: fell},
+	}}
+	rows := usageRows([][]ledger.Event{
+		{
+			judgeEvent(t, "i1", 0, one("agy", "gemini-x", gate.Accept, 3000, nil)),
+			judgeEvent(t, "i1", 1, one("/usr/bin/agy --x", "gemini-x", gate.Reject, 5000, nil)),
+			judgeEvent(t, "i1", 2, one("cursor-agent", "gemini-x", gate.Accept, 4000, fell)),
+			judgeEvent(t, "i1", 3, panel),
+		},
+		{
+			judgeEvent(t, "i2", 0, one("", "", gate.Error, 700, nil)),
+			judgeEvent(t, "i2", 1, gate.Result{Gate: "fmt", Result: gate.Accept, DurationMS: 10}),
+			judgeEvent(t, "i2", 2, gate.Result{Gate: "code", Result: gate.Carried}),
+		},
+	}, time.Time{}, time.Time{})
+	want := []UsageRow{
+		{Harness: "agy", Model: "gemini-x", Gate: "code", Runs: 2, Accepts: 1, Rejects: 1, DurationMS: 8000},
+		{Harness: "agy", Model: "gemini-x", Gate: "sec", Runs: 1, Rejects: 1, DurationMS: 3000},
+		{Harness: "cursor-agent", Model: "gemini-x", Gate: "code", Runs: 1, Accepts: 1, Fallbacks: 1, DurationMS: 4000},
+		{Harness: "cursor-agent", Model: "gemini-x", Gate: "sec", Runs: 1, Accepts: 1, Fallbacks: 1, DurationMS: 5000},
+		{Harness: UnknownModel, Model: UnknownModel, Gate: "code", Runs: 1, Errors: 1, DurationMS: 700},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("rows %+v, want %+v", rows, want)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("row %d = %+v, want %+v", i, rows[i], want[i])
+		}
+	}
+}
+
+func TestUsageRowsCountOnlyTheWindow(t *testing.T) {
+	run := gate.Result{Gate: "g", Binding: "j", Command: "agy", Model: "m", Result: gate.Accept}
+	events := [][]ledger.Event{{
+		judgeEvent(t, "i1", -30*60, run),
+		judgeEvent(t, "i1", -2*60, run),
+		judgeEvent(t, "i1", -30, run),
+		judgeEvent(t, "i1", 0, run),
+	}}
+	for _, c := range []struct {
+		name         string
+		since, until time.Time
+		runs         int
+	}{
+		{"the last 24 hours", judgeT0.Add(-24 * time.Hour), time.Time{}, 3},
+		{"the last hour", judgeT0.Add(-time.Hour), time.Time{}, 2},
+		{"until is exclusive", judgeT0.Add(-24 * time.Hour), judgeT0, 2},
+		{"since is inclusive", judgeT0.Add(-2 * time.Hour), time.Time{}, 3},
+	} {
+		runs := 0
+		for _, r := range usageRows(events, c.since, c.until) {
+			runs += r.Runs
+		}
+		if runs != c.runs {
+			t.Errorf("%s: %d runs, want %d", c.name, runs, c.runs)
+		}
+	}
+}

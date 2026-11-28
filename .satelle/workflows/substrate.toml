@@ -17,6 +17,9 @@ terminal = true
 [states.cancelled]
 terminal = true
 
+[gates.substrate-pushed]
+skill = "satelle-substrate-pushed-check"
+
 [gates.substrate-paths]
 skill = "satelle-substrate-paths-check"
 
@@ -74,7 +77,7 @@ to = "in_progress"
 from = ["in_progress"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals", "substrate-suite"] },
+  { mode = "sequential", gates = ["substrate-pushed", "substrate-paths", "substrate-validate", "judge-differs", "volatile-literals", "substrate-suite"] },
   { mode = "sequential", gates = ["workflow-change", "test-change", "reference-review"] },
 ]
 
