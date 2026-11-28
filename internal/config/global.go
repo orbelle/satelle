@@ -40,8 +40,6 @@ type GlobalConfig struct {
 	Capacity CapacityConfig     `toml:"capacity"`
 }
 
-// CapacityConfig is the [capacity] table. Workers is 0 only when the key is
-// absent (no ceiling); loadGlobalAt refuses a written value below 1.
 type CapacityConfig struct {
 	Workers int `toml:"workers"`
 }
