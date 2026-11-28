@@ -47,10 +47,14 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 			return gate.Run{}, sp, done, err
 		}
 	}
+	skills, err := k.SkillsFor(it)
+	if err != nil {
+		return gate.Run{}, sp, done, err
+	}
 	prior := GateRuns(events)
 	run := gate.Run{
 		Item: it, From: from, To: to, Transition: tr, Workflow: w,
-		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
+		Skills: skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
 		Dir: k.Dir, Substrate: k.SubstrateDir(), Base: base, Changed: changed, Untracked: untracked, Prior: prior,
 		Review:       k.Settings.Review,
 		CheckTimeout: k.CheckTimeout,
@@ -71,7 +75,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	if remotePlaced(w, tr) {
 		run.Head, run.HeadErr = k.pushedHead(wt, it, events, sp)
 	}
-	if k.judged(w, tr) {
+	if judged(skills, w, tr) {
 		var rec Record
 		if run.Worktree != "" {
 			rec, err = k.targetRecord(it, events, recordPointers, wt)
