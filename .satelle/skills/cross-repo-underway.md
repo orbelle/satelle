@@ -36,9 +36,12 @@ parent. It starts with a `## Children` section, one line per `done` child:
 `<base>` and `<head>` are the child's frozen change, the `base` and `head` of
 `satelle story diff <child> --json --session <session>`. List a `cancelled`
 child as `- <child id> <repo> cancelled`. Then add one `## <child id>` section
-per done child holding `git -C <checkout> diff <base> <head>`, where
+per done child holding exactly the output of
+`git -C <checkout> diff --no-ext-diff --no-textconv <base> <head>`, where
 `<checkout>` is that repository's path in `satelle repo list --session
-<session>`.
+<session>`. `satelle-cross-repo-combined-check` recomputes that output and
+compares it with the section, so write it unedited; it may sit inside one
+```` ``` ```` fence.
 
 ```bash
 satelle story attach <id> --name combined-change --file <file> --session <session>

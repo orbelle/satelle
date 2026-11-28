@@ -15,6 +15,7 @@ import (
 
 type github struct {
 	repo     string
+	bindings []*satellepb.RepositoryBinding
 	reviews  []*satellepb.PublishReviewRequest
 	statuses []*satellepb.PublishStatusRequest
 	events   []*satellepb.PullRequestEvent
@@ -32,6 +33,10 @@ func (s *Server) RefuseStatuses(project, message string) {
 }
 
 func (s *Server) BindGitHub(project, repo string) {
+	s.BindGitHubVia(project, repo, 1)
+}
+
+func (s *Server) BindGitHubVia(project, repo string, installationID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := s.project(project)
@@ -41,7 +46,18 @@ func (s *Server) BindGitHub(project, repo string) {
 	if s.gh == nil {
 		s.gh = map[string]*github{}
 	}
-	s.gh[p.Id] = &github{repo: repo}
+	g := s.gh[p.Id]
+	if g == nil {
+		g = &github{repo: repo}
+		s.gh[p.Id] = g
+	}
+	for _, b := range g.bindings {
+		if b.Repository == repo {
+			b.InstallationId = installationID
+			return
+		}
+	}
+	g.bindings = append(g.bindings, &satellepb.RepositoryBinding{Repository: repo, InstallationId: installationID})
 }
 
 func (s *Server) SeedPullRequestEvent(project string, ev *satellepb.PullRequestEvent) {
