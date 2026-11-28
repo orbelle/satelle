@@ -20,8 +20,8 @@ notes are the work: answer each one.
 ## What to find
 
 1. **The repositories the behaviour touches.** Each child names `self` (this
-   control repository) or a repository registered in `.satelle/repos.toml`
-   (`satelle repo list --session <session>` lists them). Read each repository's
+   control repository) or a repository registered in `.satelle/repos.toml`;
+   read that file for the names. Read each repository's
    code where you can reach it, and name the evidence: file, symbol or command.
 2. **The order.** A child that consumes what another child provides depends
    on it, so it lands after it. Children that change a contract between them
