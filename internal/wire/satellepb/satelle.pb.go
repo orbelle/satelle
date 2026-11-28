@@ -239,12 +239,15 @@ func (x *GetMeResponse) GetRole() string {
 }
 
 type Project struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Slug          string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	TeamId        string                 `protobuf:"bytes,5,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"` // carried; no behaviour in satelle
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Id     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Slug   string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
+	Name   string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Role   string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	TeamId string                 `protobuf:"bytes,5,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"` // carried; no behaviour in satelle
+	// repositories is every GitHub repository the project is bound to through the
+	// satelle GitHub app, one entry per binding; empty when it has none.
+	Repositories  []*RepositoryBinding `protobuf:"bytes,6,rep,name=repositories,proto3" json:"repositories,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -314,6 +317,66 @@ func (x *Project) GetTeamId() string {
 	return ""
 }
 
+func (x *Project) GetRepositories() []*RepositoryBinding {
+	if x != nil {
+		return x.Repositories
+	}
+	return nil
+}
+
+// RepositoryBinding is one GitHub repository a project is bound to.
+type RepositoryBinding struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Repository     string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`                                // owner/name, as GitHubService responses name it
+	InstallationId int64                  `protobuf:"varint,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"` // the GitHub app installation the repository is reached through
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RepositoryBinding) Reset() {
+	*x = RepositoryBinding{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RepositoryBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RepositoryBinding) ProtoMessage() {}
+
+func (x *RepositoryBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RepositoryBinding.ProtoReflect.Descriptor instead.
+func (*RepositoryBinding) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RepositoryBinding) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *RepositoryBinding) GetInstallationId() int64 {
+	if x != nil {
+		return x.InstallationId
+	}
+	return 0
+}
+
 type ListProjectsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -322,7 +385,7 @@ type ListProjectsRequest struct {
 
 func (x *ListProjectsRequest) Reset() {
 	*x = ListProjectsRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[3]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +397,7 @@ func (x *ListProjectsRequest) String() string {
 func (*ListProjectsRequest) ProtoMessage() {}
 
 func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[3]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +410,7 @@ func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsRequest.ProtoReflect.Descriptor instead.
 func (*ListProjectsRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{3}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{4}
 }
 
 type ListProjectsResponse struct {
@@ -359,7 +422,7 @@ type ListProjectsResponse struct {
 
 func (x *ListProjectsResponse) Reset() {
 	*x = ListProjectsResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[4]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -371,7 +434,7 @@ func (x *ListProjectsResponse) String() string {
 func (*ListProjectsResponse) ProtoMessage() {}
 
 func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[4]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -384,7 +447,7 @@ func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsResponse.ProtoReflect.Descriptor instead.
 func (*ListProjectsResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{4}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListProjectsResponse) GetProjects() []*Project {
@@ -403,7 +466,7 @@ type GetProjectRequest struct {
 
 func (x *GetProjectRequest) Reset() {
 	*x = GetProjectRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[5]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +478,7 @@ func (x *GetProjectRequest) String() string {
 func (*GetProjectRequest) ProtoMessage() {}
 
 func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[5]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +491,7 @@ func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectRequest.ProtoReflect.Descriptor instead.
 func (*GetProjectRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{5}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetProjectRequest) GetProject() string {
@@ -449,7 +512,7 @@ type CreateProjectRequest struct {
 
 func (x *CreateProjectRequest) Reset() {
 	*x = CreateProjectRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[6]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -461,7 +524,7 @@ func (x *CreateProjectRequest) String() string {
 func (*CreateProjectRequest) ProtoMessage() {}
 
 func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[6]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -474,7 +537,7 @@ func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProjectRequest.ProtoReflect.Descriptor instead.
 func (*CreateProjectRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{6}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateProjectRequest) GetSlug() string {
@@ -509,7 +572,7 @@ type Workspace struct {
 
 func (x *Workspace) Reset() {
 	*x = Workspace{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[7]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -521,7 +584,7 @@ func (x *Workspace) String() string {
 func (*Workspace) ProtoMessage() {}
 
 func (x *Workspace) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[7]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -534,7 +597,7 @@ func (x *Workspace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workspace.ProtoReflect.Descriptor instead.
 func (*Workspace) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{7}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Workspace) GetId() string {
@@ -566,7 +629,7 @@ type ListWorkspacesRequest struct {
 
 func (x *ListWorkspacesRequest) Reset() {
 	*x = ListWorkspacesRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[8]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +641,7 @@ func (x *ListWorkspacesRequest) String() string {
 func (*ListWorkspacesRequest) ProtoMessage() {}
 
 func (x *ListWorkspacesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[8]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +654,7 @@ func (x *ListWorkspacesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspacesRequest.ProtoReflect.Descriptor instead.
 func (*ListWorkspacesRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{8}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{9}
 }
 
 type ListWorkspacesResponse struct {
@@ -603,7 +666,7 @@ type ListWorkspacesResponse struct {
 
 func (x *ListWorkspacesResponse) Reset() {
 	*x = ListWorkspacesResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[9]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -615,7 +678,7 @@ func (x *ListWorkspacesResponse) String() string {
 func (*ListWorkspacesResponse) ProtoMessage() {}
 
 func (x *ListWorkspacesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[9]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +691,7 @@ func (x *ListWorkspacesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspacesResponse.ProtoReflect.Descriptor instead.
 func (*ListWorkspacesResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{9}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListWorkspacesResponse) GetWorkspaces() []*Workspace {
@@ -648,7 +711,7 @@ type RegisterLocationRequest struct {
 
 func (x *RegisterLocationRequest) Reset() {
 	*x = RegisterLocationRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[10]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -660,7 +723,7 @@ func (x *RegisterLocationRequest) String() string {
 func (*RegisterLocationRequest) ProtoMessage() {}
 
 func (x *RegisterLocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[10]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -673,7 +736,7 @@ func (x *RegisterLocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterLocationRequest.ProtoReflect.Descriptor instead.
 func (*RegisterLocationRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{10}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RegisterLocationRequest) GetLocation() string {
@@ -699,7 +762,7 @@ type RegisterLocationResponse struct {
 
 func (x *RegisterLocationResponse) Reset() {
 	*x = RegisterLocationResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[11]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +774,7 @@ func (x *RegisterLocationResponse) String() string {
 func (*RegisterLocationResponse) ProtoMessage() {}
 
 func (x *RegisterLocationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[11]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +787,7 @@ func (x *RegisterLocationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterLocationResponse.ProtoReflect.Descriptor instead.
 func (*RegisterLocationResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{11}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RegisterLocationResponse) GetUserId() string {
@@ -758,7 +821,7 @@ type Item struct {
 
 func (x *Item) Reset() {
 	*x = Item{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[12]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -770,7 +833,7 @@ func (x *Item) String() string {
 func (*Item) ProtoMessage() {}
 
 func (x *Item) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[12]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -783,7 +846,7 @@ func (x *Item) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Item.ProtoReflect.Descriptor instead.
 func (*Item) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{12}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Item) GetId() string {
@@ -887,7 +950,7 @@ type PutItemsRequest struct {
 
 func (x *PutItemsRequest) Reset() {
 	*x = PutItemsRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[13]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -899,7 +962,7 @@ func (x *PutItemsRequest) String() string {
 func (*PutItemsRequest) ProtoMessage() {}
 
 func (x *PutItemsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[13]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -912,7 +975,7 @@ func (x *PutItemsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutItemsRequest.ProtoReflect.Descriptor instead.
 func (*PutItemsRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{13}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *PutItemsRequest) GetProject() string {
@@ -938,7 +1001,7 @@ type PutItemsResponse struct {
 
 func (x *PutItemsResponse) Reset() {
 	*x = PutItemsResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[14]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1013,7 @@ func (x *PutItemsResponse) String() string {
 func (*PutItemsResponse) ProtoMessage() {}
 
 func (x *PutItemsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[14]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1026,7 @@ func (x *PutItemsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutItemsResponse.ProtoReflect.Descriptor instead.
 func (*PutItemsResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{14}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PutItemsResponse) GetStored() int32 {
@@ -989,7 +1052,7 @@ type Attachment struct {
 
 func (x *Attachment) Reset() {
 	*x = Attachment{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[15]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1001,7 +1064,7 @@ func (x *Attachment) String() string {
 func (*Attachment) ProtoMessage() {}
 
 func (x *Attachment) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[15]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1014,7 +1077,7 @@ func (x *Attachment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Attachment.ProtoReflect.Descriptor instead.
 func (*Attachment) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{15}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Attachment) GetProject() string {
@@ -1082,7 +1145,7 @@ type PutAttachmentRequest struct {
 
 func (x *PutAttachmentRequest) Reset() {
 	*x = PutAttachmentRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[16]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1094,7 +1157,7 @@ func (x *PutAttachmentRequest) String() string {
 func (*PutAttachmentRequest) ProtoMessage() {}
 
 func (x *PutAttachmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[16]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1107,7 +1170,7 @@ func (x *PutAttachmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutAttachmentRequest.ProtoReflect.Descriptor instead.
 func (*PutAttachmentRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{16}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PutAttachmentRequest) GetAttachment() *Attachment {
@@ -1127,7 +1190,7 @@ type PutAttachmentResponse struct {
 
 func (x *PutAttachmentResponse) Reset() {
 	*x = PutAttachmentResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[17]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1139,7 +1202,7 @@ func (x *PutAttachmentResponse) String() string {
 func (*PutAttachmentResponse) ProtoMessage() {}
 
 func (x *PutAttachmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[17]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1152,7 +1215,7 @@ func (x *PutAttachmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutAttachmentResponse.ProtoReflect.Descriptor instead.
 func (*PutAttachmentResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{17}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PutAttachmentResponse) GetCreated() bool {
@@ -1181,7 +1244,7 @@ type GetAttachmentRequest struct {
 
 func (x *GetAttachmentRequest) Reset() {
 	*x = GetAttachmentRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[18]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +1256,7 @@ func (x *GetAttachmentRequest) String() string {
 func (*GetAttachmentRequest) ProtoMessage() {}
 
 func (x *GetAttachmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[18]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +1269,7 @@ func (x *GetAttachmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAttachmentRequest.ProtoReflect.Descriptor instead.
 func (*GetAttachmentRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{18}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetAttachmentRequest) GetProject() string {
@@ -1248,7 +1311,7 @@ type ListAttachmentChangesRequest struct {
 
 func (x *ListAttachmentChangesRequest) Reset() {
 	*x = ListAttachmentChangesRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[19]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1260,7 +1323,7 @@ func (x *ListAttachmentChangesRequest) String() string {
 func (*ListAttachmentChangesRequest) ProtoMessage() {}
 
 func (x *ListAttachmentChangesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[19]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1273,7 +1336,7 @@ func (x *ListAttachmentChangesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttachmentChangesRequest.ProtoReflect.Descriptor instead.
 func (*ListAttachmentChangesRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{19}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListAttachmentChangesRequest) GetProject() string {
@@ -1307,7 +1370,7 @@ type ListAttachmentChangesResponse struct {
 
 func (x *ListAttachmentChangesResponse) Reset() {
 	*x = ListAttachmentChangesResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[20]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1382,7 @@ func (x *ListAttachmentChangesResponse) String() string {
 func (*ListAttachmentChangesResponse) ProtoMessage() {}
 
 func (x *ListAttachmentChangesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[20]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1332,7 +1395,7 @@ func (x *ListAttachmentChangesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttachmentChangesResponse.ProtoReflect.Descriptor instead.
 func (*ListAttachmentChangesResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{20}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListAttachmentChangesResponse) GetAttachments() []*Attachment {
@@ -1360,7 +1423,7 @@ type FireRemoteRequest struct {
 
 func (x *FireRemoteRequest) Reset() {
 	*x = FireRemoteRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[21]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1372,7 +1435,7 @@ func (x *FireRemoteRequest) String() string {
 func (*FireRemoteRequest) ProtoMessage() {}
 
 func (x *FireRemoteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[21]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1385,7 +1448,7 @@ func (x *FireRemoteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FireRemoteRequest.ProtoReflect.Descriptor instead.
 func (*FireRemoteRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{21}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FireRemoteRequest) GetRemoteId() string {
@@ -1422,7 +1485,7 @@ type FireRemoteResponse struct {
 
 func (x *FireRemoteResponse) Reset() {
 	*x = FireRemoteResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[22]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1434,7 +1497,7 @@ func (x *FireRemoteResponse) String() string {
 func (*FireRemoteResponse) ProtoMessage() {}
 
 func (x *FireRemoteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[22]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1447,7 +1510,7 @@ func (x *FireRemoteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FireRemoteResponse.ProtoReflect.Descriptor instead.
 func (*FireRemoteResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{22}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FireRemoteResponse) GetRunId() string {
@@ -1495,7 +1558,7 @@ type GetItemRunRequest struct {
 
 func (x *GetItemRunRequest) Reset() {
 	*x = GetItemRunRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[23]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1507,7 +1570,7 @@ func (x *GetItemRunRequest) String() string {
 func (*GetItemRunRequest) ProtoMessage() {}
 
 func (x *GetItemRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[23]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1520,7 +1583,7 @@ func (x *GetItemRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetItemRunRequest.ProtoReflect.Descriptor instead.
 func (*GetItemRunRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{23}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetItemRunRequest) GetRemoteId() string {
@@ -1550,7 +1613,7 @@ type ItemRun struct {
 
 func (x *ItemRun) Reset() {
 	*x = ItemRun{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[24]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1562,7 +1625,7 @@ func (x *ItemRun) String() string {
 func (*ItemRun) ProtoMessage() {}
 
 func (x *ItemRun) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[24]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1575,7 +1638,7 @@ func (x *ItemRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ItemRun.ProtoReflect.Descriptor instead.
 func (*ItemRun) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{24}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ItemRun) GetState() string {
@@ -1625,7 +1688,7 @@ type StartNodeRequest struct {
 
 func (x *StartNodeRequest) Reset() {
 	*x = StartNodeRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[25]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1637,7 +1700,7 @@ func (x *StartNodeRequest) String() string {
 func (*StartNodeRequest) ProtoMessage() {}
 
 func (x *StartNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[25]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1650,7 +1713,7 @@ func (x *StartNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNodeRequest.ProtoReflect.Descriptor instead.
 func (*StartNodeRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{25}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StartNodeRequest) GetRemoteId() string {
@@ -1690,7 +1753,7 @@ type StartNodeResponse struct {
 
 func (x *StartNodeResponse) Reset() {
 	*x = StartNodeResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[26]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1702,7 +1765,7 @@ func (x *StartNodeResponse) String() string {
 func (*StartNodeResponse) ProtoMessage() {}
 
 func (x *StartNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[26]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1715,7 +1778,7 @@ func (x *StartNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNodeResponse.ProtoReflect.Descriptor instead.
 func (*StartNodeResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{26}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *StartNodeResponse) GetNodeId() string {
@@ -1734,7 +1797,7 @@ type GetNodeRequest struct {
 
 func (x *GetNodeRequest) Reset() {
 	*x = GetNodeRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[27]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1746,7 +1809,7 @@ func (x *GetNodeRequest) String() string {
 func (*GetNodeRequest) ProtoMessage() {}
 
 func (x *GetNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[27]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1759,7 +1822,7 @@ func (x *GetNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeRequest.ProtoReflect.Descriptor instead.
 func (*GetNodeRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{27}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetNodeRequest) GetNodeId() string {
@@ -1780,7 +1843,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[28]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1792,7 +1855,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[28]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1805,7 +1868,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{28}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Node) GetNodeId() string {
@@ -1839,7 +1902,7 @@ type GetDefinitionRequest struct {
 
 func (x *GetDefinitionRequest) Reset() {
 	*x = GetDefinitionRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[29]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1851,7 +1914,7 @@ func (x *GetDefinitionRequest) String() string {
 func (*GetDefinitionRequest) ProtoMessage() {}
 
 func (x *GetDefinitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[29]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1864,7 +1927,7 @@ func (x *GetDefinitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDefinitionRequest.ProtoReflect.Descriptor instead.
 func (*GetDefinitionRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{29}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GetDefinitionRequest) GetNodeId() string {
@@ -1893,7 +1956,7 @@ type Definition struct {
 
 func (x *Definition) Reset() {
 	*x = Definition{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[30]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1905,7 +1968,7 @@ func (x *Definition) String() string {
 func (*Definition) ProtoMessage() {}
 
 func (x *Definition) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[30]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1918,7 +1981,7 @@ func (x *Definition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Definition.ProtoReflect.Descriptor instead.
 func (*Definition) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{30}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *Definition) GetDigest() string {
@@ -1959,7 +2022,7 @@ type ReadSecretRequest struct {
 
 func (x *ReadSecretRequest) Reset() {
 	*x = ReadSecretRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[31]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1971,7 +2034,7 @@ func (x *ReadSecretRequest) String() string {
 func (*ReadSecretRequest) ProtoMessage() {}
 
 func (x *ReadSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[31]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1984,7 +2047,7 @@ func (x *ReadSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadSecretRequest.ProtoReflect.Descriptor instead.
 func (*ReadSecretRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{31}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ReadSecretRequest) GetNodeId() string {
@@ -2013,7 +2076,7 @@ type Secret struct {
 
 func (x *Secret) Reset() {
 	*x = Secret{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[32]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2025,7 +2088,7 @@ func (x *Secret) String() string {
 func (*Secret) ProtoMessage() {}
 
 func (x *Secret) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[32]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2038,7 +2101,7 @@ func (x *Secret) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Secret.ProtoReflect.Descriptor instead.
 func (*Secret) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{32}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *Secret) GetValue() string {
@@ -2078,7 +2141,7 @@ type GetRunRequest struct {
 
 func (x *GetRunRequest) Reset() {
 	*x = GetRunRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[33]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2090,7 +2153,7 @@ func (x *GetRunRequest) String() string {
 func (*GetRunRequest) ProtoMessage() {}
 
 func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[33]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2103,7 +2166,7 @@ func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunRequest.ProtoReflect.Descriptor instead.
 func (*GetRunRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{33}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetRunRequest) GetNodeId() string {
@@ -2127,7 +2190,7 @@ type RunDescriptor struct {
 
 func (x *RunDescriptor) Reset() {
 	*x = RunDescriptor{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[34]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2139,7 +2202,7 @@ func (x *RunDescriptor) String() string {
 func (*RunDescriptor) ProtoMessage() {}
 
 func (x *RunDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[34]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2152,7 +2215,7 @@ func (x *RunDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunDescriptor.ProtoReflect.Descriptor instead.
 func (*RunDescriptor) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{34}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *RunDescriptor) GetMode() string {
@@ -2207,7 +2270,7 @@ type PublishChannelKeyRequest struct {
 
 func (x *PublishChannelKeyRequest) Reset() {
 	*x = PublishChannelKeyRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[35]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2219,7 +2282,7 @@ func (x *PublishChannelKeyRequest) String() string {
 func (*PublishChannelKeyRequest) ProtoMessage() {}
 
 func (x *PublishChannelKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[35]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2232,7 +2295,7 @@ func (x *PublishChannelKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishChannelKeyRequest.ProtoReflect.Descriptor instead.
 func (*PublishChannelKeyRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{35}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *PublishChannelKeyRequest) GetNodeId() string {
@@ -2257,7 +2320,7 @@ type PublishChannelKeyResponse struct {
 
 func (x *PublishChannelKeyResponse) Reset() {
 	*x = PublishChannelKeyResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[36]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2269,7 +2332,7 @@ func (x *PublishChannelKeyResponse) String() string {
 func (*PublishChannelKeyResponse) ProtoMessage() {}
 
 func (x *PublishChannelKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[36]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2282,7 +2345,7 @@ func (x *PublishChannelKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishChannelKeyResponse.ProtoReflect.Descriptor instead.
 func (*PublishChannelKeyResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{36}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{37}
 }
 
 type ReportStatusRequest struct {
@@ -2302,7 +2365,7 @@ type ReportStatusRequest struct {
 
 func (x *ReportStatusRequest) Reset() {
 	*x = ReportStatusRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[37]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +2377,7 @@ func (x *ReportStatusRequest) String() string {
 func (*ReportStatusRequest) ProtoMessage() {}
 
 func (x *ReportStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[37]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2327,7 +2390,7 @@ func (x *ReportStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportStatusRequest.ProtoReflect.Descriptor instead.
 func (*ReportStatusRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{37}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ReportStatusRequest) GetNodeId() string {
@@ -2403,7 +2466,7 @@ type ReportStatusResponse struct {
 
 func (x *ReportStatusResponse) Reset() {
 	*x = ReportStatusResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[38]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2415,7 +2478,7 @@ func (x *ReportStatusResponse) String() string {
 func (*ReportStatusResponse) ProtoMessage() {}
 
 func (x *ReportStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[38]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2428,7 +2491,7 @@ func (x *ReportStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportStatusResponse.ProtoReflect.Descriptor instead.
 func (*ReportStatusResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{38}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ReportStatusResponse) GetStop() bool {
@@ -2454,7 +2517,7 @@ type EndNodeRequest struct {
 
 func (x *EndNodeRequest) Reset() {
 	*x = EndNodeRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[39]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2466,7 +2529,7 @@ func (x *EndNodeRequest) String() string {
 func (*EndNodeRequest) ProtoMessage() {}
 
 func (x *EndNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[39]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2479,7 +2542,7 @@ func (x *EndNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndNodeRequest.ProtoReflect.Descriptor instead.
 func (*EndNodeRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{39}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *EndNodeRequest) GetNodeId() string {
@@ -2497,7 +2560,7 @@ type EndNodeResponse struct {
 
 func (x *EndNodeResponse) Reset() {
 	*x = EndNodeResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[40]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2509,7 +2572,7 @@ func (x *EndNodeResponse) String() string {
 func (*EndNodeResponse) ProtoMessage() {}
 
 func (x *EndNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[40]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2522,7 +2585,7 @@ func (x *EndNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndNodeResponse.ProtoReflect.Descriptor instead.
 func (*EndNodeResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{40}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{41}
 }
 
 type RelayFrame struct {
@@ -2536,7 +2599,7 @@ type RelayFrame struct {
 
 func (x *RelayFrame) Reset() {
 	*x = RelayFrame{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[41]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2548,7 +2611,7 @@ func (x *RelayFrame) String() string {
 func (*RelayFrame) ProtoMessage() {}
 
 func (x *RelayFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[41]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2561,7 +2624,7 @@ func (x *RelayFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayFrame.ProtoReflect.Descriptor instead.
 func (*RelayFrame) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{41}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *RelayFrame) GetSession() string {
@@ -2599,7 +2662,7 @@ type PublishReviewRequest struct {
 
 func (x *PublishReviewRequest) Reset() {
 	*x = PublishReviewRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2611,7 +2674,7 @@ func (x *PublishReviewRequest) String() string {
 func (*PublishReviewRequest) ProtoMessage() {}
 
 func (x *PublishReviewRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2624,7 +2687,7 @@ func (x *PublishReviewRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishReviewRequest.ProtoReflect.Descriptor instead.
 func (*PublishReviewRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{42}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PublishReviewRequest) GetProject() string {
@@ -2680,7 +2743,7 @@ type PublishReviewResponse struct {
 
 func (x *PublishReviewResponse) Reset() {
 	*x = PublishReviewResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2692,7 +2755,7 @@ func (x *PublishReviewResponse) String() string {
 func (*PublishReviewResponse) ProtoMessage() {}
 
 func (x *PublishReviewResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2705,7 +2768,7 @@ func (x *PublishReviewResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishReviewResponse.ProtoReflect.Descriptor instead.
 func (*PublishReviewResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{43}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *PublishReviewResponse) GetReviewId() int64 {
@@ -2744,7 +2807,7 @@ type PublishStatusRequest struct {
 
 func (x *PublishStatusRequest) Reset() {
 	*x = PublishStatusRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2756,7 +2819,7 @@ func (x *PublishStatusRequest) String() string {
 func (*PublishStatusRequest) ProtoMessage() {}
 
 func (x *PublishStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2769,7 +2832,7 @@ func (x *PublishStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishStatusRequest.ProtoReflect.Descriptor instead.
 func (*PublishStatusRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{44}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *PublishStatusRequest) GetProject() string {
@@ -2831,7 +2894,7 @@ type PublishStatusResponse struct {
 
 func (x *PublishStatusResponse) Reset() {
 	*x = PublishStatusResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2843,7 +2906,7 @@ func (x *PublishStatusResponse) String() string {
 func (*PublishStatusResponse) ProtoMessage() {}
 
 func (x *PublishStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2856,7 +2919,7 @@ func (x *PublishStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishStatusResponse.ProtoReflect.Descriptor instead.
 func (*PublishStatusResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{45}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *PublishStatusResponse) GetStatusId() int64 {
@@ -2884,7 +2947,7 @@ type ListPullRequestEventsRequest struct {
 
 func (x *ListPullRequestEventsRequest) Reset() {
 	*x = ListPullRequestEventsRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2896,7 +2959,7 @@ func (x *ListPullRequestEventsRequest) String() string {
 func (*ListPullRequestEventsRequest) ProtoMessage() {}
 
 func (x *ListPullRequestEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2909,7 +2972,7 @@ func (x *ListPullRequestEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPullRequestEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListPullRequestEventsRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{46}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ListPullRequestEventsRequest) GetProject() string {
@@ -2943,7 +3006,7 @@ type ListPullRequestEventsResponse struct {
 
 func (x *ListPullRequestEventsResponse) Reset() {
 	*x = ListPullRequestEventsResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2955,7 +3018,7 @@ func (x *ListPullRequestEventsResponse) String() string {
 func (*ListPullRequestEventsResponse) ProtoMessage() {}
 
 func (x *ListPullRequestEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2968,7 +3031,7 @@ func (x *ListPullRequestEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPullRequestEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListPullRequestEventsResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{47}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ListPullRequestEventsResponse) GetEvents() []*PullRequestEvent {
@@ -3002,7 +3065,7 @@ type PullRequestEvent struct {
 
 func (x *PullRequestEvent) Reset() {
 	*x = PullRequestEvent{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3014,7 +3077,7 @@ func (x *PullRequestEvent) String() string {
 func (*PullRequestEvent) ProtoMessage() {}
 
 func (x *PullRequestEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3027,7 +3090,7 @@ func (x *PullRequestEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequestEvent.ProtoReflect.Descriptor instead.
 func (*PullRequestEvent) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{48}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *PullRequestEvent) GetDeliveryId() string {
@@ -3109,7 +3172,7 @@ type Pack struct {
 
 func (x *Pack) Reset() {
 	*x = Pack{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[49]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3121,7 +3184,7 @@ func (x *Pack) String() string {
 func (*Pack) ProtoMessage() {}
 
 func (x *Pack) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[49]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3134,7 +3197,7 @@ func (x *Pack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Pack.ProtoReflect.Descriptor instead.
 func (*Pack) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{49}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *Pack) GetRef() string {
@@ -3204,7 +3267,7 @@ type PackSource struct {
 
 func (x *PackSource) Reset() {
 	*x = PackSource{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[50]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3216,7 +3279,7 @@ func (x *PackSource) String() string {
 func (*PackSource) ProtoMessage() {}
 
 func (x *PackSource) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[50]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3229,7 +3292,7 @@ func (x *PackSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackSource.ProtoReflect.Descriptor instead.
 func (*PackSource) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{50}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *PackSource) GetRepo() string {
@@ -3265,7 +3328,7 @@ type PackFileRef struct {
 
 func (x *PackFileRef) Reset() {
 	*x = PackFileRef{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[51]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3277,7 +3340,7 @@ func (x *PackFileRef) String() string {
 func (*PackFileRef) ProtoMessage() {}
 
 func (x *PackFileRef) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[51]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3290,7 +3353,7 @@ func (x *PackFileRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackFileRef.ProtoReflect.Descriptor instead.
 func (*PackFileRef) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{51}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *PackFileRef) GetPath() string {
@@ -3334,7 +3397,7 @@ type PackNeeds struct {
 
 func (x *PackNeeds) Reset() {
 	*x = PackNeeds{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[52]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3346,7 +3409,7 @@ func (x *PackNeeds) String() string {
 func (*PackNeeds) ProtoMessage() {}
 
 func (x *PackNeeds) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[52]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3359,7 +3422,7 @@ func (x *PackNeeds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackNeeds.ProtoReflect.Descriptor instead.
 func (*PackNeeds) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{52}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *PackNeeds) GetScripts() []string {
@@ -3412,7 +3475,7 @@ type PackManifest struct {
 
 func (x *PackManifest) Reset() {
 	*x = PackManifest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[53]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3424,7 +3487,7 @@ func (x *PackManifest) String() string {
 func (*PackManifest) ProtoMessage() {}
 
 func (x *PackManifest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[53]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3437,7 +3500,7 @@ func (x *PackManifest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackManifest.ProtoReflect.Descriptor instead.
 func (*PackManifest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{53}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PackManifest) GetName() string {
@@ -3501,7 +3564,7 @@ type PackVersion struct {
 
 func (x *PackVersion) Reset() {
 	*x = PackVersion{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[54]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3513,7 +3576,7 @@ func (x *PackVersion) String() string {
 func (*PackVersion) ProtoMessage() {}
 
 func (x *PackVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[54]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3526,7 +3589,7 @@ func (x *PackVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackVersion.ProtoReflect.Descriptor instead.
 func (*PackVersion) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{54}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *PackVersion) GetPack() *Pack {
@@ -3568,7 +3631,7 @@ type PackFile struct {
 
 func (x *PackFile) Reset() {
 	*x = PackFile{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[55]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3580,7 +3643,7 @@ func (x *PackFile) String() string {
 func (*PackFile) ProtoMessage() {}
 
 func (x *PackFile) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[55]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3593,7 +3656,7 @@ func (x *PackFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackFile.ProtoReflect.Descriptor instead.
 func (*PackFile) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{55}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *PackFile) GetPath() string {
@@ -3627,7 +3690,7 @@ type PackBundle struct {
 
 func (x *PackBundle) Reset() {
 	*x = PackBundle{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[56]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3639,7 +3702,7 @@ func (x *PackBundle) String() string {
 func (*PackBundle) ProtoMessage() {}
 
 func (x *PackBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[56]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3652,7 +3715,7 @@ func (x *PackBundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackBundle.ProtoReflect.Descriptor instead.
 func (*PackBundle) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{56}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *PackBundle) GetVersion() *PackVersion {
@@ -3679,7 +3742,7 @@ type ListPacksRequest struct {
 
 func (x *ListPacksRequest) Reset() {
 	*x = ListPacksRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[57]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3691,7 +3754,7 @@ func (x *ListPacksRequest) String() string {
 func (*ListPacksRequest) ProtoMessage() {}
 
 func (x *ListPacksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[57]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3704,7 +3767,7 @@ func (x *ListPacksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPacksRequest.ProtoReflect.Descriptor instead.
 func (*ListPacksRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{57}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ListPacksRequest) GetOwnerWorkspaceId() string {
@@ -3730,7 +3793,7 @@ type ListPacksResponse struct {
 
 func (x *ListPacksResponse) Reset() {
 	*x = ListPacksResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[58]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3742,7 +3805,7 @@ func (x *ListPacksResponse) String() string {
 func (*ListPacksResponse) ProtoMessage() {}
 
 func (x *ListPacksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[58]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3755,7 +3818,7 @@ func (x *ListPacksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPacksResponse.ProtoReflect.Descriptor instead.
 func (*ListPacksResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{58}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ListPacksResponse) GetPacks() []*Pack {
@@ -3775,7 +3838,7 @@ type GetPackRequest struct {
 
 func (x *GetPackRequest) Reset() {
 	*x = GetPackRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[59]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3787,7 +3850,7 @@ func (x *GetPackRequest) String() string {
 func (*GetPackRequest) ProtoMessage() {}
 
 func (x *GetPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[59]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3800,7 +3863,7 @@ func (x *GetPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPackRequest.ProtoReflect.Descriptor instead.
 func (*GetPackRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{59}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetPackRequest) GetRef() string {
@@ -3830,7 +3893,7 @@ type PublishPackRequest struct {
 
 func (x *PublishPackRequest) Reset() {
 	*x = PublishPackRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[60]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3842,7 +3905,7 @@ func (x *PublishPackRequest) String() string {
 func (*PublishPackRequest) ProtoMessage() {}
 
 func (x *PublishPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[60]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3855,7 +3918,7 @@ func (x *PublishPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishPackRequest.ProtoReflect.Descriptor instead.
 func (*PublishPackRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{60}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *PublishPackRequest) GetOwnerWorkspaceId() string {
@@ -3904,7 +3967,7 @@ type SetPackVisibilityRequest struct {
 
 func (x *SetPackVisibilityRequest) Reset() {
 	*x = SetPackVisibilityRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[61]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3916,7 +3979,7 @@ func (x *SetPackVisibilityRequest) String() string {
 func (*SetPackVisibilityRequest) ProtoMessage() {}
 
 func (x *SetPackVisibilityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[61]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3929,7 +3992,7 @@ func (x *SetPackVisibilityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPackVisibilityRequest.ProtoReflect.Descriptor instead.
 func (*SetPackVisibilityRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{61}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *SetPackVisibilityRequest) GetRef() string {
@@ -3967,7 +4030,7 @@ type PackEvent struct {
 
 func (x *PackEvent) Reset() {
 	*x = PackEvent{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[62]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3979,7 +4042,7 @@ func (x *PackEvent) String() string {
 func (*PackEvent) ProtoMessage() {}
 
 func (x *PackEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[62]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3992,7 +4055,7 @@ func (x *PackEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackEvent.ProtoReflect.Descriptor instead.
 func (*PackEvent) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{62}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *PackEvent) GetKind() PackEventKind {
@@ -4048,7 +4111,7 @@ type ListPackEventsRequest struct {
 
 func (x *ListPackEventsRequest) Reset() {
 	*x = ListPackEventsRequest{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[63]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4060,7 +4123,7 @@ func (x *ListPackEventsRequest) String() string {
 func (*ListPackEventsRequest) ProtoMessage() {}
 
 func (x *ListPackEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[63]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4073,7 +4136,7 @@ func (x *ListPackEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPackEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListPackEventsRequest) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{63}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *ListPackEventsRequest) GetRef() string {
@@ -4107,7 +4170,7 @@ type ListPackEventsResponse struct {
 
 func (x *ListPackEventsResponse) Reset() {
 	*x = ListPackEventsResponse{}
-	mi := &file_satelle_v1_satelle_proto_msgTypes[64]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4119,7 +4182,7 @@ func (x *ListPackEventsResponse) String() string {
 func (*ListPackEventsResponse) ProtoMessage() {}
 
 func (x *ListPackEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_satelle_v1_satelle_proto_msgTypes[64]
+	mi := &file_satelle_v1_satelle_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4132,7 +4195,7 @@ func (x *ListPackEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPackEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListPackEventsResponse) Descriptor() ([]byte, []int) {
-	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{64}
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ListPackEventsResponse) GetEvents() []*PackEvent {
@@ -4160,13 +4223,19 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\"n\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\"\xb1\x01\n" +
 	"\aProject\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12\x17\n" +
-	"\ateam_id\x18\x05 \x01(\tR\x06teamId\"\x15\n" +
+	"\ateam_id\x18\x05 \x01(\tR\x06teamId\x12A\n" +
+	"\frepositories\x18\x06 \x03(\v2\x1d.satelle.v1.RepositoryBindingR\frepositories\"\\\n" +
+	"\x11RepositoryBinding\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x01 \x01(\tR\n" +
+	"repository\x12'\n" +
+	"\x0finstallation_id\x18\x02 \x01(\x03R\x0einstallationId\"\x15\n" +
 	"\x13ListProjectsRequest\"G\n" +
 	"\x14ListProjectsResponse\x12/\n" +
 	"\bprojects\x18\x01 \x03(\v2\x13.satelle.v1.ProjectR\bprojects\"-\n" +
@@ -4542,170 +4611,172 @@ func file_satelle_v1_satelle_proto_rawDescGZIP() []byte {
 }
 
 var file_satelle_v1_satelle_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_satelle_v1_satelle_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
+var file_satelle_v1_satelle_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_satelle_v1_satelle_proto_goTypes = []any{
 	(PackVisibility)(0),                   // 0: satelle.v1.PackVisibility
 	(PackEventKind)(0),                    // 1: satelle.v1.PackEventKind
 	(*GetMeRequest)(nil),                  // 2: satelle.v1.GetMeRequest
 	(*GetMeResponse)(nil),                 // 3: satelle.v1.GetMeResponse
 	(*Project)(nil),                       // 4: satelle.v1.Project
-	(*ListProjectsRequest)(nil),           // 5: satelle.v1.ListProjectsRequest
-	(*ListProjectsResponse)(nil),          // 6: satelle.v1.ListProjectsResponse
-	(*GetProjectRequest)(nil),             // 7: satelle.v1.GetProjectRequest
-	(*CreateProjectRequest)(nil),          // 8: satelle.v1.CreateProjectRequest
-	(*Workspace)(nil),                     // 9: satelle.v1.Workspace
-	(*ListWorkspacesRequest)(nil),         // 10: satelle.v1.ListWorkspacesRequest
-	(*ListWorkspacesResponse)(nil),        // 11: satelle.v1.ListWorkspacesResponse
-	(*RegisterLocationRequest)(nil),       // 12: satelle.v1.RegisterLocationRequest
-	(*RegisterLocationResponse)(nil),      // 13: satelle.v1.RegisterLocationResponse
-	(*Item)(nil),                          // 14: satelle.v1.Item
-	(*PutItemsRequest)(nil),               // 15: satelle.v1.PutItemsRequest
-	(*PutItemsResponse)(nil),              // 16: satelle.v1.PutItemsResponse
-	(*Attachment)(nil),                    // 17: satelle.v1.Attachment
-	(*PutAttachmentRequest)(nil),          // 18: satelle.v1.PutAttachmentRequest
-	(*PutAttachmentResponse)(nil),         // 19: satelle.v1.PutAttachmentResponse
-	(*GetAttachmentRequest)(nil),          // 20: satelle.v1.GetAttachmentRequest
-	(*ListAttachmentChangesRequest)(nil),  // 21: satelle.v1.ListAttachmentChangesRequest
-	(*ListAttachmentChangesResponse)(nil), // 22: satelle.v1.ListAttachmentChangesResponse
-	(*FireRemoteRequest)(nil),             // 23: satelle.v1.FireRemoteRequest
-	(*FireRemoteResponse)(nil),            // 24: satelle.v1.FireRemoteResponse
-	(*GetItemRunRequest)(nil),             // 25: satelle.v1.GetItemRunRequest
-	(*ItemRun)(nil),                       // 26: satelle.v1.ItemRun
-	(*StartNodeRequest)(nil),              // 27: satelle.v1.StartNodeRequest
-	(*StartNodeResponse)(nil),             // 28: satelle.v1.StartNodeResponse
-	(*GetNodeRequest)(nil),                // 29: satelle.v1.GetNodeRequest
-	(*Node)(nil),                          // 30: satelle.v1.Node
-	(*GetDefinitionRequest)(nil),          // 31: satelle.v1.GetDefinitionRequest
-	(*Definition)(nil),                    // 32: satelle.v1.Definition
-	(*ReadSecretRequest)(nil),             // 33: satelle.v1.ReadSecretRequest
-	(*Secret)(nil),                        // 34: satelle.v1.Secret
-	(*GetRunRequest)(nil),                 // 35: satelle.v1.GetRunRequest
-	(*RunDescriptor)(nil),                 // 36: satelle.v1.RunDescriptor
-	(*PublishChannelKeyRequest)(nil),      // 37: satelle.v1.PublishChannelKeyRequest
-	(*PublishChannelKeyResponse)(nil),     // 38: satelle.v1.PublishChannelKeyResponse
-	(*ReportStatusRequest)(nil),           // 39: satelle.v1.ReportStatusRequest
-	(*ReportStatusResponse)(nil),          // 40: satelle.v1.ReportStatusResponse
-	(*EndNodeRequest)(nil),                // 41: satelle.v1.EndNodeRequest
-	(*EndNodeResponse)(nil),               // 42: satelle.v1.EndNodeResponse
-	(*RelayFrame)(nil),                    // 43: satelle.v1.RelayFrame
-	(*PublishReviewRequest)(nil),          // 44: satelle.v1.PublishReviewRequest
-	(*PublishReviewResponse)(nil),         // 45: satelle.v1.PublishReviewResponse
-	(*PublishStatusRequest)(nil),          // 46: satelle.v1.PublishStatusRequest
-	(*PublishStatusResponse)(nil),         // 47: satelle.v1.PublishStatusResponse
-	(*ListPullRequestEventsRequest)(nil),  // 48: satelle.v1.ListPullRequestEventsRequest
-	(*ListPullRequestEventsResponse)(nil), // 49: satelle.v1.ListPullRequestEventsResponse
-	(*PullRequestEvent)(nil),              // 50: satelle.v1.PullRequestEvent
-	(*Pack)(nil),                          // 51: satelle.v1.Pack
-	(*PackSource)(nil),                    // 52: satelle.v1.PackSource
-	(*PackFileRef)(nil),                   // 53: satelle.v1.PackFileRef
-	(*PackNeeds)(nil),                     // 54: satelle.v1.PackNeeds
-	(*PackManifest)(nil),                  // 55: satelle.v1.PackManifest
-	(*PackVersion)(nil),                   // 56: satelle.v1.PackVersion
-	(*PackFile)(nil),                      // 57: satelle.v1.PackFile
-	(*PackBundle)(nil),                    // 58: satelle.v1.PackBundle
-	(*ListPacksRequest)(nil),              // 59: satelle.v1.ListPacksRequest
-	(*ListPacksResponse)(nil),             // 60: satelle.v1.ListPacksResponse
-	(*GetPackRequest)(nil),                // 61: satelle.v1.GetPackRequest
-	(*PublishPackRequest)(nil),            // 62: satelle.v1.PublishPackRequest
-	(*SetPackVisibilityRequest)(nil),      // 63: satelle.v1.SetPackVisibilityRequest
-	(*PackEvent)(nil),                     // 64: satelle.v1.PackEvent
-	(*ListPackEventsRequest)(nil),         // 65: satelle.v1.ListPackEventsRequest
-	(*ListPackEventsResponse)(nil),        // 66: satelle.v1.ListPackEventsResponse
-	(*timestamppb.Timestamp)(nil),         // 67: google.protobuf.Timestamp
+	(*RepositoryBinding)(nil),             // 5: satelle.v1.RepositoryBinding
+	(*ListProjectsRequest)(nil),           // 6: satelle.v1.ListProjectsRequest
+	(*ListProjectsResponse)(nil),          // 7: satelle.v1.ListProjectsResponse
+	(*GetProjectRequest)(nil),             // 8: satelle.v1.GetProjectRequest
+	(*CreateProjectRequest)(nil),          // 9: satelle.v1.CreateProjectRequest
+	(*Workspace)(nil),                     // 10: satelle.v1.Workspace
+	(*ListWorkspacesRequest)(nil),         // 11: satelle.v1.ListWorkspacesRequest
+	(*ListWorkspacesResponse)(nil),        // 12: satelle.v1.ListWorkspacesResponse
+	(*RegisterLocationRequest)(nil),       // 13: satelle.v1.RegisterLocationRequest
+	(*RegisterLocationResponse)(nil),      // 14: satelle.v1.RegisterLocationResponse
+	(*Item)(nil),                          // 15: satelle.v1.Item
+	(*PutItemsRequest)(nil),               // 16: satelle.v1.PutItemsRequest
+	(*PutItemsResponse)(nil),              // 17: satelle.v1.PutItemsResponse
+	(*Attachment)(nil),                    // 18: satelle.v1.Attachment
+	(*PutAttachmentRequest)(nil),          // 19: satelle.v1.PutAttachmentRequest
+	(*PutAttachmentResponse)(nil),         // 20: satelle.v1.PutAttachmentResponse
+	(*GetAttachmentRequest)(nil),          // 21: satelle.v1.GetAttachmentRequest
+	(*ListAttachmentChangesRequest)(nil),  // 22: satelle.v1.ListAttachmentChangesRequest
+	(*ListAttachmentChangesResponse)(nil), // 23: satelle.v1.ListAttachmentChangesResponse
+	(*FireRemoteRequest)(nil),             // 24: satelle.v1.FireRemoteRequest
+	(*FireRemoteResponse)(nil),            // 25: satelle.v1.FireRemoteResponse
+	(*GetItemRunRequest)(nil),             // 26: satelle.v1.GetItemRunRequest
+	(*ItemRun)(nil),                       // 27: satelle.v1.ItemRun
+	(*StartNodeRequest)(nil),              // 28: satelle.v1.StartNodeRequest
+	(*StartNodeResponse)(nil),             // 29: satelle.v1.StartNodeResponse
+	(*GetNodeRequest)(nil),                // 30: satelle.v1.GetNodeRequest
+	(*Node)(nil),                          // 31: satelle.v1.Node
+	(*GetDefinitionRequest)(nil),          // 32: satelle.v1.GetDefinitionRequest
+	(*Definition)(nil),                    // 33: satelle.v1.Definition
+	(*ReadSecretRequest)(nil),             // 34: satelle.v1.ReadSecretRequest
+	(*Secret)(nil),                        // 35: satelle.v1.Secret
+	(*GetRunRequest)(nil),                 // 36: satelle.v1.GetRunRequest
+	(*RunDescriptor)(nil),                 // 37: satelle.v1.RunDescriptor
+	(*PublishChannelKeyRequest)(nil),      // 38: satelle.v1.PublishChannelKeyRequest
+	(*PublishChannelKeyResponse)(nil),     // 39: satelle.v1.PublishChannelKeyResponse
+	(*ReportStatusRequest)(nil),           // 40: satelle.v1.ReportStatusRequest
+	(*ReportStatusResponse)(nil),          // 41: satelle.v1.ReportStatusResponse
+	(*EndNodeRequest)(nil),                // 42: satelle.v1.EndNodeRequest
+	(*EndNodeResponse)(nil),               // 43: satelle.v1.EndNodeResponse
+	(*RelayFrame)(nil),                    // 44: satelle.v1.RelayFrame
+	(*PublishReviewRequest)(nil),          // 45: satelle.v1.PublishReviewRequest
+	(*PublishReviewResponse)(nil),         // 46: satelle.v1.PublishReviewResponse
+	(*PublishStatusRequest)(nil),          // 47: satelle.v1.PublishStatusRequest
+	(*PublishStatusResponse)(nil),         // 48: satelle.v1.PublishStatusResponse
+	(*ListPullRequestEventsRequest)(nil),  // 49: satelle.v1.ListPullRequestEventsRequest
+	(*ListPullRequestEventsResponse)(nil), // 50: satelle.v1.ListPullRequestEventsResponse
+	(*PullRequestEvent)(nil),              // 51: satelle.v1.PullRequestEvent
+	(*Pack)(nil),                          // 52: satelle.v1.Pack
+	(*PackSource)(nil),                    // 53: satelle.v1.PackSource
+	(*PackFileRef)(nil),                   // 54: satelle.v1.PackFileRef
+	(*PackNeeds)(nil),                     // 55: satelle.v1.PackNeeds
+	(*PackManifest)(nil),                  // 56: satelle.v1.PackManifest
+	(*PackVersion)(nil),                   // 57: satelle.v1.PackVersion
+	(*PackFile)(nil),                      // 58: satelle.v1.PackFile
+	(*PackBundle)(nil),                    // 59: satelle.v1.PackBundle
+	(*ListPacksRequest)(nil),              // 60: satelle.v1.ListPacksRequest
+	(*ListPacksResponse)(nil),             // 61: satelle.v1.ListPacksResponse
+	(*GetPackRequest)(nil),                // 62: satelle.v1.GetPackRequest
+	(*PublishPackRequest)(nil),            // 63: satelle.v1.PublishPackRequest
+	(*SetPackVisibilityRequest)(nil),      // 64: satelle.v1.SetPackVisibilityRequest
+	(*PackEvent)(nil),                     // 65: satelle.v1.PackEvent
+	(*ListPackEventsRequest)(nil),         // 66: satelle.v1.ListPackEventsRequest
+	(*ListPackEventsResponse)(nil),        // 67: satelle.v1.ListPackEventsResponse
+	(*timestamppb.Timestamp)(nil),         // 68: google.protobuf.Timestamp
 }
 var file_satelle_v1_satelle_proto_depIdxs = []int32{
-	4,  // 0: satelle.v1.ListProjectsResponse.projects:type_name -> satelle.v1.Project
-	9,  // 1: satelle.v1.ListWorkspacesResponse.workspaces:type_name -> satelle.v1.Workspace
-	67, // 2: satelle.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
-	14, // 3: satelle.v1.PutItemsRequest.items:type_name -> satelle.v1.Item
-	67, // 4: satelle.v1.Attachment.stored_at:type_name -> google.protobuf.Timestamp
-	17, // 5: satelle.v1.PutAttachmentRequest.attachment:type_name -> satelle.v1.Attachment
-	17, // 6: satelle.v1.ListAttachmentChangesResponse.attachments:type_name -> satelle.v1.Attachment
-	67, // 7: satelle.v1.Secret.expires_at:type_name -> google.protobuf.Timestamp
-	50, // 8: satelle.v1.ListPullRequestEventsResponse.events:type_name -> satelle.v1.PullRequestEvent
-	67, // 9: satelle.v1.PullRequestEvent.received_at:type_name -> google.protobuf.Timestamp
-	0,  // 10: satelle.v1.Pack.visibility:type_name -> satelle.v1.PackVisibility
-	52, // 11: satelle.v1.PackManifest.source:type_name -> satelle.v1.PackSource
-	53, // 12: satelle.v1.PackManifest.files:type_name -> satelle.v1.PackFileRef
-	54, // 13: satelle.v1.PackManifest.needs:type_name -> satelle.v1.PackNeeds
-	51, // 14: satelle.v1.PackVersion.pack:type_name -> satelle.v1.Pack
-	55, // 15: satelle.v1.PackVersion.manifest:type_name -> satelle.v1.PackManifest
-	67, // 16: satelle.v1.PackVersion.published_at:type_name -> google.protobuf.Timestamp
-	56, // 17: satelle.v1.PackBundle.version:type_name -> satelle.v1.PackVersion
-	57, // 18: satelle.v1.PackBundle.files:type_name -> satelle.v1.PackFile
-	51, // 19: satelle.v1.ListPacksResponse.packs:type_name -> satelle.v1.Pack
-	55, // 20: satelle.v1.PublishPackRequest.manifest:type_name -> satelle.v1.PackManifest
-	57, // 21: satelle.v1.PublishPackRequest.files:type_name -> satelle.v1.PackFile
-	0,  // 22: satelle.v1.PublishPackRequest.visibility:type_name -> satelle.v1.PackVisibility
-	0,  // 23: satelle.v1.SetPackVisibilityRequest.visibility:type_name -> satelle.v1.PackVisibility
-	1,  // 24: satelle.v1.PackEvent.kind:type_name -> satelle.v1.PackEventKind
-	67, // 25: satelle.v1.PackEvent.at:type_name -> google.protobuf.Timestamp
-	64, // 26: satelle.v1.ListPackEventsResponse.events:type_name -> satelle.v1.PackEvent
-	2,  // 27: satelle.v1.AccountService.GetMe:input_type -> satelle.v1.GetMeRequest
-	5,  // 28: satelle.v1.ProjectService.ListProjects:input_type -> satelle.v1.ListProjectsRequest
-	7,  // 29: satelle.v1.ProjectService.GetProject:input_type -> satelle.v1.GetProjectRequest
-	8,  // 30: satelle.v1.ProjectService.CreateProject:input_type -> satelle.v1.CreateProjectRequest
-	10, // 31: satelle.v1.WorkspaceService.ListWorkspaces:input_type -> satelle.v1.ListWorkspacesRequest
-	12, // 32: satelle.v1.LocationService.RegisterLocation:input_type -> satelle.v1.RegisterLocationRequest
-	15, // 33: satelle.v1.ItemService.PutItems:input_type -> satelle.v1.PutItemsRequest
-	18, // 34: satelle.v1.AttachmentService.PutAttachment:input_type -> satelle.v1.PutAttachmentRequest
-	20, // 35: satelle.v1.AttachmentService.GetAttachment:input_type -> satelle.v1.GetAttachmentRequest
-	21, // 36: satelle.v1.AttachmentService.ListAttachmentChanges:input_type -> satelle.v1.ListAttachmentChangesRequest
-	23, // 37: satelle.v1.RemoteService.FireRemote:input_type -> satelle.v1.FireRemoteRequest
-	25, // 38: satelle.v1.RemoteService.GetItemRun:input_type -> satelle.v1.GetItemRunRequest
-	27, // 39: satelle.v1.RemoteService.StartNode:input_type -> satelle.v1.StartNodeRequest
-	29, // 40: satelle.v1.NodeService.GetNode:input_type -> satelle.v1.GetNodeRequest
-	31, // 41: satelle.v1.NodeService.GetDefinition:input_type -> satelle.v1.GetDefinitionRequest
-	33, // 42: satelle.v1.NodeService.ReadSecret:input_type -> satelle.v1.ReadSecretRequest
-	35, // 43: satelle.v1.NodeService.GetRun:input_type -> satelle.v1.GetRunRequest
-	37, // 44: satelle.v1.NodeService.PublishChannelKey:input_type -> satelle.v1.PublishChannelKeyRequest
-	39, // 45: satelle.v1.NodeService.ReportStatus:input_type -> satelle.v1.ReportStatusRequest
-	41, // 46: satelle.v1.NodeService.EndNode:input_type -> satelle.v1.EndNodeRequest
-	43, // 47: satelle.v1.RelayService.Connect:input_type -> satelle.v1.RelayFrame
-	44, // 48: satelle.v1.GitHubService.PublishReview:input_type -> satelle.v1.PublishReviewRequest
-	46, // 49: satelle.v1.GitHubService.PublishStatus:input_type -> satelle.v1.PublishStatusRequest
-	48, // 50: satelle.v1.GitHubService.ListPullRequestEvents:input_type -> satelle.v1.ListPullRequestEventsRequest
-	59, // 51: satelle.v1.PackService.ListPacks:input_type -> satelle.v1.ListPacksRequest
-	61, // 52: satelle.v1.PackService.GetPack:input_type -> satelle.v1.GetPackRequest
-	61, // 53: satelle.v1.PackService.FetchPack:input_type -> satelle.v1.GetPackRequest
-	62, // 54: satelle.v1.PackService.PublishPack:input_type -> satelle.v1.PublishPackRequest
-	63, // 55: satelle.v1.PackService.SetPackVisibility:input_type -> satelle.v1.SetPackVisibilityRequest
-	65, // 56: satelle.v1.PackService.ListPackEvents:input_type -> satelle.v1.ListPackEventsRequest
-	3,  // 57: satelle.v1.AccountService.GetMe:output_type -> satelle.v1.GetMeResponse
-	6,  // 58: satelle.v1.ProjectService.ListProjects:output_type -> satelle.v1.ListProjectsResponse
-	4,  // 59: satelle.v1.ProjectService.GetProject:output_type -> satelle.v1.Project
-	4,  // 60: satelle.v1.ProjectService.CreateProject:output_type -> satelle.v1.Project
-	11, // 61: satelle.v1.WorkspaceService.ListWorkspaces:output_type -> satelle.v1.ListWorkspacesResponse
-	13, // 62: satelle.v1.LocationService.RegisterLocation:output_type -> satelle.v1.RegisterLocationResponse
-	16, // 63: satelle.v1.ItemService.PutItems:output_type -> satelle.v1.PutItemsResponse
-	19, // 64: satelle.v1.AttachmentService.PutAttachment:output_type -> satelle.v1.PutAttachmentResponse
-	17, // 65: satelle.v1.AttachmentService.GetAttachment:output_type -> satelle.v1.Attachment
-	22, // 66: satelle.v1.AttachmentService.ListAttachmentChanges:output_type -> satelle.v1.ListAttachmentChangesResponse
-	24, // 67: satelle.v1.RemoteService.FireRemote:output_type -> satelle.v1.FireRemoteResponse
-	26, // 68: satelle.v1.RemoteService.GetItemRun:output_type -> satelle.v1.ItemRun
-	28, // 69: satelle.v1.RemoteService.StartNode:output_type -> satelle.v1.StartNodeResponse
-	30, // 70: satelle.v1.NodeService.GetNode:output_type -> satelle.v1.Node
-	32, // 71: satelle.v1.NodeService.GetDefinition:output_type -> satelle.v1.Definition
-	34, // 72: satelle.v1.NodeService.ReadSecret:output_type -> satelle.v1.Secret
-	36, // 73: satelle.v1.NodeService.GetRun:output_type -> satelle.v1.RunDescriptor
-	38, // 74: satelle.v1.NodeService.PublishChannelKey:output_type -> satelle.v1.PublishChannelKeyResponse
-	40, // 75: satelle.v1.NodeService.ReportStatus:output_type -> satelle.v1.ReportStatusResponse
-	42, // 76: satelle.v1.NodeService.EndNode:output_type -> satelle.v1.EndNodeResponse
-	43, // 77: satelle.v1.RelayService.Connect:output_type -> satelle.v1.RelayFrame
-	45, // 78: satelle.v1.GitHubService.PublishReview:output_type -> satelle.v1.PublishReviewResponse
-	47, // 79: satelle.v1.GitHubService.PublishStatus:output_type -> satelle.v1.PublishStatusResponse
-	49, // 80: satelle.v1.GitHubService.ListPullRequestEvents:output_type -> satelle.v1.ListPullRequestEventsResponse
-	60, // 81: satelle.v1.PackService.ListPacks:output_type -> satelle.v1.ListPacksResponse
-	56, // 82: satelle.v1.PackService.GetPack:output_type -> satelle.v1.PackVersion
-	58, // 83: satelle.v1.PackService.FetchPack:output_type -> satelle.v1.PackBundle
-	56, // 84: satelle.v1.PackService.PublishPack:output_type -> satelle.v1.PackVersion
-	51, // 85: satelle.v1.PackService.SetPackVisibility:output_type -> satelle.v1.Pack
-	66, // 86: satelle.v1.PackService.ListPackEvents:output_type -> satelle.v1.ListPackEventsResponse
-	57, // [57:87] is the sub-list for method output_type
-	27, // [27:57] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	5,  // 0: satelle.v1.Project.repositories:type_name -> satelle.v1.RepositoryBinding
+	4,  // 1: satelle.v1.ListProjectsResponse.projects:type_name -> satelle.v1.Project
+	10, // 2: satelle.v1.ListWorkspacesResponse.workspaces:type_name -> satelle.v1.Workspace
+	68, // 3: satelle.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
+	15, // 4: satelle.v1.PutItemsRequest.items:type_name -> satelle.v1.Item
+	68, // 5: satelle.v1.Attachment.stored_at:type_name -> google.protobuf.Timestamp
+	18, // 6: satelle.v1.PutAttachmentRequest.attachment:type_name -> satelle.v1.Attachment
+	18, // 7: satelle.v1.ListAttachmentChangesResponse.attachments:type_name -> satelle.v1.Attachment
+	68, // 8: satelle.v1.Secret.expires_at:type_name -> google.protobuf.Timestamp
+	51, // 9: satelle.v1.ListPullRequestEventsResponse.events:type_name -> satelle.v1.PullRequestEvent
+	68, // 10: satelle.v1.PullRequestEvent.received_at:type_name -> google.protobuf.Timestamp
+	0,  // 11: satelle.v1.Pack.visibility:type_name -> satelle.v1.PackVisibility
+	53, // 12: satelle.v1.PackManifest.source:type_name -> satelle.v1.PackSource
+	54, // 13: satelle.v1.PackManifest.files:type_name -> satelle.v1.PackFileRef
+	55, // 14: satelle.v1.PackManifest.needs:type_name -> satelle.v1.PackNeeds
+	52, // 15: satelle.v1.PackVersion.pack:type_name -> satelle.v1.Pack
+	56, // 16: satelle.v1.PackVersion.manifest:type_name -> satelle.v1.PackManifest
+	68, // 17: satelle.v1.PackVersion.published_at:type_name -> google.protobuf.Timestamp
+	57, // 18: satelle.v1.PackBundle.version:type_name -> satelle.v1.PackVersion
+	58, // 19: satelle.v1.PackBundle.files:type_name -> satelle.v1.PackFile
+	52, // 20: satelle.v1.ListPacksResponse.packs:type_name -> satelle.v1.Pack
+	56, // 21: satelle.v1.PublishPackRequest.manifest:type_name -> satelle.v1.PackManifest
+	58, // 22: satelle.v1.PublishPackRequest.files:type_name -> satelle.v1.PackFile
+	0,  // 23: satelle.v1.PublishPackRequest.visibility:type_name -> satelle.v1.PackVisibility
+	0,  // 24: satelle.v1.SetPackVisibilityRequest.visibility:type_name -> satelle.v1.PackVisibility
+	1,  // 25: satelle.v1.PackEvent.kind:type_name -> satelle.v1.PackEventKind
+	68, // 26: satelle.v1.PackEvent.at:type_name -> google.protobuf.Timestamp
+	65, // 27: satelle.v1.ListPackEventsResponse.events:type_name -> satelle.v1.PackEvent
+	2,  // 28: satelle.v1.AccountService.GetMe:input_type -> satelle.v1.GetMeRequest
+	6,  // 29: satelle.v1.ProjectService.ListProjects:input_type -> satelle.v1.ListProjectsRequest
+	8,  // 30: satelle.v1.ProjectService.GetProject:input_type -> satelle.v1.GetProjectRequest
+	9,  // 31: satelle.v1.ProjectService.CreateProject:input_type -> satelle.v1.CreateProjectRequest
+	11, // 32: satelle.v1.WorkspaceService.ListWorkspaces:input_type -> satelle.v1.ListWorkspacesRequest
+	13, // 33: satelle.v1.LocationService.RegisterLocation:input_type -> satelle.v1.RegisterLocationRequest
+	16, // 34: satelle.v1.ItemService.PutItems:input_type -> satelle.v1.PutItemsRequest
+	19, // 35: satelle.v1.AttachmentService.PutAttachment:input_type -> satelle.v1.PutAttachmentRequest
+	21, // 36: satelle.v1.AttachmentService.GetAttachment:input_type -> satelle.v1.GetAttachmentRequest
+	22, // 37: satelle.v1.AttachmentService.ListAttachmentChanges:input_type -> satelle.v1.ListAttachmentChangesRequest
+	24, // 38: satelle.v1.RemoteService.FireRemote:input_type -> satelle.v1.FireRemoteRequest
+	26, // 39: satelle.v1.RemoteService.GetItemRun:input_type -> satelle.v1.GetItemRunRequest
+	28, // 40: satelle.v1.RemoteService.StartNode:input_type -> satelle.v1.StartNodeRequest
+	30, // 41: satelle.v1.NodeService.GetNode:input_type -> satelle.v1.GetNodeRequest
+	32, // 42: satelle.v1.NodeService.GetDefinition:input_type -> satelle.v1.GetDefinitionRequest
+	34, // 43: satelle.v1.NodeService.ReadSecret:input_type -> satelle.v1.ReadSecretRequest
+	36, // 44: satelle.v1.NodeService.GetRun:input_type -> satelle.v1.GetRunRequest
+	38, // 45: satelle.v1.NodeService.PublishChannelKey:input_type -> satelle.v1.PublishChannelKeyRequest
+	40, // 46: satelle.v1.NodeService.ReportStatus:input_type -> satelle.v1.ReportStatusRequest
+	42, // 47: satelle.v1.NodeService.EndNode:input_type -> satelle.v1.EndNodeRequest
+	44, // 48: satelle.v1.RelayService.Connect:input_type -> satelle.v1.RelayFrame
+	45, // 49: satelle.v1.GitHubService.PublishReview:input_type -> satelle.v1.PublishReviewRequest
+	47, // 50: satelle.v1.GitHubService.PublishStatus:input_type -> satelle.v1.PublishStatusRequest
+	49, // 51: satelle.v1.GitHubService.ListPullRequestEvents:input_type -> satelle.v1.ListPullRequestEventsRequest
+	60, // 52: satelle.v1.PackService.ListPacks:input_type -> satelle.v1.ListPacksRequest
+	62, // 53: satelle.v1.PackService.GetPack:input_type -> satelle.v1.GetPackRequest
+	62, // 54: satelle.v1.PackService.FetchPack:input_type -> satelle.v1.GetPackRequest
+	63, // 55: satelle.v1.PackService.PublishPack:input_type -> satelle.v1.PublishPackRequest
+	64, // 56: satelle.v1.PackService.SetPackVisibility:input_type -> satelle.v1.SetPackVisibilityRequest
+	66, // 57: satelle.v1.PackService.ListPackEvents:input_type -> satelle.v1.ListPackEventsRequest
+	3,  // 58: satelle.v1.AccountService.GetMe:output_type -> satelle.v1.GetMeResponse
+	7,  // 59: satelle.v1.ProjectService.ListProjects:output_type -> satelle.v1.ListProjectsResponse
+	4,  // 60: satelle.v1.ProjectService.GetProject:output_type -> satelle.v1.Project
+	4,  // 61: satelle.v1.ProjectService.CreateProject:output_type -> satelle.v1.Project
+	12, // 62: satelle.v1.WorkspaceService.ListWorkspaces:output_type -> satelle.v1.ListWorkspacesResponse
+	14, // 63: satelle.v1.LocationService.RegisterLocation:output_type -> satelle.v1.RegisterLocationResponse
+	17, // 64: satelle.v1.ItemService.PutItems:output_type -> satelle.v1.PutItemsResponse
+	20, // 65: satelle.v1.AttachmentService.PutAttachment:output_type -> satelle.v1.PutAttachmentResponse
+	18, // 66: satelle.v1.AttachmentService.GetAttachment:output_type -> satelle.v1.Attachment
+	23, // 67: satelle.v1.AttachmentService.ListAttachmentChanges:output_type -> satelle.v1.ListAttachmentChangesResponse
+	25, // 68: satelle.v1.RemoteService.FireRemote:output_type -> satelle.v1.FireRemoteResponse
+	27, // 69: satelle.v1.RemoteService.GetItemRun:output_type -> satelle.v1.ItemRun
+	29, // 70: satelle.v1.RemoteService.StartNode:output_type -> satelle.v1.StartNodeResponse
+	31, // 71: satelle.v1.NodeService.GetNode:output_type -> satelle.v1.Node
+	33, // 72: satelle.v1.NodeService.GetDefinition:output_type -> satelle.v1.Definition
+	35, // 73: satelle.v1.NodeService.ReadSecret:output_type -> satelle.v1.Secret
+	37, // 74: satelle.v1.NodeService.GetRun:output_type -> satelle.v1.RunDescriptor
+	39, // 75: satelle.v1.NodeService.PublishChannelKey:output_type -> satelle.v1.PublishChannelKeyResponse
+	41, // 76: satelle.v1.NodeService.ReportStatus:output_type -> satelle.v1.ReportStatusResponse
+	43, // 77: satelle.v1.NodeService.EndNode:output_type -> satelle.v1.EndNodeResponse
+	44, // 78: satelle.v1.RelayService.Connect:output_type -> satelle.v1.RelayFrame
+	46, // 79: satelle.v1.GitHubService.PublishReview:output_type -> satelle.v1.PublishReviewResponse
+	48, // 80: satelle.v1.GitHubService.PublishStatus:output_type -> satelle.v1.PublishStatusResponse
+	50, // 81: satelle.v1.GitHubService.ListPullRequestEvents:output_type -> satelle.v1.ListPullRequestEventsResponse
+	61, // 82: satelle.v1.PackService.ListPacks:output_type -> satelle.v1.ListPacksResponse
+	57, // 83: satelle.v1.PackService.GetPack:output_type -> satelle.v1.PackVersion
+	59, // 84: satelle.v1.PackService.FetchPack:output_type -> satelle.v1.PackBundle
+	57, // 85: satelle.v1.PackService.PublishPack:output_type -> satelle.v1.PackVersion
+	52, // 86: satelle.v1.PackService.SetPackVisibility:output_type -> satelle.v1.Pack
+	67, // 87: satelle.v1.PackService.ListPackEvents:output_type -> satelle.v1.ListPackEventsResponse
+	58, // [58:88] is the sub-list for method output_type
+	28, // [28:58] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_satelle_v1_satelle_proto_init() }
@@ -4719,7 +4790,7 @@ func file_satelle_v1_satelle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_satelle_v1_satelle_proto_rawDesc), len(file_satelle_v1_satelle_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   65,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   11,
 		},
