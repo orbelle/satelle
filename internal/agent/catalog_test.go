@@ -1,10 +1,8 @@
 package agent
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -320,56 +318,5 @@ func TestFallbackProblems(t *testing.T) {
 	merged, ovs, err := tracked.Override(local)
 	if err != nil || merged["a"].Fallback != "c" || len(ovs) != 1 || !slices.Equal(ovs[0].Fields, []string{"fallback"}) {
 		t.Fatalf("override: %v %+v %+v", err, merged["a"], ovs)
-	}
-}
-
-func TestCatalogOverlay(t *testing.T) {
-	shared := Catalog{
-		"a": {Name: "a", Model: "shared-a", Fallback: "b"},
-		"b": {Name: "b", Model: "shared-b"},
-	}
-	same := func(x, y Catalog) bool { return reflect.ValueOf(x).Pointer() == reflect.ValueOf(y).Pointer() }
-	if !same(shared.Overlay(nil), shared) || !same(shared.Overlay(Catalog{}), shared) {
-		t.Error("an empty overlay is not the receiver")
-	}
-	got := shared.Overlay(Catalog{"a": {Name: "a", Model: "part-a"}, "c": {Name: "c", Model: "part-c"}})
-	want := Catalog{
-		"a": {Name: "a", Model: "part-a"},
-		"b": {Name: "b", Model: "shared-b"},
-		"c": {Name: "c", Model: "part-c"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("overlay = %+v, want %+v", got, want)
-	}
-	if got["a"].Fallback != "" {
-		t.Errorf("a part binding kept the shared fallback %q", got["a"].Fallback)
-	}
-	if shared["a"].Model != "shared-a" || shared["a"].Fallback != "b" || len(shared) != 2 {
-		t.Errorf("the receiver changed: %+v", shared)
-	}
-}
-
-func TestParseCatalogMatchesLoadCatalog(t *testing.T) {
-	dir := t.TempDir()
-	for _, body := range []string{
-		"[agents.r]\ncommand = \"claude\"\nmodel = \"m\"\ntools = [\"Read\"]\nfallback = \"s\"\n[agents.s]\ncommand = \"grok\"\n",
-		"[agents.r]\ncommand = \"claude\"\nbogus = 1\n",
-		"",
-	} {
-		p := filepath.Join(dir, "agents.toml")
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		loaded, lerr := LoadCatalog(p)
-		parsed, perr := ParseCatalog(p, []byte(body))
-		if !reflect.DeepEqual(loaded, parsed) || fmt.Sprint(lerr) != fmt.Sprint(perr) {
-			t.Errorf("body %q: load %+v %v, parse %+v %v", body, loaded, lerr, parsed, perr)
-		}
-		if body == "" && (lerr != nil || len(loaded) != 0) {
-			t.Errorf("an empty file: %+v %v", loaded, lerr)
-		}
-		if strings.Contains(body, "bogus") && (perr == nil || !strings.Contains(perr.Error(), "unknown key")) {
-			t.Errorf("unknown key: %v", perr)
-		}
 	}
 }

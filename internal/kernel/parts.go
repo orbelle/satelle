@@ -7,11 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -29,35 +27,7 @@ type Part struct {
 	Name      string
 	Rules     workflow.Rules
 	Workflows map[string]*workflow.Workflow
-	Agents    agent.Catalog
 	Problems  []error
-}
-
-func agentsFor(shared agent.Catalog, parts map[string]agent.Catalog, w *workflow.Workflow) agent.Catalog {
-	if w == nil || w.Part == "" || len(parts[w.Part]) == 0 {
-		return shared
-	}
-	return shared.Overlay(parts[w.Part])
-}
-
-func (c *Config) AgentsFor(w *workflow.Workflow) agent.Catalog {
-	return agentsFor(c.Agents, c.PartAgents, w)
-}
-
-func (k *Kernel) AgentsFor(w *workflow.Workflow) agent.Catalog {
-	return agentsFor(k.Agents, k.PartAgents, w)
-}
-
-func (k *Kernel) ItemAgents(id string) (agent.Catalog, error) {
-	it, err := k.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	w, err := k.ItemWorkflow(it)
-	if err != nil {
-		return nil, err
-	}
-	return k.AgentsFor(w), nil
 }
 
 type PartUnresolved struct {
@@ -249,7 +219,6 @@ func (c *Config) loadParts() error {
 	for _, x := range sortedKeys(c.Parts) {
 		p := c.Parts[x]
 		if len(p.Problems) > 0 {
-			delete(c.PartAgents, x)
 			continue
 		}
 		for _, n := range sortedKeys(p.Workflows) {
@@ -277,15 +246,6 @@ func (c *Config) loadPart(dir, x string) *Part {
 		p.Problems = append(p.Problems, err)
 	} else if rules != nil {
 		p.Rules = *rules
-	}
-	if cat, errs := c.loadPartAgents(partDir, rel); len(errs) > 0 {
-		p.Problems = append(p.Problems, errs...)
-	} else if cat != nil {
-		p.Agents = cat
-		if c.PartAgents == nil {
-			c.PartAgents = map[string]agent.Catalog{}
-		}
-		c.PartAgents[x] = cat
 	}
 	wfs, errs := loadPartWorkflows(partDir, rel, x)
 	p.Problems = append(p.Problems, errs...)
@@ -347,40 +307,6 @@ func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
 		return nil, partErr("%s: unknown key %s", file, strings.Join(keys, ", "))
 	}
 	return &st.Workflows, nil
-}
-
-func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {
-	file := rel + "/" + AgentsFile
-	data, err := reporeg.ReadRegular(filepath.Join(partDir, AgentsFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, []error{partErr("%s: %v", file, err)}
-	}
-	cat, err := agent.ParseCatalog(file, data)
-	if err != nil {
-		return nil, []error{partSafe(err)}
-	}
-	var errs []error
-	for _, name := range cat.Names() {
-		if !reporeg.ValidName(name) {
-			errs = append(errs, partErr("%s: agents.%s: an agent name is lower-case letters, digits, '.', '_' or '-', starting with a letter or digit", file, strconv.Quote(name)))
-		}
-	}
-	if len(errs) > 0 {
-		return nil, errs
-	}
-	all := c.Agents.Overlay(cat)
-	for _, name := range cat.Names() {
-		for _, e := range append(agent.Problems(cat[name]), all.FallbackProblems(name)...) {
-			errs = append(errs, partErr("%s: agents.%s: %v", file, name, e))
-		}
-	}
-	if len(errs) > 0 {
-		return nil, errs
-	}
-	return cat, nil
 }
 
 func loadPartWorkflows(partDir, rel, x string) (map[string]*workflow.Workflow, []error) {

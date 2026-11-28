@@ -84,7 +84,6 @@ type Config struct {
 	Harness      map[string]HarnessSettings
 	Repos        reporeg.Registry
 	Parts        map[string]*Part
-	PartAgents   map[string]agent.Catalog
 	PartWarnings []PartWarning
 	UnknownKeys  []workflow.UnknownKey
 }
@@ -477,9 +476,8 @@ func (c *Config) Problems() []error {
 
 func (c *Config) workflowProblems(w *workflow.Workflow, skill func(string) (workflow.Skill, bool)) []error {
 	var errs []error
-	cat := c.AgentsFor(w)
-	errs = append(errs, w.Validate(skill, cat.Has)...)
-	errs = append(errs, c.bindingProblems(w, cat)...)
+	errs = append(errs, w.Validate(skill, c.Agents.Has)...)
+	errs = append(errs, c.bindingProblems(w)...)
 	errs = append(errs, c.gatePlacementProblems(w)...)
 	for _, sname := range sortedKeys(w.States) {
 		if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
@@ -641,7 +639,6 @@ func (c *Config) AgentUses() map[string][]AgentUse {
 	out := map[string][]AgentUse{}
 	for _, wname := range sortedKeys(c.Workflows) {
 		w := c.Workflows[wname]
-		cat := c.AgentsFor(w)
 		for _, sname := range sortedKeys(w.States) {
 			if p := w.States[sname].Agent(); p != nil && p.Agent != "" {
 				out[p.Agent] = append(out[p.Agent], AgentUse{Workflow: wname, State: sname, Role: "performer"})
@@ -650,8 +647,8 @@ func (c *Config) AgentUses() map[string][]AgentUse {
 		for _, gname := range sortedKeys(w.Gates) {
 			for _, j := range c.judges(gname, w.Gates[gname]) {
 				out[j] = append(out[j], AgentUse{Workflow: wname, Gate: gname, Role: "judge"})
-				if f := cat[j].Fallback; f != "" {
-					if _, ok := cat[f]; ok {
+				if f := c.Agents[j].Fallback; f != "" {
+					if _, ok := c.Agents[f]; ok {
 						out[f] = append(out[f], AgentUse{Workflow: wname, Gate: gname, Role: "fallback", Of: j})
 					}
 				}
@@ -670,12 +667,12 @@ func (c *Config) judgeSets(gname string, g workflow.Gate) [][]string {
 	return sets
 }
 
-func (c *Config) fallbackProblems(w *workflow.Workflow, gname string, cat agent.Catalog) []error {
+func (c *Config) fallbackProblems(w *workflow.Workflow, gname string) []error {
 	var errs []error
 	g := w.Gates[gname]
 	for _, j := range c.judges(gname, g) {
-		f := cat[j].Fallback
-		fb, ok := cat[f]
+		f := c.Agents[j].Fallback
+		fb, ok := c.Agents[f]
 		if f == "" || !ok {
 			continue
 		}
@@ -686,7 +683,7 @@ func (c *Config) fallbackProblems(w *workflow.Workflow, gname string, cat agent.
 	for _, set := range c.judgeSets(gname, g) {
 		named := map[string]string{}
 		for _, j := range set {
-			f := cat[j].Fallback
+			f := c.Agents[j].Fallback
 			if f == "" {
 				continue
 			}
@@ -721,17 +718,17 @@ func (c *Config) reviewGate(name string) (found, check bool) {
 	return found, found && check
 }
 
-func (c *Config) bindingProblems(w *workflow.Workflow, cat agent.Catalog) []error {
+func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {
 		for _, j := range c.judges(gname, w.Gates[gname]) {
-			if b, ok := cat[j]; ok {
+			if b, ok := c.Agents[j]; ok {
 				if err := agent.CheckJudge(b); err != nil {
 					errs = append(errs, fmt.Errorf("workflow %s: gate %q: %w", w.Name, gname, err))
 				}
 			}
 		}
-		errs = append(errs, c.fallbackProblems(w, gname, cat)...)
+		errs = append(errs, c.fallbackProblems(w, gname)...)
 		g := w.Gates[gname]
 		if sk, ok := c.Skills[g.Skill]; ok && len(g.Judges()) > 0 && !sk.IsCheck() {
 			if key, legacy := gate.LegacyAnswerKey(sk.Body); legacy {
@@ -745,7 +742,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow, cat agent.Catalog) []erro
 		if p == nil {
 			continue
 		}
-		b, ok := cat[p.Agent]
+		b, ok := c.Agents[p.Agent]
 		if !ok || agent.IsSession(b) {
 			continue
 		}

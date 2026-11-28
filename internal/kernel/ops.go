@@ -531,7 +531,7 @@ func (k *Kernel) sessionPerformerRun(it item.Item, events []ledger.Event, w *wor
 	if perf == nil {
 		return nil
 	}
-	b, ok := k.AgentsFor(w)[perf.Agent]
+	b, ok := k.Agents[perf.Agent]
 	if !ok || !agent.IsSession(b) {
 		return nil
 	}
@@ -584,7 +584,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	if perf == nil {
 		return agent.Result{}, fmt.Errorf("state %q has no performer", it.Status)
 	}
-	b := k.AgentsFor(w)[perf.Agent]
+	b := k.Agents[perf.Agent]
 	if agent.IsSession(b) {
 		return agent.Result{}, fmt.Errorf("state %q is performed by the session (agent %q), not dispatched", it.Status, b.Name)
 	}
