@@ -138,6 +138,17 @@ needs no `.satelle/skills`, and a commit cannot change the check that judges
 it. A remote gate refuses a skill that holds a symlink or special file, and
 `*.local.*` files in the skill are not shipped.
 
+A gate or performer of a story whose repo is a registered repository X reads a
+skill from `.satelle/repos/X/skills/` when it is there, and from the shared
+`.satelle/skills/` otherwise; `SATELLE_SKILL_DIR` names the skill's own
+directory, under the part when the part has it. A part skill named like a
+shared skill keeps that skill's `type` and `after`. A part's skills directory
+holds no symlink or special file. A problem with a part skill is listed under
+that part by validate and doctor, and X's stories are
+refused until it resolves. Changing a story's repo to or from one with skills
+of its own ends any accept a gate would carry. A control repository with no
+`.satelle/repos/` reads skills as before.
+
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:
 the absolute directory of the `.satelle` governing the run. A script should

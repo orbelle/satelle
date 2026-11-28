@@ -83,6 +83,60 @@ func TestLoadSkillsDirectories(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsStrict(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "skills")
+	writeSkillFile(t, dir, "flat.md", "---\ntype: skill\n---\n\nflat body\n")
+	writeSkillFile(t, dir, "dir-check/SKILL.md", "---\ntype: check\n---\n\n```sh\nsh scripts/run.sh\n```\n")
+	writeSkillFile(t, dir, "dir-check/scripts/run.sh", "echo ok\n")
+	writeSkillFile(t, dir, "empty-sub/notes.md", "not a skill\n")
+	writeSkillFile(t, dir, "testdata/SKILL.md", "ignored\n")
+	writeSkillFile(t, dir, "README.md", "readme\n")
+	loose, err := LoadSkills(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strict, err := LoadSkillsStrict(dir, os.ReadFile)
+	if err != nil || !reflect.DeepEqual(loose, strict) {
+		t.Fatalf("strict load %+v %v, want %+v", strict, err, loose)
+	}
+	if got, err := LoadSkillsStrict(filepath.Join(dir, "absent"), os.ReadFile); err != nil || len(got) != 0 {
+		t.Errorf("absent dir: %v %v", got, err)
+	}
+
+	outside := t.TempDir()
+	writeSkillFile(t, outside, "secret.md", "SECRET\n")
+	for _, c := range []struct{ at, want string }{
+		{"linked.md", `skills: "linked.md" is not a regular file or directory`},
+		{"dir-check/scripts/more.sh", `skills/dir-check: "scripts/more.sh" is not a regular file or directory`},
+	} {
+		at := filepath.Join(dir, filepath.FromSlash(c.at))
+		if err := os.Symlink(filepath.Join(outside, "secret.md"), at); err != nil {
+			t.Skip(err)
+		}
+		got, err := LoadSkillsStrict(dir, os.ReadFile)
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), outside) {
+			t.Errorf("link %s: %v", c.at, err)
+		}
+		if _, ok := got["linked"]; ok {
+			t.Errorf("link %s loaded", c.at)
+		}
+		if err := os.Remove(at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "skills")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skip(err)
+	}
+	if _, err := LoadSkillsStrict(link, os.ReadFile); err == nil || err.Error() != "skills: not a directory" {
+		t.Errorf("linked skills dir: %v", err)
+	}
+	failing := func(string) ([]byte, error) { return nil, errors.New("not a regular file") }
+	if _, err := LoadSkillsStrict(dir, failing); err == nil || !strings.Contains(err.Error(), "skills/flat.md: not a regular file") || strings.Contains(err.Error(), dir) {
+		t.Errorf("read error: %v", err)
+	}
+}
+
 func TestLoadSkillsDuplicate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "skills")
 	writeSkillFile(t, dir, "dup.md", "---\nname: dup\ntype: skill\ndescription: file\n---\n\nfile\n")

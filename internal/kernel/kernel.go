@@ -36,6 +36,8 @@ type Kernel struct {
 	PartRules     map[string]workflow.Rules
 	Unresolved    map[string][]error
 	Skills        map[string]workflow.Skill
+	Parts         map[string]*Part
+	PartSkills    map[string]map[string]workflow.Skill
 	Packs         map[string]workflow.Pack
 	Agents        agent.Catalog
 	Overrides     []agent.Override
@@ -122,7 +124,7 @@ func Open(o Options) (*Kernel, error) {
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Packs: cfg.Packs, Agents: cfg.Agents, Overrides: cfg.Overrides,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness, Repos: cfg.Repos,
-		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
+		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Parts: cfg.Parts, PartSkills: cfg.PartSkills(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {
@@ -143,7 +145,7 @@ func Open(o Options) (*Kernel, error) {
 func (k *Kernel) Close() error { return k.Cache.Close() }
 
 func (k *Kernel) Validate() []error {
-	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Packs: k.Packs, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness, Repos: k.Repos}
+	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Packs: k.Packs, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness, Repos: k.Repos, Parts: k.Parts}
 	c.Settings.Workflows = k.Rules
 	return c.Problems()
 }
