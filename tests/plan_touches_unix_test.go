@@ -71,7 +71,12 @@ func runPlanTouches(t *testing.T, script, stubDir, cwd string, env map[string]st
 	t.Helper()
 	cmd := exec.Command("bash", script)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), gittest.Env()...)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "SATELLE_") && !strings.HasPrefix(kv, "PATH=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, gittest.Env()...)
 	cmd.Env = append(cmd.Env, "PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"), "SATELLE_ITEM=sto_test")
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
