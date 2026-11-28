@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -27,11 +28,33 @@ func (c Catalog) Names() []string {
 	return out
 }
 
+func (c Catalog) Overlay(top Catalog) Catalog {
+	if len(top) == 0 {
+		return c
+	}
+	out := make(Catalog, len(c)+len(top))
+	for n, b := range c {
+		out[n] = b
+	}
+	for n, b := range top {
+		out[n] = b
+	}
+	return out
+}
+
 func decodeAgents(path string) (map[string]Binding, toml.MetaData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, toml.MetaData{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return decodeAgentsData(path, data)
+}
+
+func decodeAgentsData(path string, data []byte) (map[string]Binding, toml.MetaData, error) {
 	var file struct {
 		Agents map[string]Binding `toml:"agents"`
 	}
-	md, err := toml.DecodeFile(path, &file)
+	md, err := toml.Decode(string(data), &file)
 	if err != nil {
 		return nil, md, fmt.Errorf("%s: %w", path, err)
 	}
@@ -46,13 +69,20 @@ func decodeAgents(path string) (map[string]Binding, toml.MetaData, error) {
 }
 
 func LoadCatalog(path string) (Catalog, error) {
-	agents, _, err := decodeAgents(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return ParseCatalog(path, data)
+}
+
+func ParseCatalog(path string, data []byte) (Catalog, error) {
+	agents, _, err := decodeAgentsData(path, data)
 	if err != nil {
 		return nil, err
 	}
-	file := struct{ Agents map[string]Binding }{agents}
 	c := Catalog{}
-	for name, b := range file.Agents {
+	for name, b := range agents {
 		b.Name = name
 		c[name] = b
 	}

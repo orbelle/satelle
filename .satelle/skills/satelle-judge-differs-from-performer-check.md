@@ -1,7 +1,7 @@
 ---
 name: satelle-judge-differs-from-performer-check
 type: check
-description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, a judge with a fallback differs only when its fallback differs too, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml.
+description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, a judge with a fallback differs only when its fallback differs too, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml. A workflow whose workflow show --json part is X is compared against repos/X/agents.toml over the shared bindings, a part binding replacing a shared one of the same name whole.
 ---
 
 # Judge differs from performer (reviewer independence)
@@ -55,6 +55,11 @@ reader takes only `[agents.NAME]` tables and in them only `command`,
 any literal-quoted ('...') key or header naming agents, stops the check
 (exit 2) naming the file and line. `satelle validate
 --session <session>` stays the judge of the file's validity.
+A workflow whose `workflow show --json` `part` is X (a registered
+repository's workflow, loaded from `repos/X/workflows/`) is compared against
+`repos/X/agents.toml` over those shared bindings, read the same way, a part
+binding replacing a shared one of the same name whole; a workflow whose
+`part` is empty reads the shared bindings alone, whatever its name.
 The `[review.panels.*]` tables of `satelle.toml` are read too (see Tier
 panels).
 
@@ -94,16 +99,61 @@ if [ -z "$root" ]; then
 fi
 workflows=$(printf '%s' "$status" | jq -r '(.workflows // [])[]' 2>/dev/null) || { echo "the repo's status has no workflows list"; exit 2; }
 
-files=("$root/agents.toml")
-[ -f "$root/agents.local.toml" ] && files+=("$root/agents.local.toml")
+wnames=()
+wshows=()
+parts=""
+for w in $workflows; do
+  if ! show=$(satelle workflow show "$w" --json </dev/null 2>&1); then
+    echo "workflow $w: it could not be shown: $show"
+    exit 2
+  fi
+  if ! printf '%s' "$show" | jq -e '(.states | type == "object") and (.transitions | type == "array") and has("part") and (.part | type == "string")' >/dev/null 2>&1; then
+    echo "workflow $w: unexpected shape from workflow show --json (want .states object, .transitions array and .part string)"
+    exit 2
+  fi
+  part=$(printf '%s' "$show" | jq -r '.part')
+  if [ -n "$part" ]; then
+    if ! [[ "$part" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+      echo "workflow $w: workflow show --json names part $(printf '%s' "$show" | jq -c '.part'), which is not a repository name"
+      exit 2
+    fi
+    parts="$parts$part
+"
+  fi
+  wnames+=("$w")
+  wshows+=("$show")
+done
+
 if [ ! -f "$root/agents.toml" ]; then
   echo "$root/agents.toml does not exist"
   exit 2
 fi
+files=("$root/agents.toml")
+srcs=("-")
+if [ -f "$root/agents.local.toml" ]; then
+  files+=("$root/agents.local.toml")
+  srcs+=("-")
+fi
+for part in $(printf '%s' "$parts" | sort -u); do
+  f="$root/repos/$part/agents.toml"
+  if [ -L "$f" ]; then
+    echo "$f is a symbolic link; a part's agents.toml is read only as a regular file"
+    exit 2
+  fi
+  if [ -e "$f" ] && [ ! -f "$f" ]; then
+    echo "$f is not a regular file"
+    exit 2
+  fi
+  if [ -f "$f" ]; then
+    files+=("$f")
+    srcs+=("$part")
+  fi
+done
 
-rows=$(awk -v q="'" '
+rows=""
+for ((i = 0; i < ${#files[@]}; i++)); do
+  out=$(awk -v q="'" -v src="${srcs[$i]}" '
   function bad(why) { printf "%s:%d: %s; this check reads only [agents.NAME] tables with command, model and fallback as plain double-quoted strings\n", FILENAME, FNR, why; failed = 1; exit 2 }
-  FNR == 1 { table = "" }
   {
     line = $0
     sub(/^[ \t]+/, "", line)
@@ -143,27 +193,33 @@ rows=$(awk -v q="'" '
     if (val !~ /^"[^"\\]*"[ \t]*(#.*)?$/) bad("cannot read the " key " value " val)
     sub(/^"/, "", val)
     sub(/"[ \t]*(#.*)?$/, "", val)
-    printf "%s\t%s\t%s\n", table, key, val
+    printf "%s\t%s\t%s\t%s\n", src, table, key, val
   }
-' "${files[@]}")
-if [ $? -ne 0 ]; then
-  printf '%s\n' "$rows" | grep -v "$(printf '\t')"
-  exit 2
-fi
+' "${files[$i]}")
+  if [ $? -ne 0 ]; then
+    printf '%s\n' "$out" | grep -v "$(printf '\t')"
+    exit 2
+  fi
+  [ -n "$out" ] && rows="$rows$out
+"
+done
 
-agents=$(printf '%s\n' "$rows" | jq -Rn --arg fam "$FAMILIES" '
+cat=$(printf '%s' "$rows" | jq -Rn --arg fam "$FAMILIES" '
   ($fam | split("\n") | map(select(length > 0) | capture("^(?<f>[^ ]+) +(?<p>.+)$"))) as $table
   | def family($s): ($s | ascii_downcase) as $n
       | ([$table[] | . as $e | select($n | test($e.p)) | .f] | first) // "";
-  reduce (inputs | select(length > 0) | split("\t")) as $r ({}; .[$r[0]][$r[1]] = $r[2])
-  | with_entries(
+    def finish: with_entries(
       .value |= (
         (.command // "") as $c
         | (.model // "") as $m
         | ($c | split(" ") | map(select(length > 0)) | (.[0] // "") | split("/") | last | ascii_downcase | sub("\\.exe$"; "")) as $bin
         | {command: $c, model: $m, fallback: (.fallback // ""), session: ($bin == "session"),
            family: ((if $m != "" then family($m) else family($bin) end) | if . != "" then . else "unknown" end)}
-      ))
+      ));
+  reduce (inputs | select(length > 0) | split("\t")) as $r ({shared: {}, parts: {}};
+    if $r[0] == "-" then .shared[$r[1]][$r[2]] = $r[3] else .parts[$r[0]][$r[1]][$r[2]] = $r[3] end)
+  | .shared |= finish
+  | .parts |= map_values(finish)
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }
 
 review=""
@@ -232,17 +288,12 @@ findings=0
 nw=0
 nt=0
 ng=0
-for w in $workflows; do
-  if ! show=$(satelle workflow show "$w" --json </dev/null 2>&1); then
-    echo "workflow $w: it could not be shown: $show"
-    exit 2
-  fi
-  if ! printf '%s' "$show" | jq -e '(.states | type == "object") and (.transitions | type == "array")' >/dev/null 2>&1; then
-    echo "workflow $w: unexpected shape from workflow show --json (want .states object and .transitions array)"
-    exit 2
-  fi
-  out=$(printf '%s' "$show" | jq -r --arg w "$w" --argjson agents "$agents" --argjson panels "$panels" '
+for ((i = 0; i < ${#wnames[@]}; i++)); do
+  w=${wnames[$i]}
+  show=${wshows[$i]}
+  out=$(printf '%s' "$show" | jq -r --arg w "$w" --argjson cat "$cat" --argjson panels "$panels" '
     . as $wf
+    | (if $wf.part != "" then reduce (($cat.parts[$wf.part] // {}) | to_entries[]) as $e ($cat.shared; .[$e.key] = $e.value) else $cat.shared end) as $agents
     | ($wf.states) as $S
     | ($wf.transitions) as $T
     | def judges($g): ($wf.gates[$g] // {}) as $gate

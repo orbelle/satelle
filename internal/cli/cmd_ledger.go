@@ -600,5 +600,5 @@ func sortedGateNames(w *workflow.Workflow) []string {
 }
 
 func workflowJSON(w *workflow.Workflow) map[string]any {
-	return map[string]any{"name": w.Name, "file": w.File, "states": w.States, "gates": w.Gates, "transitions": w.Transitions}
+	return map[string]any{"name": w.Name, "file": w.File, "part": w.Part, "states": w.States, "gates": w.Gates, "transitions": w.Transitions}
 }
