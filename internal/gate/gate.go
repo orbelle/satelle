@@ -13,6 +13,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/logsread"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -136,6 +137,7 @@ type Run struct {
 
 	Dir          string
 	Substrate    string
+	Worktree     string
 	Base         string
 	Changed      []string
 	Untracked    []string
@@ -248,7 +250,7 @@ func (r Run) Gate(ctx context.Context, name string) Result {
 func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
 func (r Run) env() CheckEnv {
-	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, Substrate: r.Substrate, Redact: r.Redact}
+	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, Substrate: r.Substrate, Worktree: r.Worktree, Redact: r.Redact}
 }
 
 func (r Run) clean(s string) string {
@@ -774,6 +776,10 @@ func (r Run) promptRest(name string, g workflow.Gate) (string, error) {
 	}
 	if r.Base != "" {
 		fmt.Fprintf(&b, "\nBase commit: %s\n", r.Base)
+	}
+	if r.Worktree != "" {
+		fmt.Fprintf(&b, "Target repository: %s\nTarget work tree: %s\nThe base commit, changed paths and diff above are read from that repository, not from your working directory; read its files there.\n",
+			reporeg.Literal(r.Item.Target()), reporeg.PathLiteral(r.Worktree))
 	}
 	if len(r.Changed) > 0 {
 		fmt.Fprintf(&b, "Changed paths:\n%s\n", strings.Join(r.Changed, "\n"))

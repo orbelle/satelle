@@ -1,0 +1,105 @@
+name = "cross-repo"
+
+[states.backlog]
+start = true
+
+[states.plan]
+performer = { agent = "planner", skill = "cross-repo-plan" }
+edits = "attachments"
+hold = { rounds = 3, to = "blocked" }
+
+[states.split]
+performer = { agent = "executor", skill = "cross-repo-split" }
+edits = "attachments"
+hold = { rounds = 3, to = "blocked" }
+
+[states.underway]
+performer = { agent = "executor", skill = "cross-repo-underway" }
+edits = "attachments"
+hold = { rounds = 3, to = "blocked" }
+
+[states.blocked]
+park = true
+resumes = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
+[gates.split-plan]
+skill = "satelle-cross-repo-plan-check"
+
+[gates.split-review]
+skill = "satelle-cross-repo-plan-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
+[gates.children-split]
+skill = "satelle-cross-repo-split-check"
+
+[gates.children-closed]
+skill = "satelle-children-closed-check"
+
+[gates.combined-change]
+skill = "satelle-cross-repo-combined-check"
+
+[gates.combined-review]
+skill = "satelle-cross-repo-done-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
+[gates.blocked-review]
+skill = "satelle-story-blocked-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check"]
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+panel = ["reviewer-gemini-4-hydrogen-medium"]
+combine = "all"
+after = ["satelle-verdict-notes-check"]
+
+[[transition]]
+from = ["backlog"]
+to = "plan"
+
+[[transition]]
+from = ["plan"]
+to = "split"
+groups = [{ mode = "sequential", gates = ["split-plan", "judge-differs", "split-review"] }]
+
+[[transition]]
+from = ["split"]
+to = "underway"
+groups = [{ mode = "sequential", gates = ["children-split"] }]
+
+[[transition]]
+from = ["underway"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["children-closed", "combined-change", "judge-differs", "combined-review"] }]
+
+[[transition]]
+from = ["plan", "split", "underway"]
+to = "blocked"
+
+[[transition]]
+from = ["backlog"]
+to = "blocked"
+groups = [{ mode = "sequential", gates = ["blocked-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+
+[[transition]]
+from = ["*", "blocked"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["children-closed", "cancel-review"] }]

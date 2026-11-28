@@ -97,7 +97,7 @@ func resolveTarget(start string, nodeAware bool) (targetView, error) {
 	if !errors.Is(err, errNotInitialised) || envValue(environ, config.NodeRunEnv) != "" {
 		return targetView{}, err
 	}
-	gitEnv := config.GitLookupEnv(environ, splitNames(envValue(environ, config.NodeWithholdEnv)))
+	gitEnv := config.GitLookupEnv(environ, config.WithheldNames(environ))
 	root, name, tree, cerr := controlFor(canonical(startDir(start)), gitEnv)
 	if cerr != nil {
 		if errors.Is(cerr, errNotInitialised) {

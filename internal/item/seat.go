@@ -17,6 +17,7 @@ type Seat struct {
 	Machine  string    `json:"machine,omitempty"`
 	Host     string    `json:"host,omitempty"`
 	User     string    `json:"user,omitempty"`
+	Checkout string    `json:"checkout,omitempty"`
 }
 
 type SeatRelease struct {
@@ -36,6 +37,20 @@ type Attachment struct {
 
 func HeldSeat(events []ledger.Event) bool {
 	return slices.ContainsFunc(events, func(e ledger.Event) bool { return e.Kind == KindSeatBound })
+}
+
+func SeatedCheckout(events []ledger.Event) (checkout string, seated bool) {
+	for _, e := range events {
+		if e.Kind != KindSeatBound {
+			continue
+		}
+		seated = true
+		var s Seat
+		if e.Decode(&s) == nil && s.Checkout != "" {
+			checkout = s.Checkout
+		}
+	}
+	return checkout, seated
 }
 
 func FoldSeats(events []ledger.Event) []Seat {

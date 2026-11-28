@@ -69,3 +69,18 @@ func TestLiterals(t *testing.T) {
 		t.Errorf("Literals = %q", got)
 	}
 }
+
+func TestPathLiteral(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/a-b_c.d/e+f@g": "/tmp/a-b_c.d/e+f@g",
+		"/tmp/$(id)":         "'/tmp/$(id)'",
+		"/tmp/a b":           "'/tmp/a b'",
+		"/tmp/\x1b[31m":      `'/tmp/\x1b[31m'`,
+		"/tmp/it's":          `'/tmp/it'\''s'`,
+	}
+	for in, want := range cases {
+		if got := PathLiteral(in); got != want {
+			t.Errorf("PathLiteral(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

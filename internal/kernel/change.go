@@ -28,35 +28,35 @@ func (k *Kernel) runSpan(events []ledger.Event, sp span) gate.Change {
 		}
 		return c
 	}
-	c.Head, _ = k.Git.Head()
-	if bg, ok := k.Git.(BranchGit); ok {
+	c.Head, _ = sp.git.Head()
+	if bg, ok := sp.git.(BranchGit); ok {
 		c.Branch, _ = bg.Branch()
 	}
 	return c
 }
 
 func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff string, err error) {
-	if bg, ok := k.Git.(BranchGit); ok && rec.Branch != "" {
+	if bg, ok := sp.git.(BranchGit); ok && rec.Branch != "" {
 		if h, rerr := bg.Resolve(rec.Branch); rerr == nil {
 			if cur, _ := bg.Branch(); sp.head == "" && cur == rec.Branch {
-				head, err = k.Git.Head()
+				head, err = sp.git.Head()
 				if err != nil {
 					return "", "", err
 				}
-				diff, err = k.diffSpan(span{base: rec.Base}, paths)
+				diff, err = k.diffSpan(span{base: rec.Base, git: sp.git}, paths)
 				return head, diff, err
 			}
-			diff, err = k.diffSpan(span{base: rec.Base, head: h}, paths)
+			diff, err = k.diffSpan(span{base: rec.Base, head: h, git: sp.git}, paths)
 			return h, diff, err
 		}
 	}
 	head = sp.head
 	if head == "" {
-		if head, err = k.Git.Head(); err != nil {
+		if head, err = sp.git.Head(); err != nil {
 			return "", "", err
 		}
 	}
-	diff, err = k.diffSpan(span{base: rec.Base, head: sp.head}, paths)
+	diff, err = k.diffSpan(span{base: rec.Base, head: sp.head, git: sp.git}, paths)
 	return head, diff, err
 }
 
@@ -72,7 +72,7 @@ func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results
 	if !ok || rec.Change.Base == "" {
 		head := sp.head
 		if head == "" {
-			head, _ = k.Git.Head()
+			head, _ = sp.git.Head()
 		}
 		if sp.base == "" || head == "" {
 			return nil, nil
@@ -102,10 +102,17 @@ func (k *Kernel) JudgedChanges(id string) ([]JudgedChange, error) {
 		return nil, err
 	}
 	out := []JudgedChange{}
-	if k.Git == nil || w.States[it.Status].Terminal {
+	if w.States[it.Status].Terminal {
 		return out, nil
 	}
-	sp := k.spanOf(it, events)
+	wt, err := k.worktreeOf(it, events)
+	if err != nil {
+		return nil, err
+	}
+	if wt.git == nil {
+		return out, nil
+	}
+	sp := k.spanOf(wt, it, events)
 	type now struct{ hash, head string }
 	seen := map[string]now{}
 	for _, r := range GateRuns(events) {

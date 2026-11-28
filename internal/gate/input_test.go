@@ -71,6 +71,31 @@ func TestInputIsWhatTheGateReceives(t *testing.T) {
 	}
 }
 
+func TestPromptNamesTargetWorktree(t *testing.T) {
+	gates := map[string]workflow.Gate{"one": {Skill: "judge", Agent: "y1"}}
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one"}}}, gates)
+	r.Skills["judge"] = workflow.Skill{Name: "judge", Path: "skills/judge.md", Meta: map[string]string{}, Body: "judge it"}
+	r.Base = "b4se"
+	self, err := r.Input("one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(self.Prompt, "Target repository:") || strings.Contains(self.Prompt, "Target work tree:") || self.Worktree != "" {
+		t.Fatalf("a self prompt names a target:\n%s", self.Prompt)
+	}
+	r.Item.Repo, r.Worktree = "web", "/w"
+	in, err := r.Input("one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(in.Prompt, "Base commit: b4se\nTarget repository: web\nTarget work tree: /w\n") || in.Worktree != "/w" {
+		t.Fatalf("target prompt:\n%s", in.Prompt)
+	}
+	if strings.Replace(in.Prompt, "Target repository: web\nTarget work tree: /w\nThe base commit, changed paths and diff above are read from that repository, not from your working directory; read its files there.\n", "", 1) != self.Prompt {
+		t.Fatalf("the target prompt differs from the self prompt by more than the target lines:\n%s\n---\n%s", in.Prompt, self.Prompt)
+	}
+}
+
 func TestInputCarriesJudgeBriefs(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"one":   {Skill: "judge", Agent: "y1"},
