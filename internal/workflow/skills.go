@@ -4,11 +4,15 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 const (
@@ -410,8 +414,38 @@ func hasClosingAngle(rest string) bool {
 }
 
 func LoadSkills(dir string) (map[string]Skill, error) {
+	return loadSkills(dir, skillLoad{read: os.ReadFile})
+}
+
+func LoadSkillsStrict(dir string, read func(string) ([]byte, error)) (map[string]Skill, error) {
+	return loadSkills(dir, skillLoad{read: read, strict: true})
+}
+
+type skillLoad struct {
+	read   func(string) ([]byte, error)
+	strict bool
+}
+
+var strictSkillName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func loadSkills(dir string, o skillLoad) (map[string]Skill, error) {
+	base := filepath.Base(dir)
+	if o.strict {
+		info, err := os.Lstat(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return map[string]Skill{}, nil
+		case err != nil:
+			return nil, fmt.Errorf("%s: cannot be read", base)
+		case !info.IsDir():
+			return nil, fmt.Errorf("%s: not a directory", base)
+		}
+	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
+		if o.strict {
+			return nil, fmt.Errorf("%s: cannot be read", base)
+		}
 		if os.IsNotExist(err) {
 			return map[string]Skill{}, nil
 		}
@@ -420,10 +454,22 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 	filePaths := map[string]string{}
 	dirPaths := map[string]string{}
 	nameSet := map[string]bool{}
+	var errs []error
 	for _, e := range ents {
+		if o.strict {
+			t := e.Type()
+			if !t.IsRegular() && !t.IsDir() {
+				errs = append(errs, fmt.Errorf("%s: %q is not a regular file or directory", base, e.Name()))
+				continue
+			}
+		}
 		if !e.IsDir() {
 			if strings.HasSuffix(e.Name(), ".md") && e.Name() != readmeFile {
 				name := strings.TrimSuffix(e.Name(), ".md")
+				if o.strict && !strictSkillName.MatchString(name) {
+					errs = append(errs, fmt.Errorf("%s: %q is not a valid skill name", base, e.Name()))
+					continue
+				}
 				filePaths[name] = filepath.Join(dir, e.Name())
 				nameSet[name] = true
 			}
@@ -433,10 +479,31 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 			continue
 		}
 		p := filepath.Join(dir, e.Name(), SkillFile)
-		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
-			dirPaths[e.Name()] = p
-			nameSet[e.Name()] = true
+		if !o.strict {
+			if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+				dirPaths[e.Name()] = p
+				nameSet[e.Name()] = true
+			}
+			continue
 		}
+		info, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if !strictSkillName.MatchString(e.Name()) {
+			errs = append(errs, fmt.Errorf("%s: %q is not a valid skill name", base, e.Name()))
+			continue
+		}
+		if err == nil && !info.Mode().IsRegular() {
+			errs = append(errs, fmt.Errorf("%s/%s: %s is not a regular file or directory", base, e.Name(), SkillFile))
+			continue
+		}
+		if werr := strictSkillTree(filepath.Join(dir, e.Name()), base+"/"+e.Name()); werr != nil {
+			errs = append(errs, werr)
+			continue
+		}
+		dirPaths[e.Name()] = p
+		nameSet[e.Name()] = true
 	}
 	names := make([]string, 0, len(nameSet))
 	for name := range nameSet {
@@ -444,15 +511,21 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 	}
 	sort.Strings(names)
 	out := map[string]Skill{}
-	var errs []error
 	loadOne := func(name, p, skillDir string) {
-		b, err := os.ReadFile(p)
+		b, err := o.read(p)
 		if err != nil {
+			if o.strict {
+				rel, _ := filepath.Rel(filepath.Dir(dir), p)
+				err = fmt.Errorf("%s: %v", filepath.ToSlash(rel), err)
+			}
 			errs = append(errs, err)
 			return
 		}
 		s, err := ParseSkill(name, string(b))
 		if err != nil {
+			if o.strict {
+				err = fmt.Errorf("%s: %w", base, err)
+			}
 			errs = append(errs, err)
 			return
 		}
@@ -460,13 +533,16 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 		s.Dir = skillDir
 		out[name] = s
 	}
-	base := filepath.Base(dir)
 	for _, name := range names {
 		fp, hasFile := filePaths[name]
 		dp, hasDir := dirPaths[name]
 		if hasFile && hasDir {
-			errs = append(errs, fmt.Errorf("skill %s: duplicate skill defined at both %s and %s",
-				name, path.Join(base, name+".md"), path.Join(base, name, SkillFile)))
+			err := fmt.Errorf("skill %s: duplicate skill defined at both %s and %s",
+				name, path.Join(base, name+".md"), path.Join(base, name, SkillFile))
+			if o.strict {
+				err = fmt.Errorf("%s: %w", base, err)
+			}
+			errs = append(errs, err)
 			loadOne(name, fp, "")
 			continue
 		}
@@ -477,6 +553,39 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 		}
 	}
 	return out, errors.Join(errs...)
+}
+
+func strictSkillTree(dir, rel string) error {
+	var bad []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == dir {
+			return nil
+		}
+		r, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		if config.LocalOnlyPath(r) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if t := d.Type(); !t.IsRegular() && !t.IsDir() {
+			bad = append(bad, fmt.Sprintf("%s: %q is not a regular file or directory", rel, filepath.ToSlash(r)))
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("%s: cannot be read", rel)
+	}
+	if len(bad) > 0 {
+		return errors.New(strings.Join(bad, "; "))
+	}
+	return nil
 }
 
 type ShellLine struct {
