@@ -30,6 +30,21 @@ directory the script names (`SATELLE_PROBE_DIR` overrides it), outside the
 temp directory, so the temp target stays a distinct case; each run keeps its stdout, stderr and exit code there for
 reading why a write was stopped. Each variant spends one model run.
 
+For claude two more variants probe the argv satelle gives a target item's
+dispatch (`internal/integration/claude/claude.go`), each under `env -i` with
+the target allowlist and claude's sign-in variables, and each with a committed
+`CLAUDE.md` and `AGENTS.md` asking for a marker word. `target` (a write grant,
+cwd the repository) adds `--setting-sources user --restricted --add-dir
+<record copy> --settings <target sandbox>` and steps that read a sibling file,
+ask for an unsandboxed shell write, write through a symlink to the sibling with
+the shell and the file tool, and `chmod u+w` the `0555` record copy to write
+there; it reports `target context`, `read-sibling`, `unsandboxed`,
+`link-shell`, `link-tool`, `add-dir` and `trees` (no file under the control
+repository or the sibling changed). `target-read` (`Read,Grep,Glob`, cwd an
+empty scratch folder) adds `--setting-sources user --restricted --add-dir
+<repo>` and asks it to print a marker file in the repository; it reports
+`target-read context` and `read-repo`.
+
 ## Findings
 
 Each finding below is what was observed or read on 2026-11-27. What each

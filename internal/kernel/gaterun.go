@@ -72,12 +72,18 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		run.Head, run.HeadErr = k.pushedHead(wt, it, events, sp)
 	}
 	if k.judged(w, tr) {
-		rec, err := k.record(it, events, recordPointers)
+		var rec Record
+		if run.Worktree != "" {
+			rec, err = k.targetRecord(it, events, recordPointers, wt)
+		} else {
+			rec, err = k.record(it, events, recordPointers)
+		}
 		if err != nil {
 			return gate.Run{}, sp, done, err
 		}
 		done = func() { rec.Close() }
 		run.Record = rec.Section
+		run.RecordDir, run.Scratch = rec.Dir, rec.Scratch
 	}
 	return run, sp, done, nil
 }

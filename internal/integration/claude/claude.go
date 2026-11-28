@@ -20,6 +20,18 @@ type Dispatch struct{}
 func (Dispatch) Name() string         { return CLI }
 func (Dispatch) EnforcesGrants() bool { return true }
 
+func (Dispatch) Confinement() common.Confinement {
+	return common.Confinement{
+		ProjectFiles: []string{".claude/settings.json", ".claude/settings.local.json", ".mcp.json"},
+		AuthEnv:      []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"},
+		Context:      true,
+		FileTools:    true,
+		Shell:        true,
+	}
+}
+
+const TargetSandbox = `{"sandbox":{"enabled":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false,"excludedCommands":[]}}`
+
 func (Dispatch) Argv(req common.Request) ([]string, error) {
 	b := req.Binding
 	bin, extra, err := common.CommandFields(b)
@@ -51,6 +63,15 @@ func (Dispatch) Argv(req common.Request) ([]string, error) {
 	plain, scoped := common.SplitDenies(b.Tools, req.Denies())
 	if deny := append(plain, scoped...); len(deny) > 0 {
 		argv = append(argv, "--disallowedTools", strings.Join(deny, ","))
+	}
+	if t := req.Target; t != nil {
+		argv = append(argv, "--setting-sources", "user", "--restricted")
+		for _, d := range t.ReadDirs {
+			argv = append(argv, "--add-dir", d)
+		}
+		if common.GrantsBash(b.Tools) {
+			argv = append(argv, "--settings", TargetSandbox)
+		}
 	}
 	if req.System != "" {
 		argv = append(argv, "--append-system-prompt", req.System)

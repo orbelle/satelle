@@ -143,6 +143,20 @@ func TestAgentsTopicDocumentsAgy(t *testing.T) {
 	}
 }
 
+func TestAgentsTopicDocumentsTargetItems(t *testing.T) {
+	var agents string
+	for _, top := range List() {
+		if top.Name == "agents" {
+			agents = top.Body
+		}
+	}
+	for _, want := range []string{"## Target items", "--setting-sources user --restricted", "grok under its `--sandbox`", "allowUnsandboxedCommands: false", "scratch folder", "protected-tier", "harness-confinement.md"} {
+		if !strings.Contains(agents, want) {
+			t.Errorf("agents topic lacks %q", want)
+		}
+	}
+}
+
 func TestAgentsTopicDocumentsCursor(t *testing.T) {
 	var agents, workflows string
 	for _, top := range List() {
