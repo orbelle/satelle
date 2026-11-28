@@ -135,7 +135,7 @@ func (r *Replicator) adoptFork(ctx context.Context, f forkedItem) (SetAside, err
 	if err != nil {
 		return SetAside{}, err
 	}
-	if err := r.replaceWith(f.item, f.local, fetched); err != nil {
+	if err := r.replaceWith(f.item, f.local, fetched, "adopting"); err != nil {
 		if rmErr := os.Remove(path); rmErr != nil {
 			return SetAside{}, errors.Join(err, rmErr)
 		}
