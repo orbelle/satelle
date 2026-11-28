@@ -41,21 +41,13 @@ const (
 type Record struct {
 	Dir     string
 	Section string
-	Scratch string
-	tmp     string
 }
 
 func (r Record) Close() error {
-	var err error
-	if r.Dir != "" {
-		err = removeRun(r.Dir)
+	if r.Dir == "" {
+		return nil
 	}
-	if r.tmp != "" {
-		if terr := removeRun(r.tmp); err == nil {
-			err = terr
-		}
-	}
-	return err
+	return removeRun(r.Dir)
 }
 
 func removeRun(dir string) error {
@@ -230,54 +222,6 @@ func fileName(name string) string {
 }
 
 func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView) (Record, error) {
-	parent := func() (string, error) {
-		p, err := k.recordsParent()
-		if err == nil {
-			sweepRuns(p)
-		}
-		return p, err
-	}
-	return k.recordUnder(it, events, view, parent)
-}
-
-func (k *Kernel) targetRecord(it item.Item, events []ledger.Event, view recordView, wt worktree) (Record, error) {
-	tmp, err := os.MkdirTemp("", "satelle-target-")
-	if err != nil {
-		return Record{}, err
-	}
-	fail := func(err error) (Record, error) {
-		_ = removeRun(tmp)
-		return Record{}, err
-	}
-	real, err := filepath.EvalSymlinks(tmp)
-	if err != nil {
-		return fail(err)
-	}
-	for _, tree := range []string{k.Dir, wt.dir} {
-		if tree == "" {
-			continue
-		}
-		rt, err := filepath.EvalSymlinks(tree)
-		if err != nil {
-			return fail(err)
-		}
-		if rel, err := filepath.Rel(rt, real); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fail(fmt.Errorf("target record folder %s lies inside %s; set TMPDIR outside the control and target checkouts", real, rt))
-		}
-	}
-	scratch := filepath.Join(real, "cwd")
-	if err := os.Mkdir(scratch, 0o700); err != nil {
-		return fail(err)
-	}
-	rec, err := k.recordUnder(it, events, view, func() (string, error) { return real, nil })
-	if err != nil {
-		return fail(err)
-	}
-	rec.Scratch, rec.tmp = scratch, real
-	return rec, nil
-}
-
-func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordView, parent func() (string, error)) (Record, error) {
 	atts, _ := item.LatestAttachments(item.FoldAttachments(events))
 	children, err := k.List(cache.Query{Parent: it.ID})
 	if err != nil {
@@ -296,11 +240,7 @@ func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordVie
 	paths := make([]string, len(atts))
 	childrenPath := ""
 	if view != recordInline {
-		p, err := parent()
-		if err != nil {
-			return Record{}, err
-		}
-		if rec.Dir, err = writeRecord(p, it, atts, bodies, children, paths); err != nil {
+		if rec.Dir, err = k.writeRecord(it, atts, bodies, children, paths); err != nil {
 			return Record{}, err
 		}
 		childrenPath = filepath.Join(rec.Dir, "children.md")
@@ -309,7 +249,12 @@ func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordVie
 	return rec, nil
 }
 
-func writeRecord(parent string, it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string) (string, error) {
+func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string) (string, error) {
+	parent, err := k.recordsParent()
+	if err != nil {
+		return "", err
+	}
+	sweepRuns(parent)
 	dir, err := claimRun(parent, it.ID)
 	if err != nil {
 		return "", err

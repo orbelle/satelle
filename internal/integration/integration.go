@@ -99,16 +99,3 @@ func Dispatch(preset string) (common.DispatchAdapter, bool) {
 	}
 	return nil, false
 }
-
-func ProjectFiles() []string {
-	var out []string
-	for _, d := range dispatches() {
-		for _, f := range d.Confinement().ProjectFiles {
-			if !slices.Contains(out, f) {
-				out = append(out, f)
-			}
-		}
-	}
-	slices.Sort(out)
-	return out
-}

@@ -27,14 +27,6 @@ type Dispatch struct{}
 func (Dispatch) Name() string         { return CLI }
 func (Dispatch) EnforcesGrants() bool { return true }
 
-func (Dispatch) Confinement() common.Confinement {
-	return common.Confinement{
-		ProjectFiles: []string{".cursor/hooks.json", ".cursor/cli.json", ".cursor/mcp.json"},
-		AuthEnv:      []string{"CURSOR_API_KEY"},
-		Refuse:       "it loads the checkout's .cursor/rules and AGENTS.md with no flag to stop it, its file tools are not confined (harness-confinement.md, cursor), and its config dir links the operator's auth.json",
-	}
-}
-
 const cursorDenyAllShell = "Shell(**)"
 
 type cursorGrant struct {

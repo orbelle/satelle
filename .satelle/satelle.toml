@@ -19,10 +19,6 @@ workflow = "standing"
 kind = "queue"
 
 [[workflows.rule]]
-workflow = "cross-repo"
-tag = "cross-repo"
-
-[[workflows.rule]]
 workflow = "epic"
 tag = "epic"
 

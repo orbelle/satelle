@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -36,31 +35,5 @@ func TestRunOnceErrorTailIsRedacted(t *testing.T) {
 	}
 	if got := (Request{}).Clean("x" + v); got != "x"+v {
 		t.Fatal("Clean with no redactor changed the text")
-	}
-}
-
-func TestEnvironTarget(t *testing.T) {
-	t.Setenv("SATELLE_TEST_CALLER", "caller")
-	self := Environ(Request{Env: []string{"A=1"}})
-	if self[len(self)-1] != "A=1" || !slices.Contains(self, "SATELLE_TEST_CALLER=caller") {
-		t.Fatalf("self environ lacks the caller or req.Env")
-	}
-	tgt := Environ(Request{Env: []string{"A=1"}, Target: &Target{Environ: []string{"PATH=/bin"}}})
-	if strings.Join(tgt, " ") != "PATH=/bin A=1" {
-		t.Fatalf("target environ %q", tgt)
-	}
-	if e := Environ(Request{Target: &Target{Environ: []string{}}}); e == nil || len(e) != 0 {
-		t.Fatalf("empty target environ %#v", e)
-	}
-	_, err := RunOnce(context.Background(), []string{"true"}, "", Request{Target: &Target{}})
-	if err != ErrUnconfined {
-		t.Fatalf("unconfined target ran: %v", err)
-	}
-	clean := Chain(func(s string) string { return strings.ReplaceAll(s, "kernel", "[k]") }, ValueRedactor([]string{"abc", "abcdef", ""}))
-	if got := clean("kernel abcdef abc"); got != "[k] [secret] [secret]" {
-		t.Fatalf("redacted %q", got)
-	}
-	if ValueRedactor(nil) != nil || Chain(nil, nil) != nil {
-		t.Fatal("empty redactor is not nil")
 	}
 }

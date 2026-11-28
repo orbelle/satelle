@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -25,30 +24,15 @@ import (
 )
 
 type Settings struct {
-	Workflows workflow.Rules   `toml:"workflows"`
-	Gate      GateSettings     `toml:"gate"`
-	Hook      HookSettings     `toml:"hook"`
-	Items     ItemSettings     `toml:"items"`
-	Service   ServiceSettings  `toml:"service"`
-	Sync      SyncSettings     `toml:"sync"`
-	Ledger    LedgerSettings   `toml:"ledger"`
-	Review    workflow.Review  `toml:"review"`
-	Models    ModelSettings    `toml:"models"`
-	Dispatch  DispatchSettings `toml:"dispatch"`
-}
-
-type DispatchSettings struct {
-	TargetEnv []string `toml:"target_env"`
-}
-
-func (d DispatchSettings) problems() []error {
-	var errs []error
-	for _, n := range d.TargetEnv {
-		if err := config.TargetEnvProblem(n); err != nil {
-			errs = append(errs, fmt.Errorf("%s [dispatch] target_env: %w", config.ConfigName, err))
-		}
-	}
-	return errs
+	Workflows workflow.Rules  `toml:"workflows"`
+	Gate      GateSettings    `toml:"gate"`
+	Hook      HookSettings    `toml:"hook"`
+	Items     ItemSettings    `toml:"items"`
+	Service   ServiceSettings `toml:"service"`
+	Sync      SyncSettings    `toml:"sync"`
+	Ledger    LedgerSettings  `toml:"ledger"`
+	Review    workflow.Review `toml:"review"`
+	Models    ModelSettings   `toml:"models"`
 }
 
 type ModelSettings struct {
@@ -299,7 +283,6 @@ func loadSettings(root string) (Settings, []workflow.UnknownKey, error) {
 			}
 		}
 	}
-	errs = append(errs, st.Dispatch.problems()...)
 	if len(errs) > 0 {
 		return st, nil, errors.Join(errs...)
 	}

@@ -9,18 +9,8 @@ import (
 )
 
 type Log struct {
-	mu    sync.Mutex
-	f     *os.File
-	clean func(string) string
-}
-
-func (l *Log) Redacting(clean func(string) string) {
-	if l == nil {
-		return
-	}
-	l.mu.Lock()
-	l.clean = clean
-	l.mu.Unlock()
+	mu sync.Mutex
+	f  *os.File
 }
 
 func OpenLog(path string) *Log {
@@ -52,9 +42,6 @@ func (l *Log) Line(prefix string, text []byte) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.clean != nil {
-		text = []byte(l.clean(string(text)))
-	}
 	_, _ = fmt.Fprintf(l.f, "%s%s\n", prefix, text)
 }
 

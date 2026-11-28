@@ -68,9 +68,6 @@ its `commands` key.
       low = ["reviewer-a"]
       high = ["reviewer-a", "reviewer-b"]
 
-      [dispatch]
-      target_env = []             # further variable names a target item's dispatched agent keeps; no credential, GIT_* or SATELLE_* name
-
       [items]
       prefix = { story = "sty" }  # id prefix per kind (default: its first three letters)
 

@@ -176,7 +176,7 @@ groups = [
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["definition-unchanged", "plan-touches", "judge-differs", "format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["definition-unchanged", "judge-differs", "format-vet", "build-unit"] },
   { mode = "sequential", gates = ["security", "constitution", "workflow-change"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]

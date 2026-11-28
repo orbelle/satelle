@@ -66,11 +66,7 @@ func LocalLocation(tree string) string {
 func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger.Event, req agent.Request, actor string) (res agent.Result, err error) {
 	session := item.NewID("perform")
 	base, ref := k.base(it, events)
-	seat := item.Seat{Session: session, Location: LocalLocation(k.Dir), Base: base, BaseRef: ref}
-	if t := req.Target; t != nil {
-		seat.Location, seat.Checkout = LocalLocation(t.Worktree), t.Worktree
-	}
-	if _, err := k.bindSeat(it.ID, seat, actor); err != nil {
+	if _, err := k.bindSeat(it.ID, item.Seat{Session: session, Location: LocalLocation(k.Dir), Base: base, BaseRef: ref}, actor); err != nil {
 		return agent.Result{}, err
 	}
 	if k.Sessions != nil {
