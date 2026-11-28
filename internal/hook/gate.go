@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
 type Gate struct {
@@ -20,6 +21,13 @@ type Gate struct {
 	SameRepo  func(root, tree string) bool
 	IsFile    func(string) bool
 	Push      func(branch string) Verdict
+	Targets   func() []Target
+}
+
+type Target struct {
+	Names               []string
+	Item, Tree, Problem string
+	Grant               Grant
 }
 
 type Grant struct {
@@ -118,6 +126,13 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 	if !within(root, abs) && g.underTemp(abs) {
 		return allow
 	}
+	var targets []Target
+	if g.Targets != nil {
+		targets = g.Targets()
+	}
+	if v, ok := problemVerdict(abs, targets); ok {
+		return v
+	}
 	tree := gitRootOf(abs)
 	if tree == "" && within(root, abs) {
 		tree = root
@@ -126,12 +141,21 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 		return allow
 	}
 	if tree != root && !g.sameRepo(root, tree) {
+		if v, ok := g.targetVerdict(abs, tree, targets); ok {
+			return v
+		}
 		if inline {
 			return allow
 		}
+		if len(targets) == 0 {
+			return Verdict{Path: abs, Reason: fmt.Sprintf(
+				"satelle: %s is in another repository's working tree (%s). This session works in %s; edit another repository from a session there.",
+				abs, tree, root)}
+		}
 		return Verdict{Path: abs, Reason: fmt.Sprintf(
-			"satelle: %s is in another repository's working tree (%s). This session works in %s; edit another repository from a session there.",
-			abs, tree, root)}
+			"satelle: %s is in another repository's working tree (%s). This session's seats allow edits in %s; "+
+				"edit another repository from a seat on an item that targets it (satelle story create --repo <name> --session <session>, then seat it). See satelle help edit-gate --session <session>.",
+			abs, tree, g.editable(root, targets))}
 	}
 	rel := relSlash(tree, abs)
 	var grant Grant
@@ -153,7 +177,79 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 	}
 	return Verdict{Path: abs, Reason: fmt.Sprintf(
 		"satelle: edit to %s blocked. Edits are allowed only while this session holds a seat at %s on an item whose current state's performer may change the tree. "+
-			"Seat one with `satelle story seat <id> --session <session>` (see `satelle status --session <session>` and `satelle help edit-gate --session <session>`).", rel, "local:"+tree)}
+			"Seat one with `satelle story seat <id> --session <session>` (see `satelle status --session <session>` and `satelle help edit-gate --session <session>`).%s", rel, "local:"+tree, elsewhere(targets))}
+}
+
+func problemVerdict(abs string, targets []Target) (Verdict, bool) {
+	for _, t := range targets {
+		if t.Problem == "" {
+			continue
+		}
+		if len(t.Names) == 0 {
+			return Verdict{Path: abs, Reason: fmt.Sprintf(
+				"satelle: edit to %s blocked: %s. No path is editable from this session until its seats can be read. See satelle help edit-gate --session <session>.",
+				abs, t.Problem)}, true
+		}
+		return Verdict{Path: abs, Reason: fmt.Sprintf(
+			"satelle: edit to %s blocked: this session's seat on %s targets repo %s, and %s. No path is editable from this session until the registry resolves; "+
+				"satelle doctor --session <session> reports it and names the fix. See satelle help edit-gate --session <session>.",
+			abs, t.Item, reporeg.Literals(t.Names), t.Problem)}, true
+	}
+	return Verdict{}, false
+}
+
+func (g Gate) targetVerdict(abs, tree string, targets []Target) (Verdict, bool) {
+	var matched []Target
+	for _, t := range targets {
+		if t.Tree != "" && t.Tree == tree {
+			matched = append(matched, t)
+		}
+	}
+	if len(matched) == 0 {
+		return Verdict{}, false
+	}
+	rel := relSlash(tree, abs)
+	for _, t := range matched {
+		if t.Grant.AttachOnly {
+			return Verdict{Path: abs, AttachOnly: true, Reason: attachOnlyReason(rel, "local:"+tree, t.Grant)}, true
+		}
+	}
+	if matchAny(g.Locked, rel) {
+		return Verdict{Path: abs, Reason: fmt.Sprintf(
+			"satelle: %s is a locked path ([gate] locked_paths); no seat allows editing it.", rel)}, true
+	}
+	for _, t := range matched {
+		if t.Grant.Tree {
+			return allow, true
+		}
+	}
+	return Verdict{}, false
+}
+
+func (g Gate) editable(root string, targets []Target) string {
+	var parts []string
+	if g.Grant != nil && g.Grant(root).Tree {
+		parts = append(parts, "self at "+root)
+	}
+	for _, t := range targets {
+		if t.Tree != "" {
+			parts = append(parts, fmt.Sprintf("repo %s at %s (seat on %s)", reporeg.Literals(t.Names), t.Tree, t.Item))
+		}
+	}
+	if len(parts) == 0 {
+		return "no repository"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func elsewhere(targets []Target) string {
+	var b strings.Builder
+	for _, t := range targets {
+		if t.Tree != "" {
+			fmt.Fprintf(&b, " This session's seat on %s targets repo %s, so its edits land in %s, not here.", t.Item, reporeg.Literals(t.Names), t.Tree)
+		}
+	}
+	return b.String()
 }
 
 func attachOnlyReason(rel, loc string, g Grant) string {

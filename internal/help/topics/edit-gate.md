@@ -72,7 +72,19 @@ Always and never:
   at that worktree, or in the operator's own editor.
 - Temp directories, and paths in no git working tree, are outside the gate.
 - Another repository's working tree is refused (the fence); a linked worktree of
-  this repository is judged by the seat at that worktree.
+  this repository is judged by the seat at that worktree. The one exception is
+  the registered checkout of a repository that a seated item targets
+  (`satelle story create --repo <name> --session <session>`): that checkout is
+  editable while every seat on it allows tree edits; `[gate] locked_paths`
+  apply there, `edit_exempt_paths` do not, and its linked worktrees stay
+  refused. A tree-edit seat on an item that targets another repository does
+  not open this repository, by hook or by `satelle pack`; an attachments-only
+  seat refuses both. A seat whose target is not registered, has no checkout
+  mapped in `.satelle/repos.local.toml`, or has a checkout whose origin does
+  not match `.satelle/repos.toml` refuses every edit until the `repos` check of
+  `satelle doctor --session <session>` is clear. With no seat on such an item
+  the fence is as before. Shell writes (redirects, cp, mv, `git -C`) follow the
+  same rule.
 - While the configuration is invalid, only `.satelle/` itself may be edited.
 - Pushes. A `git push` whose destination is an item's branch (its id, bare or
   under `refs/heads/`) is refused unless the session holds a seat on that item

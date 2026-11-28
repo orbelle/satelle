@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -75,6 +76,8 @@ func (s *Server) PublishedStatuses(project string) []*satellepb.PublishStatusReq
 	return nil
 }
 
+var errItemRequired = status.Error(codes.InvalidArgument, "item_id is required: the server resolves the repository from the item")
+
 type githubSvc struct {
 	satellepb.UnimplementedGitHubServiceServer
 	s *Server
@@ -95,6 +98,9 @@ func (s *Server) bound(project string) (*github, error) {
 func (h githubSvc) PublishReview(_ context.Context, r *satellepb.PublishReviewRequest) (*satellepb.PublishReviewResponse, error) {
 	h.s.mu.Lock()
 	defer h.s.mu.Unlock()
+	if strings.TrimSpace(r.GetItemId()) == "" {
+		return nil, errItemRequired
+	}
 	g, err := h.s.bound(r.GetProject())
 	if err != nil {
 		return nil, err
@@ -111,6 +117,9 @@ func (h githubSvc) PublishReview(_ context.Context, r *satellepb.PublishReviewRe
 func (h githubSvc) PublishStatus(_ context.Context, r *satellepb.PublishStatusRequest) (*satellepb.PublishStatusResponse, error) {
 	h.s.mu.Lock()
 	defer h.s.mu.Unlock()
+	if strings.TrimSpace(r.GetItemId()) == "" {
+		return nil, errItemRequired
+	}
 	g, err := h.s.bound(r.GetProject())
 	if err != nil {
 		return nil, err

@@ -1436,13 +1436,15 @@ const (
 //
 // GitHubService publishes a client's own review and status on its project's
 // repository, and lists the pull-request events the app received for it. The
-// server derives the installation and repository from the project's binding
-// (a caller publishes only on its own project's repository), mints a token per
-// call and never returns it, and decides nothing: event, state, context and
-// body are the client's, passed to GitHub unchanged. The server never appends
-// to an item's chain; the client records what it published. Errors:
-// FAILED_PRECONDITION when the project has no GitHub binding or the app is not
-// configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
+// server derives the installation and repository from the project's bindings
+// and the request's item (a caller publishes only on its own project's
+// repositories, and never names a repository), mints a token per call and
+// never returns it, and decides nothing: event, state, context and body are
+// the client's, passed to GitHub unchanged. The server never appends to an
+// item's chain; the client records what it published. Errors:
+// INVALID_ARGUMENT when a PublishReview or PublishStatus request has no
+// item_id; FAILED_PRECONDITION when the project has no GitHub binding or the
+// app is not configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
 type GitHubServiceClient interface {
 	PublishReview(ctx context.Context, in *PublishReviewRequest, opts ...grpc.CallOption) (*PublishReviewResponse, error)
 	PublishStatus(ctx context.Context, in *PublishStatusRequest, opts ...grpc.CallOption) (*PublishStatusResponse, error)
@@ -1496,13 +1498,15 @@ func (c *gitHubServiceClient) ListPullRequestEvents(ctx context.Context, in *Lis
 //
 // GitHubService publishes a client's own review and status on its project's
 // repository, and lists the pull-request events the app received for it. The
-// server derives the installation and repository from the project's binding
-// (a caller publishes only on its own project's repository), mints a token per
-// call and never returns it, and decides nothing: event, state, context and
-// body are the client's, passed to GitHub unchanged. The server never appends
-// to an item's chain; the client records what it published. Errors:
-// FAILED_PRECONDITION when the project has no GitHub binding or the app is not
-// configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
+// server derives the installation and repository from the project's bindings
+// and the request's item (a caller publishes only on its own project's
+// repositories, and never names a repository), mints a token per call and
+// never returns it, and decides nothing: event, state, context and body are
+// the client's, passed to GitHub unchanged. The server never appends to an
+// item's chain; the client records what it published. Errors:
+// INVALID_ARGUMENT when a PublishReview or PublishStatus request has no
+// item_id; FAILED_PRECONDITION when the project has no GitHub binding or the
+// app is not configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
 type GitHubServiceServer interface {
 	PublishReview(context.Context, *PublishReviewRequest) (*PublishReviewResponse, error)
 	PublishStatus(context.Context, *PublishStatusRequest) (*PublishStatusResponse, error)

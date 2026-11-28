@@ -2590,8 +2590,9 @@ type PublishReviewRequest struct {
 	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	PullNumber    int64                  `protobuf:"varint,2,opt,name=pull_number,json=pullNumber,proto3" json:"pull_number,omitempty"`
 	CommitSha     string                 `protobuf:"bytes,3,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
-	Event         string                 `protobuf:"bytes,4,opt,name=event,proto3" json:"event,omitempty"` // APPROVE | REQUEST_CHANGES | COMMENT, passed through
-	Body          string                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`   // names the team and the gate
+	Event         string                 `protobuf:"bytes,4,opt,name=event,proto3" json:"event,omitempty"`                 // APPROVE | REQUEST_CHANGES | COMMENT, passed through
+	Body          string                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`                   // names the team and the gate
+	ItemId        string                 `protobuf:"bytes,6,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"` // the item published for; the server resolves its repository among the project's bindings
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2657,6 +2658,13 @@ func (x *PublishReviewRequest) GetEvent() string {
 func (x *PublishReviewRequest) GetBody() string {
 	if x != nil {
 		return x.Body
+	}
+	return ""
+}
+
+func (x *PublishReviewRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
 	}
 	return ""
 }
@@ -2729,6 +2737,7 @@ type PublishStatusRequest struct {
 	Context       string                 `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	TargetUrl     string                 `protobuf:"bytes,6,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
+	ItemId        string                 `protobuf:"bytes,7,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"` // the item published for; the server resolves its repository among the project's bindings
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2801,6 +2810,13 @@ func (x *PublishStatusRequest) GetDescription() string {
 func (x *PublishStatusRequest) GetTargetUrl() string {
 	if x != nil {
 		return x.TargetUrl
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
 	}
 	return ""
 }
@@ -4312,7 +4328,7 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"RelayFrame\x12\x18\n" +
 	"\asession\x18\x01 \x01(\tR\asession\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data\"\x9a\x01\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"\xb3\x01\n" +
 	"\x14PublishReviewRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
 	"\vpull_number\x18\x02 \x01(\x03R\n" +
@@ -4320,13 +4336,14 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\n" +
 	"commit_sha\x18\x03 \x01(\tR\tcommitSha\x12\x14\n" +
 	"\x05event\x18\x04 \x01(\tR\x05event\x12\x12\n" +
-	"\x04body\x18\x05 \x01(\tR\x04body\"o\n" +
+	"\x04body\x18\x05 \x01(\tR\x04body\x12\x17\n" +
+	"\aitem_id\x18\x06 \x01(\tR\x06itemId\"o\n" +
 	"\x15PublishReviewResponse\x12\x1b\n" +
 	"\treview_id\x18\x01 \x01(\x03R\breviewId\x12\x19\n" +
 	"\bhtml_url\x18\x02 \x01(\tR\ahtmlUrl\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x03 \x01(\tR\n" +
-	"repository\"\xc0\x01\n" +
+	"repository\"\xd9\x01\n" +
 	"\x14PublishStatusRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1d\n" +
 	"\n" +
@@ -4335,7 +4352,8 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\acontext\x18\x04 \x01(\tR\acontext\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1d\n" +
 	"\n" +
-	"target_url\x18\x06 \x01(\tR\ttargetUrl\"T\n" +
+	"target_url\x18\x06 \x01(\tR\ttargetUrl\x12\x17\n" +
+	"\aitem_id\x18\a \x01(\tR\x06itemId\"T\n" +
 	"\x15PublishStatusResponse\x12\x1b\n" +
 	"\tstatus_id\x18\x01 \x01(\x03R\bstatusId\x12\x1e\n" +
 	"\n" +
