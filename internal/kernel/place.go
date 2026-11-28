@@ -72,7 +72,7 @@ func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger
 		_ = k.Sessions.Own(session)
 	}
 	defer func() {
-		rerr := k.Release(it.ID, session, actor)
+		rerr := k.releaseBound(it.ID, session, actor)
 		if err == nil {
 			err = rerr
 		} else if rerr != nil {
@@ -99,7 +99,7 @@ func (k *Kernel) performRemote(ctx context.Context, it item.Item, remote string,
 		return agent.Result{}, loc, err
 	}
 	res, runErr := k.Remote.PerformOn(ctx, node, req)
-	if err := k.Release(it.ID, node, actor); err != nil && runErr == nil {
+	if err := k.releaseBound(it.ID, node, actor); err != nil && runErr == nil {
 		runErr = err
 	}
 	return res, loc, runErr
@@ -276,4 +276,21 @@ func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
 		return gate.Head{}, notPushed
 	}
 	return gate.Head{Commit: commit, Ref: ref}, nil
+}
+
+func (k *Kernel) releaseBound(id, session, actor string) error {
+	it, events, err := k.load(id)
+	if err != nil {
+		return err
+	}
+	for _, s := range item.FoldSeats(events) {
+		if s.Session == session {
+			_, err := k.append(id, item.KindSeatReleased, actor, item.SeatRelease{Session: session})
+			return err
+		}
+	}
+	if w, err := k.workflowOf(it); err == nil && w.States[it.Status].Terminal {
+		return nil
+	}
+	return fmt.Errorf("session %q holds no seat on %s", session, id)
 }

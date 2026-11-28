@@ -389,10 +389,14 @@ func recordSession(harness string, in hook.Input, record func(home, session stri
 }
 
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
-	r, err := findOwnRepo(hookDir(in))
+	v, err := resolveTarget(hookDir(in), false)
 	if err != nil {
 		return "", "", false
 	}
+	if v.mapped() {
+		return mappedSessionContext(v, in, harness, inject)
+	}
+	r := v.control
 	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
 		line := needsUpgradeLine(r.Tree, m) + "\n"
 		if inject {
@@ -415,6 +419,26 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	return text, notice, true
 }
 
+func mappedSessionContext(v targetView, in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
+	r := v.control
+	if len(kernel.LegacyMarkers(r.DataDir)) > 0 {
+		return "", "", false
+	}
+	src := &sessionSource{Session: hookSession(in), Dir: r.Tree, NoDoctor: true}
+	k, err := v.open()
+	if err != nil {
+		return targetLine(v) + sessionLine(src.Session), "", true
+	}
+	defer k.Close()
+	src.Settings, src.Harness = k.Settings, k.Harness
+	src.Seats = func(session string) []seatView {
+		seats, _ := seatsOf(k, session)
+		return seats
+	}
+	text, notice, _ = renderSession(r, src, harness, inject)
+	return targetLine(v) + text, notice, true
+}
+
 func sessionLine(session string) string {
 	if session == "" {
 		return "satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n"
@@ -428,7 +452,7 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 	if err := k.Invalid; err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
 		b.WriteString(sessionLine(session))
-		if inject {
+		if inject && !k.NoDoctor {
 			block, n := sessionDoctor(k.Dir, harness)
 			b.WriteString(block)
 			notice = n
@@ -448,9 +472,11 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 		b.WriteString("\n")
 	}
 	if inject {
-		block, n := sessionDoctor(k.Dir, harness)
-		b.WriteString(block)
-		notice = n
+		if !k.NoDoctor {
+			block, n := sessionDoctor(k.Dir, harness)
+			b.WriteString(block)
+			notice = n
+		}
 		preface := b.String()
 		for _, f := range k.Settings.Hook.Inject {
 			body, err := contextFile(r, f)

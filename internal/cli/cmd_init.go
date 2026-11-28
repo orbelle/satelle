@@ -397,8 +397,10 @@ key or table in satelle.toml fail configuration loading.`,
 }
 
 type statusReport struct {
+	Control   string           `json:"control"`
 	Root      string           `json:"root"`
 	Tree      string           `json:"tree"`
+	Target    string           `json:"target"`
 	Runtime   string           `json:"runtime"`
 	Workflows []string         `json:"workflows"`
 	Harnesses []hook.Wiring    `json:"harnesses"`
@@ -454,12 +456,21 @@ func statusCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			session := sessionFromEnv()
-			k, r, err := openKernel()
+			v, err := resolveTarget("", true)
+			if err != nil {
+				return err
+			}
+			r := v.control
+			open := r.open
+			if v.mapped() {
+				open = v.open
+			}
+			k, err := open()
 			if err != nil {
 				return err
 			}
 			defer k.Close()
-			rep := statusReport{Root: r.DataDir, Tree: r.Tree, Runtime: r.Runtime, Harnesses: hook.WiringOf(r.Tree), Items: map[string]int{}, Session: session}
+			rep := statusReport{Control: r.control(), Root: r.DataDir, Tree: v.Tree, Target: v.Target, Runtime: r.Runtime, Harnesses: hook.WiringOf(r.Tree), Items: map[string]int{}, Session: session}
 			for name := range k.Workflows {
 				rep.Workflows = append(rep.Workflows, name)
 			}
@@ -484,7 +495,7 @@ func statusCmd() *cobra.Command {
 				return writeJSON(cmd.OutOrStdout(), rep)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "config    %s\ntree      %s\nruntime   %s\nworkflows %s\n", rep.Root, rep.Tree, rep.Runtime, strings.Join(rep.Workflows, ", "))
+			fmt.Fprintf(out, "control   %s\nconfig    %s\ntree      %s\ntarget    %s\nruntime   %s\nworkflows %s\n", rep.Control, rep.Root, rep.Tree, rep.Target, rep.Runtime, strings.Join(rep.Workflows, ", "))
 			keys := make([]string, 0, len(rep.Items))
 			for key := range rep.Items {
 				keys = append(keys, key)
