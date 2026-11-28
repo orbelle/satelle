@@ -59,7 +59,11 @@ A workflow whose `workflow show --json` `part` is X (a registered
 repository's workflow, loaded from `repos/X/workflows/`) is compared against
 `repos/X/agents.toml` over those shared bindings, read the same way, a part
 binding replacing a shared one of the same name whole; a workflow whose
-`part` is empty reads the shared bindings alone, whatever its name.
+`part` is empty reads the shared bindings alone, whatever its name. When
+`workflow show --json` has no `part` key (a satelle before it reported one),
+the part is taken from the workflow's `file`: `<root>/workflows/` is shared,
+`<root>/repos/X/workflows/` is part X, and any other file stops the check
+(exit 2).
 The `[review.panels.*]` tables of `satelle.toml` are read too (see Tier
 panels).
 
@@ -99,6 +103,39 @@ if [ -z "$root" ]; then
 fi
 workflows=$(printf '%s' "$status" | jq -r '(.workflows // [])[]' 2>/dev/null) || { echo "the repo's status has no workflows list"; exit 2; }
 
+if ! rootp=$(cd "$root" 2>/dev/null && pwd -P); then
+  echo "the repo's root $root could not be resolved"
+  exit 2
+fi
+# An older satelle's workflow show --json has no part key: the part is read
+# from the workflow's file, the only place its loader takes it from.
+part_of_file() {
+  local f="$2" dirp base x
+  if [ -z "$f" ] || [ ! -f "$f" ]; then
+    echo "workflow $1: workflow show --json names no part and no workflow file to take it from"
+    return 2
+  fi
+  base=$(basename "$f")
+  if [ "${base%.toml}" = "$base" ] || ! dirp=$(cd "$(dirname "$f")" 2>/dev/null && pwd -P); then
+    echo "workflow $1: its file $f is not a workflow file of $root"
+    return 2
+  fi
+  if [ "$dirp" = "$rootp/workflows" ]; then
+    printf '%s' ""
+    return 0
+  fi
+  x=${dirp#"$rootp/repos/"}
+  if [ "$x" != "$dirp" ] && [ "${x%/workflows}" != "$x" ]; then
+    x=${x%/workflows}
+    if [[ "$x" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+      printf '%s' "$x"
+      return 0
+    fi
+  fi
+  echo "workflow $1: its file $f is in neither $root/workflows nor $root/repos/<repository>/workflows"
+  return 2
+}
+
 wnames=()
 wshows=()
 parts=""
@@ -107,11 +144,19 @@ for w in $workflows; do
     echo "workflow $w: it could not be shown: $show"
     exit 2
   fi
-  if ! printf '%s' "$show" | jq -e '(.states | type == "object") and (.transitions | type == "array") and has("part") and (.part | type == "string")' >/dev/null 2>&1; then
+  if ! printf '%s' "$show" | jq -e '(.states | type == "object") and (.transitions | type == "array") and ((has("part") | not) or (.part | type == "string"))' >/dev/null 2>&1; then
     echo "workflow $w: unexpected shape from workflow show --json (want .states object, .transitions array and .part string)"
     exit 2
   fi
-  part=$(printf '%s' "$show" | jq -r '.part')
+  if printf '%s' "$show" | jq -e 'has("part")' >/dev/null 2>&1; then
+    part=$(printf '%s' "$show" | jq -r '.part')
+  else
+    if ! part=$(part_of_file "$w" "$(printf '%s' "$show" | jq -r 'if (.file | type) == "string" then .file else "" end')"); then
+      echo "$part"
+      exit 2
+    fi
+  fi
+  show=$(printf '%s' "$show" | jq -c --arg p "$part" '.part = $p')
   if [ -n "$part" ]; then
     if ! [[ "$part" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
       echo "workflow $w: workflow show --json names part $(printf '%s' "$show" | jq -c '.part'), which is not a repository name"

@@ -80,10 +80,13 @@ model = "gemini-x"
 	}
 }
 
-func judgeFlow(part string) string {
+func judgeFlow(part, file string) string {
 	p := ""
 	if part != "-" {
 		p = `"part": ` + strconv.Quote(part) + `,`
+	}
+	if file != "" {
+		p += `"file": ` + strconv.Quote(file) + `,`
 	}
 	return `{` + p + `
 "states": {"work": {"Performer": {"Agent": "doer"}}, "done": {"Terminal": true}},
@@ -127,6 +130,7 @@ esac
 		name      string
 		workflows []string
 		parts     map[string]string
+		wfiles    map[string]string
 		shared    string
 		files     map[string]string
 		link      bool
@@ -153,7 +157,12 @@ esac
 					part = w[:i]
 				}
 			}
-			write(t, filepath.Join(fixture, "shows", strings.ReplaceAll(w, "/", "_")+".json"), judgeFlow(part))
+			file := ""
+			if rel, ok := c.wfiles[w]; ok {
+				file = filepath.Join(fixture, filepath.FromSlash(rel))
+				write(t, file, "name = \"flow\"\n")
+			}
+			write(t, filepath.Join(fixture, "shows", strings.ReplaceAll(w, "/", "_")+".json"), judgeFlow(part, file))
 		}
 		t.Setenv("FIXTURE_WORKFLOWS", "["+strings.Join(js, ",")+"]")
 		sh := c.shared
@@ -211,7 +220,17 @@ esac
 			shared: strings.Replace(shared, "cursor-agent\"\nmodel = \"gpt-x", "claude\"\nmodel = \"claude-j", 1),
 			files:  map[string]string{"repos/x/agents.toml": partJudge("gpt-z", "")}, code: 1,
 			want: []string{"workflow x/flow", "judge (claude)"}},
-		{name: "k no part key", parts: map[string]string{"x/flow": "-"}, code: 2, want: []string{".part string"}},
+		{name: "k no part key and no file", parts: map[string]string{"x/flow": "-"}, code: 2,
+			want: []string{"workflow x/flow", "no workflow file"}},
+		{name: "k2 part key not a string", files: map[string]string{"shows/x_flow.json": strings.Replace(judgeFlow("-", ""), "{", `{"part": 5,`, 1)},
+			code: 2, want: []string{".part string"}},
+		{name: "m no part key, the part read from the file", parts: map[string]string{"flow": "-", "x/flow": "-"},
+			wfiles: map[string]string{"flow": "workflows/flow.toml", "x/flow": "repos/x/workflows/flow.toml"},
+			files:  map[string]string{"repos/x/agents.toml": partJudge("claude-z", "")}, code: 1,
+			want: []string{"workflow x/flow: work -> done", "judge (claude)", "1 gate(s)"}, not: []string{"workflow flow:"}},
+		{name: "n no part key, a file outside both", parts: map[string]string{"x/flow": "-"},
+			wfiles: map[string]string{"x/flow": "elsewhere/x/workflows/flow.toml"}, code: 2,
+			want: []string{"workflow x/flow", "in neither"}},
 		{name: "l unsafe part value", parts: map[string]string{"x/flow": "../x"}, files: map[string]string{"x/agents.toml": partJudge("claude-z", "")}, code: 2,
 			want: []string{"workflow x/flow", "not a repository name"}},
 	} {
