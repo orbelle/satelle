@@ -6,8 +6,6 @@ doctor note agents: coder resolves (<home>/agents/claude); not probed (--no-prob
 doctor note agents: planner resolves (<home>/agents/claude); not probed (--no-probe)
 doctor note agents: reviewer-agy-gemini-4-hydrogen-high resolves (<home>/agents/agy); not probed (--no-probe)
 doctor note agents: reviewer-cursor-gemini-4-hydrogen-high resolves (<home>/agents/cursor-agent); not probed (--no-probe)
-doctor note agents: reviewer-cursor-gemini-4-hydrogen-medium resolves (<home>/agents/cursor-agent); not probed (--no-probe)
 doctor note agents: reviewer-gemini-4-hydrogen-high resolves (<home>/agents/agy); not probed (--no-probe)
 doctor note agents: reviewer-gemini-4-hydrogen-medium resolves (<home>/agents/agy); not probed (--no-probe)
-doctor note agents: reviewer-gpt-oss-120b-medium resolves (<home>/agents/agy); not probed (--no-probe)
 doctor note agents: reviewer-grok-4.7 resolves (<home>/agents/grok); not probed (--no-probe)
