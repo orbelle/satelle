@@ -94,7 +94,7 @@ func unregisteredTargets(in *doctorInput) []doctorIssue {
 	registered := reporeg.Literals(targets)
 	var out []doctorIssue
 	for _, ri := range items {
-		if itemTerminal(ri.it, in.cfg.Workflows) {
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
 			continue
 		}
 		target := ri.it.Target()

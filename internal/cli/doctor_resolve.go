@@ -245,7 +245,7 @@ func openFixItem(k *kernel.Kernel, in *doctorInput, rep *resolveReport, findings
 		return
 	}
 	for _, it := range items {
-		if itemTerminal(it, k.Workflows) {
+		if w := k.Workflows[it.Workflow]; w != nil && w.IsTerminal(it.Status) {
 			continue
 		}
 		rep.Item, rep.carried = it.ID, true

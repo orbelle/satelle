@@ -49,11 +49,6 @@ func (r Rules) Validate(exists func(string) bool) []error {
 	if r.Default == "" || !exists(r.Default) {
 		errs = append(errs, fmt.Errorf("workflows: default workflow %q does not exist", r.Default))
 	}
-	return append(errs, r.RuleProblems(exists)...)
-}
-
-func (r Rules) RuleProblems(exists func(string) bool) []error {
-	var errs []error
 	for i, rule := range r.Rule {
 		if !exists(rule.Workflow) {
 			errs = append(errs, fmt.Errorf("workflows: rule %d names workflow %q, which does not exist", i+1, rule.Workflow))

@@ -36,7 +36,7 @@ func (k *Kernel) NextMove(id, session string) (Move, error) {
 		return Move{}, err
 	}
 	none := Move{Item: it.ID, Status: it.Status}
-	w := k.servedWorkflow(it)
+	w := k.Workflows[it.Workflow]
 	if w == nil {
 		return none, nil
 	}
@@ -111,7 +111,7 @@ func (k *Kernel) NextMove(id, session string) (Move, error) {
 }
 
 func (k *Kernel) runMove(base Move, run item.Item, session string) (Move, bool) {
-	w := k.servedWorkflow(run)
+	w := k.Workflows[run.Workflow]
 	if w == nil {
 		return base, false
 	}

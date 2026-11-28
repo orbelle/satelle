@@ -27,10 +27,6 @@ func (k *Kernel) checkRepo(name string) error {
 }
 
 func (k *Kernel) checkRepoChange(it item.Item, events []ledger.Event, name string) error {
-	if w, ok := k.Workflows[it.Workflow]; ok && w.Part != "" && name != it.Target() {
-		return fmt.Errorf("item %s is on workflow %s of repository %s; its repo cannot change to %s: create the item again with --repo %s",
-			it.ID, reporeg.Literal(w.Name), reporeg.Literal(w.Part), reporeg.Literal(name), reporeg.Literal(name))
-	}
 	if !item.HeldSeat(events) {
 		return k.checkRepo(name)
 	}

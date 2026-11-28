@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -58,8 +57,6 @@ func (m *StatusMap) check(workflows map[string]*workflow.Workflow) []string {
 		switch {
 		case !ok:
 			bad = append(bad, fmt.Sprintf("%s -> %s/%s: no workflow %q in this .satelle", k, t.Workflow, t.State, t.Workflow))
-		case w.Part != "":
-			bad = append(bad, fmt.Sprintf("%s -> %s/%s: %s is repository %s's workflow; imported items target the control repository", k, t.Workflow, t.State, t.Workflow, reporeg.Literal(w.Part)))
 		case !hasState(w, t.State):
 			bad = append(bad, fmt.Sprintf("%s -> %s/%s: workflow %s has no state %q", k, t.Workflow, t.State, t.Workflow, t.State))
 		}

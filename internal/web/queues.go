@@ -88,7 +88,7 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 		if !ok {
 			return "", false, false
 		}
-		s, _ := workflowState(itemWorkflow(workflows, it), it.Status)
+		s, _ := workflowState(workflows[it.Workflow], it.Status)
 		return it.Status, s.Terminal, true
 	}
 	target := func(id string) (string, bool) {
@@ -102,7 +102,7 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 	for _, q := range queues {
 		st := item.FoldQueue(chains[q.ID])
 		vm := queueVM{
-			rowVM:   rowVM{Item: q, StateClass: stateClass(itemWorkflow(workflows, q), q.Status)},
+			rowVM:   rowVM{Item: q, StateClass: stateClass(workflows[q.Workflow], q.Status)},
 			Filter:  filterText(q.Inputs),
 			Trigger: triggerLabel(q.Trigger),
 		}

@@ -459,26 +459,3 @@ func TestItemDetailShowsJudgeModels(t *testing.T) {
 		`<td><span class="verdict-result">reject</span></td>`,
 	)
 }
-
-func TestItemWorkflowGuardsThePart(t *testing.T) {
-	part := &mirror.Workflow{Name: "x/infra", Part: "x", States: []mirror.WorkflowState{{Name: "intake", Start: true}}}
-	shared := &mirror.Workflow{Name: "default", States: []mirror.WorkflowState{{Name: "backlog", Start: true}}}
-	ws := map[string]*mirror.Workflow{"x/infra": part, "default": shared}
-	if got := itemWorkflow(ws, Item{Workflow: "x/infra", Repo: "x"}); got != part {
-		t.Errorf("an x item lost its workflow: %v", got)
-	}
-	for _, repo := range []string{"y", "", "self"} {
-		it := Item{Workflow: "x/infra", Repo: repo, Status: "intake"}
-		if got := itemWorkflow(ws, it); got != nil {
-			t.Errorf("repo %q: a mismatched item shows x's workflow", repo)
-		}
-		if c := stateClass(itemWorkflow(ws, it), it.Status); c != "" {
-			t.Errorf("repo %q: state class %q", repo, c)
-		}
-	}
-	for _, repo := range []string{"", "y"} {
-		if got := itemWorkflow(ws, Item{Workflow: "default", Repo: repo}); got != shared {
-			t.Errorf("repo %q: a shared workflow was hidden", repo)
-		}
-	}
-}
