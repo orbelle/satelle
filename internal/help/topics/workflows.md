@@ -164,23 +164,6 @@ refused until it resolves. Changing a story's repo to or from one with skills
 of its own ends any accept a gate would carry. A control repository with no
 `.satelle/repos/` reads skills as before.
 
-A judge of a story whose repo is X is pointed, in the prompt's last block
-("Rule files for this judgement", directly before the answer line), at
-`.satelle/repos/X/constitution.md` and at the principles under
-`.satelle/repos/X/principles/`, each in place of the shared one of the same
-name, and at the shared `.satelle/constitution.md` and `.satelle/principles/`
-otherwise. A principle's name is its file stem and must be a valid
-repository-style name. A `principles/` directory holds only regular principle
-files, `README.md` and `.gitkeep`; any other entry (another extension, a
-subdirectory, a symlink) fails loudly: as a config load error in the shared
-`.satelle/`, and as a problem listed under the part that refuses X's stories.
-In a git work tree a rule file counts only when git tracks it (a staged file
-counts): an untracked or ignored file under `.satelle/repos/X/` is a problem
-that refuses X's stories, and an untracked shared one is not named. Changing a
-story's repo to or from one with skills or rule files of its own, or adding,
-editing or removing one of that repository's skills or rule files, ends any
-accept a gate would carry.
-
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:
 the absolute directory of the `.satelle` governing the run. A script should

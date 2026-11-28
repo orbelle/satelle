@@ -416,7 +416,7 @@ func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []
 		return "", "", err
 	}
 	h.Write([]byte(d))
-	return sourcedCoverage(hex.EncodeToString(h.Sum(nil)), partSource(k.PartSources, it.Target())), changeHash(d), nil
+	return sourcedCoverage(hex.EncodeToString(h.Sum(nil)), skillSource(k.PartSkills, it.Target())), changeHash(d), nil
 }
 
 func changeHash(diff string) string {
