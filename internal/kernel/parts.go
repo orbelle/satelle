@@ -28,6 +28,7 @@ func (w PartWarning) String() string {
 type Part struct {
 	Name      string
 	Rules     workflow.Rules
+	Review    workflow.Review
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	Problems  []error
@@ -273,11 +274,12 @@ func (c *Config) loadPart(dir, x string) {
 		return
 	}
 	c.loadPartSkills(p, partDir)
-	rules, err := loadPartRules(partDir, rel)
+	rules, review, err := loadPartSettings(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)
 	} else if rules != nil {
 		p.Rules = *rules
+		p.Review = review
 	}
 	if cat, errs := c.loadPartAgents(partDir, rel); len(errs) > 0 {
 		p.Problems = append(p.Problems, errs...)
@@ -316,35 +318,38 @@ func (c *Config) resolvePart(p *Part) []error {
 			errs = append(errs, partErr("%s/%s: %v", PartsDir, x, e))
 		}
 	}
-	return errs
+	return append(errs, c.partReviewProblems(p)...)
 }
 
-func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
+func loadPartSettings(partDir, rel string) (*workflow.Rules, workflow.Review, error) {
 	file := rel + "/" + SettingsFile
 	data, err := reporeg.ReadRegular(filepath.Join(partDir, SettingsFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, workflow.Review{}, nil
 	}
 	if err != nil {
-		return nil, partErr("%s: %v", file, err)
+		return nil, workflow.Review{}, partErr("%s: %v", file, err)
 	}
 	var st struct {
-		Workflows workflow.Rules `toml:"workflows"`
+		Workflows workflow.Rules  `toml:"workflows"`
+		Review    workflow.Review `toml:"review"`
 	}
 	unknown, err := workflow.DecodeData(file, data, &st)
 	if err != nil {
-		return nil, partSafe(err)
+		return nil, workflow.Review{}, partSafe(err)
 	}
 	var keys []string
 	for _, u := range unknown {
-		if u.Table == "workflows" || strings.HasPrefix(u.Table, "workflows.") {
-			keys = append(keys, strictKeyName(u))
+		for _, table := range []string{"workflows", "review"} {
+			if u.Table == table || strings.HasPrefix(u.Table, table+".") {
+				keys = append(keys, strictKeyName(u))
+			}
 		}
 	}
 	if len(keys) > 0 {
-		return nil, partErr("%s: unknown key %s", file, strings.Join(keys, ", "))
+		return nil, workflow.Review{}, partErr("%s: unknown key %s", file, strings.Join(keys, ", "))
 	}
-	return &st.Workflows, nil
+	return &st.Workflows, st.Review, nil
 }
 
 func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {

@@ -99,7 +99,9 @@ its `commands` key.
   named gate. A carried accept is carried only for the same tier. `satelle
   validate --session <session>` refuses a panel agent missing from `agents.toml`, a gate no
   workflow has, a check gate, and a blank or `:`-holding `tier_tag`; panel
-  agents get the same judge checks as a gate's own. `[review]`, `[models]`,
+  agents get the same judge checks as a gate's own. A part's
+  `.satelle/repos/X/satelle.toml` may set its own `[review]` panels for
+  repository `X`'s stories (see `satelle help workflows --session <session>`). `[review]`, `[models]`,
   `[workflows]`, `[gate]` and unknown top-level keys or tables of
   `satelle.toml` are decoded strictly, so a misspelt key or table there fails
   configuration loading.

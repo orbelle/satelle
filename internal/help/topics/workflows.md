@@ -42,6 +42,16 @@ under that part, and that repository's stories are refused until it resolves;
 the shared configuration stays valid. Without `.satelle/repos/` every story is
 placed by the shared rules.
 
+`.satelle/repos/X/satelle.toml` may also carry `[review]`. Its panels judge
+only the stories whose repo is `X`, on `X`'s own workflows and on shared ones
+alike; self and every other repository keep the shared panels. A gate it names
+replaces the shared panel of that gate with all its tiers, and the gates it
+does not name keep the shared panels. It may not set a `tier_tag` other than
+the shared one. Its panel agents must be ones the part resolves, and on a gate
+a shared workflow also has, ones the shared `agents.toml` binds, as a shared
+workflow dispatches from it. A part `[review]` that cannot be read or does not
+validate refuses `X`'s stories; the shared panels are never used in its place.
+
 A workflow may name a panel, `panel = "<name>"` at the top of its file: satelled
 lists its stories on a tab of that name instead of Stories (they leave the
 Stories count, its backlog badge and the projects list's count), and the tab
@@ -183,7 +193,9 @@ where no judge is of another model family (claude, gpt, gemini, grok, its
 judge must differ, and a panel passes when one member differs. A judge whose
 binding names a `fallback` counts as differing only when its fallback is of
 another family than the performer too. A session performer has no model in
-config and is not compared.
+config and is not compared. It also judges each part's `[review]` panels: on
+shared workflows against the shared bindings, and on the part's workflows
+against the part's.
 
 A gate's `trigger` is a check skill whose exit decides relevance: exit 0 means
 relevant and the gate runs; exit 1 means not relevant, and the gate is recorded
