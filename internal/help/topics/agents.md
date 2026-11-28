@@ -48,6 +48,24 @@ gate's judge set (its default judges, or one `[review.panels.<gate>]` tier's
 panel, each apart, since a tier's panel replaces the default), or that another
 judge of that set also names, so one binding never answers for two judges.
 
+A registered part X may bind its own agents in `.satelle/repos/X/agents.toml`,
+in the same form. X's workflows (those loaded from `repos/X/workflows/`)
+resolve a performer, judge or fallback name there first and in the shared
+`agents.toml` otherwise; a part binding replaces a shared one of the same name
+whole. A shared workflow uses the shared bindings, whatever its name and
+whichever repository its story targets. A part binding's name is lower-case
+letters, digits, `.`, `_` or `-`, starting with a letter or digit. A part
+`agents.toml` that does not load (a link, bad TOML, an unknown key, a bad
+binding or name, a fallback bound nowhere) leaves the part unresolved, so its
+repository's stories are refused until it does. A part binding, or its
+fallback, may run only the exact command (its first word, as dispatched) some
+non-session binding of the shared `agents.toml` already runs, so its hooks are
+wired; any other command, the same harness name at another path included,
+leaves the part unresolved. `agents.local.toml` names only shared bindings, and the
+fields it sets also apply over a part binding of the same name, so a machine's
+local narrowing holds on every workflow. The judge-differs check compares a part's workflows
+against the part's bindings.
+
 ## Harness hooks
 
 `satelle agents install claude|pi|grok|cursor|agy --session <session>` writes the harness's hook file

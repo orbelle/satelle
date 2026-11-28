@@ -71,7 +71,7 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 			return stop(it, VerdictReject, fmt.Sprintf("state %s is the operator's: it needs the operator's %s record", it.Status, typ))
 		}
 		if p := st.Agent(); p != nil {
-			if agent.IsSession(k.Agents[p.Agent]) {
+			if agent.IsSession(k.AgentsFor(w)[p.Agent]) {
 				res.Steps = append(res.Steps, step)
 				return stop(it, VerdictReject, fmt.Sprintf("state %s is performed by the interactive session", it.Status))
 			}
