@@ -6,11 +6,14 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/reporeg"
+	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 const checkReposName = "repos"
@@ -113,7 +116,7 @@ func partIssues(in *doctorInput) []doctorIssue {
 	return out
 }
 
-func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+func checkRepos(ctx context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if in.cfg == nil {
 		return nil, nil
 	}
@@ -147,14 +150,90 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				Fix:     "move or clone the checkout to a path of those characters, then " + remap(name)})
 		}
 	}
+	unbound, unboundNotes := unboundRepositories(ctx, in, reg)
+	out = append(out, unbound...)
 	dup, notes := onboardingIssues(in, reg)
 	out = append(out, dup...)
+	notes = append(unboundNotes, notes...)
 	if m := in.cfg.Doctor.Repos.MaxCount; m != nil && *m > 0 && reg.Declared() > *m {
 		out = append(out, doctorIssue{Check: checkReposName,
 			Problem: fmt.Sprintf("%d repositories registered, over .satelle/%s [repos] max_count = %d", reg.Declared(), kernel.DoctorFile, *m),
 			Fix:     "split the control repository, or raise [repos] max_count in .satelle/" + kernel.DoctorFile})
 	}
 	return out, notes
+}
+
+func unboundRepositories(ctx context.Context, in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []string) {
+	if reg.Declared() == 0 {
+		return nil, nil
+	}
+	b, bound, err := loadBinding(in.r)
+	if err != nil || !bound {
+		return nil, nil
+	}
+	if in.sessionStart {
+		return nil, []string{checkReposName + ": satelle.dev bindings not checked (session start)"}
+	}
+	if in.noProbe {
+		return nil, []string{checkReposName + ": satelle.dev bindings not checked (--no-probe)"}
+	}
+	p, err := boundProject(ctx, b)
+	if err != nil {
+		return nil, []string{checkReposName + ": could not read the repositories project " + show(b.Slug) + " is bound to on " + show(b.Server) + ": " + show(hosted.Describe("doctor", err).Error())}
+	}
+	set := map[string]bool{}
+	var shown []string
+	skipped := 0
+	for _, rb := range p.GetRepositories() {
+		r := rb.GetRepository()
+		n, nerr := reporeg.NormaliseOrigin("https://github.com/" + r)
+		if reporeg.HasUnsafe(r) || nerr != nil {
+			skipped++
+			continue
+		}
+		if !set[n] {
+			set[n] = true
+			shown = append(shown, show("https://"+n))
+		}
+	}
+	slices.Sort(shown)
+	list := strings.Join(shown, ", ")
+	if list == "" {
+		list = "none"
+	}
+	if skipped > 0 {
+		plural := "ies"
+		if skipped == 1 {
+			plural = "y"
+		}
+		list += fmt.Sprintf("; %d bound entr%s skipped as not a plain owner/name", skipped, plural)
+	}
+	var out []doctorIssue
+	for _, name := range declaredNames(reg) {
+		if !reg.EntryOK(name) {
+			continue
+		}
+		raw := reg.Tracked[name].URL
+		n, err := reporeg.NormaliseOrigin(raw)
+		if err != nil || set[n] {
+			continue
+		}
+		out = append(out, doctorIssue{Check: checkReposName,
+			Problem: show(name) + ": .satelle/" + kernel.ReposFile + " registers " + showOrigin(raw) + ", which satelle.dev project " + show(b.Slug) + " is not bound to (bound: " + list + "), so satelle.dev refuses its reviews and statuses",
+			Fix:     "install the satelle GitHub app on " + showOrigin(raw) + " for project " + show(b.Slug) + ", or remove [repos." + show(name) + "] from .satelle/" + kernel.ReposFile + " through this repo's workflow"})
+	}
+	return out, nil
+}
+
+func boundProject(ctx context.Context, b binding) (*satellepb.Project, error) {
+	c, err := dial(b.Server)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	pctx, cancel := context.WithTimeout(ctx, doctorProbeTimeout)
+	defer cancel()
+	return c.Projects.GetProject(pctx, &satellepb.GetProjectRequest{Project: b.Project})
 }
 
 func onboardingIssues(in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []string) {
