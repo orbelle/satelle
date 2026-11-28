@@ -161,3 +161,31 @@ func TestAssigneesOf(t *testing.T) {
 		})
 	}
 }
+
+func TestFoldIgnoresRepoAfterSeat(t *testing.T) {
+	s, _ := ledger.Open(t.TempDir())
+	s.Append("i", KindCreated, "me", Fields{Title: ptr("t"), Repo: ptr("web")})
+	s.Append("j", KindCreated, "me", Fields{Title: ptr("t"), Repo: ptr("web")})
+	created, _ := s.Read("i")
+	if HeldSeat(created) {
+		t.Fatal("held seat on created alone")
+	}
+	s.Append("i", KindSeatBound, "me", Seat{Session: "s1", Location: "local:/a"})
+	s.Append("i", KindSeatReleased, "me", SeatRelease{Session: "s1"})
+	s.Append("i", KindUpdated, "me", Fields{Repo: ptr("api")})
+	s.Append("j", KindUpdated, "me", Fields{Repo: ptr("api")})
+	seated, _ := s.Read("i")
+	if !HeldSeat(seated) {
+		t.Fatal("released seat not counted as held")
+	}
+	if it, err := Fold(seated); err != nil || it.Repo != "web" || it.Target() != "web" {
+		t.Fatalf("seated fold %+v %v", it, err)
+	}
+	unseated, _ := s.Read("j")
+	if it, err := Fold(unseated); err != nil || it.Repo != "api" {
+		t.Fatalf("unseated fold %+v %v", it, err)
+	}
+	if (Item{}).Target() != "self" {
+		t.Fatal("absent repo is not self")
+	}
+}
