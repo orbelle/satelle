@@ -47,11 +47,7 @@ func (k *Kernel) appendAfter(id, kind, actor, prev string, payload any) (ledger.
 }
 
 func (k *Kernel) workflowOf(it item.Item) (*workflow.Workflow, error) {
-	w, ok := k.Workflows[it.Workflow]
-	if !ok {
-		return nil, fmt.Errorf("item %s names workflow %q, which does not exist", it.ID, it.Workflow)
-	}
-	return w, nil
+	return k.ItemWorkflow(it)
 }
 
 func (k *Kernel) Get(id string) (item.Item, error) {
@@ -94,11 +90,17 @@ func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
 	name := it.Workflow
 	if name == "" {
+		name = k.partName(it)
+	}
+	if name == "" {
 		name = k.Rules.Select(it)
 	}
 	w, ok := k.Workflows[name]
 	if !ok {
 		return "", "", fmt.Errorf("workflow %q does not exist", name)
+	}
+	if err := ServesTarget(w, it); err != nil {
+		return "", "", err
 	}
 	return name, w.StartState(), nil
 }

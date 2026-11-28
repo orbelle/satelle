@@ -808,8 +808,8 @@ type readItem struct {
 type engagedSeat struct{ Item, Session, Location string }
 
 func itemTerminal(it item.Item, workflows map[string]*workflow.Workflow) bool {
-	w := workflows[it.Workflow]
-	return w != nil && w.IsTerminal(it.Status)
+	w, err := kernel.ItemWorkflow(workflows, it)
+	return err == nil && w.IsTerminal(it.Status)
 }
 
 func engagedHere(items []readItem, workflows map[string]*workflow.Workflow, home, here string) []engagedSeat {
@@ -868,7 +868,7 @@ func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 		if !sel.Matches(ri.it) {
 			continue
 		}
-		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+		if itemTerminal(ri.it, in.cfg.Workflows) {
 			continue
 		}
 		out = append(out, doctorIssue{Check: "open:" + o.Name,

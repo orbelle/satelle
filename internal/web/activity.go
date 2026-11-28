@@ -30,7 +30,7 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 	bySeat := seatsByItem(seats)
 	var active []Item
 	for _, it := range append(append([]Item(nil), stories...), executions...) {
-		if activeItem(stateClass(workflows[it.Workflow], it.Status), len(bySeat[it.ID]) > 0) {
+		if activeItem(stateClass(itemWorkflow(workflows, it), it.Status), len(bySeat[it.ID]) > 0) {
 			active = append(active, it)
 		}
 	}
@@ -41,7 +41,7 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 	byItem := eventsByItem(events, ids)
 	out := make([]activityRowVM, 0, len(active))
 	for _, it := range active {
-		w := workflows[it.Workflow]
+		w := itemWorkflow(workflows, it)
 		row := activityRowVM{rowVM: rowVM{Item: it, StateClass: stateClass(w, it.Status)}, StepAt: it.UpdatedAt}
 		row.Assignees = assigneeVMs(assigneesOf(it, bySeat[it.ID], standing))
 		held := bySeat[it.ID]
