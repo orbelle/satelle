@@ -1,7 +1,7 @@
 ---
 name: satelle-judge-differs-from-performer-check
 type: check
-description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, a judge with a fallback differs only when its fallback differs too, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml. A workflow whose file is in repos/X/workflows/ is compared against repos/X/agents.toml over the shared bindings, a part binding replacing a shared one of the same name whole.
+description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, a judge with a fallback differs only when its fallback differs too, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml. A workflow whose file is in repos/X/workflows/ is compared against repos/X/agents.toml over the shared bindings, a part binding replacing a shared one of the same name whole. Each part's repos/X/satelle.toml [review.panels.*] tables are read with the same reader and judged as one more judge set of their gate: on every shared workflow against the shared bindings, and on X's own workflows against X's bindings in place of the shared panel of that gate.
 ---
 
 # Judge differs from performer (reviewer independence)
@@ -61,8 +61,11 @@ those shared bindings, read the same way, a part binding replacing a shared
 one of the same name whole; a workflow whose file is in `<root>/workflows/`
 reads the shared bindings alone, whatever its name, and a file anywhere else
 stops the check (exit 2).
-The `[review.panels.*]` tables of `satelle.toml` are read too (see Tier
-panels).
+The `[review.panels.*]` tables of `satelle.toml` are read too, and those of
+each part's `repos/X/satelle.toml` with the same reader (see Tier panels).
+A part's `satelle.toml` that is a symbolic link or not a regular file stops
+the check (exit 2); a directory under `repos/` whose name is not a valid
+repository name is skipped with a note, as satelle loads no part from it.
 
 **Tier panels.** A `[review.panels.GATE]` table in satelle.toml replaces
 that gate's judges with the panel of the item's tier. Each tier's panel is
@@ -70,7 +73,18 @@ judged like the gate's own judges, as one more judge set of that gate, and a
 finding names the tier. A gate that runs a check skill in a workflow
 dispatches no judge there, so its tier panels are not judged in that workflow. The reader takes each tier as `tier = ["agent", ...]`
 on one line of plain double-quoted names; any other form in a
-`[review.panels.GATE]` table stops the check (exit 2) naming the line.
+`[review.panels.GATE]` table stops the check (exit 2) naming the file and line.
+A part's `[review.panels.GATE]` judges only that repository's stories, which
+reach the gate on its own workflows and on the shared ones. So on every
+shared workflow each part's tier panels of the gate are judged against the
+shared bindings, the catalog a shared workflow dispatches from, besides the
+shared panels; on X's own workflows X's tier panels of a gate it names are
+judged against X's bindings in place of the shared ones, and the shared
+panels of the gates it does not name stay. A part's panel is never judged on
+another part's workflows. Its finding names the part:
+`gate GATE (part X, tier T)`. This follows the kernel's merge rule (a part's
+gate replaces the shared gate with all its tiers); a change to that rule
+changes this check in the same delivery.
 
 **Exit codes:** 0 every judged gate has a judge of another family; 1 a
 finding, one line per gate and from-state; 2 the configuration could not be
@@ -271,9 +285,8 @@ cat=$(printf '%s' "$rows" | jq -Rn --arg fam "$FAMILIES" '
   | .parts |= map_values(finish)
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }
 
-review=""
-if [ -f "$root/satelle.toml" ]; then
-  review=$(awk -v q="'" '
+read_panels() {
+  awk -v q="'" -v src="$2" '
     function bad(why) { printf "%s:%d: %s; this check reads [review.panels.GATE] tables only as tier = [\"agent\", ...] on one line\n", FILENAME, FNR, why; exit 2 }
     {
       line = $0
@@ -319,16 +332,51 @@ if [ -f "$root/satelle.toml" ]; then
         if (a == "") continue
         if (a !~ /^"[^"\\]*"$/) bad("cannot read the panel member " a)
         gsub(/"/, "", a)
-        printf "%s\t%s\t%s\n", gate, tier, a
+        printf "%s\t%s\t%s\t%s\n", src, gate, tier, a
       }
     }
-  ' "$root/satelle.toml")
+  ' "$1"
+}
+
+review=""
+pfiles=()
+psrcs=()
+if [ -f "$root/satelle.toml" ]; then
+  pfiles+=("$root/satelle.toml")
+  psrcs+=("-")
+fi
+if [ -d "$root/repos" ]; then
+  for d in "$root/repos"/*; do
+    f="$d/satelle.toml"
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    x=${d##*/}
+    if ! [[ "$x" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+      echo "repos/$x: skipped: not a valid repository name, so satelle loads no part from it"
+      continue
+    fi
+    if [ -L "$f" ]; then
+      echo "$f is a symbolic link; a part's satelle.toml is read only as a regular file"
+      exit 2
+    fi
+    if [ ! -f "$f" ]; then
+      echo "$f is not a regular file"
+      exit 2
+    fi
+    pfiles+=("$f")
+    psrcs+=("$x")
+  done
+fi
+for ((i = 0; i < ${#pfiles[@]}; i++)); do
+  out=$(read_panels "${pfiles[$i]}" "${psrcs[$i]}")
   if [ $? -ne 0 ]; then
-    printf '%s\n' "$review" | grep -v "$(printf '\t')"
+    printf '%s\n' "$out" | grep -v "$(printf '\t')"
     exit 2
   fi
-fi
-panels=$(printf '%s\n' "$review" | jq -Rn 'reduce (inputs | select(length > 0) | split("\t")) as $r ({}; .[$r[0]][$r[1]] += [$r[2]])') || { echo "could not build the [review] tier panels from $root/satelle.toml"; exit 2; }
+  [ -n "$out" ] && review="$review$out
+"
+done
+panels=$(printf '%s' "$review" | jq -Rn 'reduce (inputs | select(length > 0) | split("\t")) as $r ({shared: {}, parts: {}};
+  if $r[0] == "-" then .shared[$r[1]][$r[2]] += [$r[3]] else .parts[$r[0]][$r[1]][$r[2]] += [$r[3]] end)') || { echo "could not build the [review] tier panels from ${pfiles[*]}"; exit 2; }
 
 nl='
 '
@@ -351,6 +399,7 @@ for ((i = 0; i < ${#wnames[@]}; i++)); do
           else [] end;
       def explicit($to): [$T[] | select(.To == $to) | (.From // [])[] | select(. != "*")];
       def firstwild($to): ([$T | to_entries[] | select(.value.To == $to and ((.value.From // []) | index("*"))) | .key] | first);
+      def tiers($p; $x): ($p // {}) | to_entries[] | {part: $x, tier: .key, js: .value};
       def describe($b): if ($b.model // "") != "" then "model \($b.model)" else "no model, command \($b.command // "")" end;
       [ $T | to_entries[] | .key as $i | .value as $t
         | ($t.From // [])[] as $f
@@ -364,10 +413,17 @@ for ((i = 0; i < ${#wnames[@]}; i++)); do
         | select($p != null and ($p.Agent // "") != "" and ($p.Operator // "") == "")
         | ($agents[$p.Agent] // {command: "", model: "", session: false, family: "unknown"}) as $pb
         | [ ($t.Groups // [])[] | (.Gates // [])[] ] | unique[] as $g
-        | ([{tier: "", js: judges($g)}] + (if (judges($g) | length) > 0 then [($panels[$g] // {}) | to_entries[] | {tier: .key, js: .value}] else [] end))[] as $set
+        | ([{part: "", tier: "", js: judges($g)}]
+           + (if (judges($g) | length) > 0 then
+                (if $wf.part == "" then
+                   [tiers($panels.shared[$g]; "")]
+                   + [$panels.parts | to_entries[] | .key as $x | select(.value[$g] != null) | tiers(.value[$g]; $x)]
+                 elif $panels.parts[$wf.part][$g] != null then [tiers($panels.parts[$wf.part][$g]; $wf.part)]
+                 else [tiers($panels.shared[$g]; "")] end)
+              else [] end))[] as $set
         | select(($set.js | length) > 0)
         | $set.js as $js
-        | (if $set.tier == "" then "gate \($g)" else "gate \($g) (tier \($set.tier))" end) as $gl
+        | (if $set.tier == "" then "gate \($g)" elif $set.part == "" then "gate \($g) (tier \($set.tier))" else "gate \($g) (part \($set.part), tier \($set.tier))" end) as $gl
         | if $pb.session then
             {kind: "note", text: "workflow \($w): state \($from): performer \($p.Agent) is the session: it has no model in config and is not compared"}
           elif $pb.family == "unknown" then

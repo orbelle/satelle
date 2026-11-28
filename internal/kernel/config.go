@@ -464,7 +464,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 func (c *Config) Problems() []error {
 	var errs []error
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { w, ok := c.Workflows[n]; return ok && w.Part == "" })...)
-	errs = append(errs, c.Settings.Review.Validate(c.reviewGate, c.Agents.Has)...)
+	errs = append(errs, c.Settings.Review.Validate(SettingsFile, c.reviewGate, c.Agents.Has)...)
 	errs = append(errs, c.agentProblems()...)
 	for _, name := range sortedKeys(c.Workflows) {
 		errs = append(errs, c.workflowProblems(c.Workflows[name])...)
@@ -490,7 +490,7 @@ func (c *Config) workflowProblems(w *workflow.Workflow) []error {
 	skill := func(n string) (workflow.Skill, bool) { return c.skillOf(w.Part, n) }
 	cat := c.AgentsFor(w)
 	errs = append(errs, w.Validate(skill, cat.Has)...)
-	errs = append(errs, c.bindingProblems(w, cat)...)
+	errs = append(errs, c.bindingProblems(c.reviewOf(w.Part), w, cat)...)
 	errs = append(errs, c.gatePlacementProblems(w)...)
 	for _, sname := range sortedKeys(w.States) {
 		if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
@@ -620,9 +620,9 @@ func (c *Config) queueProblems() []error {
 	return errs
 }
 
-func (c *Config) judges(gname string, g workflow.Gate) []string {
+func judges(rev workflow.Review, gname string, g workflow.Gate) []string {
 	out := slices.Clone(g.Judges())
-	for _, a := range c.Settings.Review.Agents(gname) {
+	for _, a := range rev.Agents(gname) {
 		if !slices.Contains(out, a) {
 			out = append(out, a)
 		}
@@ -659,7 +659,7 @@ func (c *Config) AgentUses() map[string][]AgentUse {
 			}
 		}
 		for _, gname := range sortedKeys(w.Gates) {
-			for _, j := range c.judges(gname, w.Gates[gname]) {
+			for _, j := range c.usedJudges(w, gname) {
 				out[j] = append(out[j], AgentUse{Workflow: wname, Gate: gname, Role: "judge"})
 				if f := cat[j].Fallback; f != "" {
 					if _, ok := cat[f]; ok {
@@ -672,19 +672,19 @@ func (c *Config) AgentUses() map[string][]AgentUse {
 	return out
 }
 
-func (c *Config) judgeSets(gname string, g workflow.Gate) [][]string {
+func judgeSets(rev workflow.Review, gname string, g workflow.Gate) [][]string {
 	sets := [][]string{g.Judges()}
-	panels := c.Settings.Review.Panels[gname]
+	panels := rev.Panels[gname]
 	for _, tier := range sortedKeys(panels) {
 		sets = append(sets, panels[tier])
 	}
 	return sets
 }
 
-func (c *Config) fallbackProblems(w *workflow.Workflow, gname string, cat agent.Catalog) []error {
+func fallbackProblems(rev workflow.Review, w *workflow.Workflow, gname string, cat agent.Catalog) []error {
 	var errs []error
 	g := w.Gates[gname]
-	for _, j := range c.judges(gname, g) {
+	for _, j := range judges(rev, gname, g) {
 		f := cat[j].Fallback
 		fb, ok := cat[f]
 		if f == "" || !ok {
@@ -694,7 +694,7 @@ func (c *Config) fallbackProblems(w *workflow.Workflow, gname string, cat agent.
 			errs = append(errs, fmt.Errorf("workflow %s: gate %q: judge %q fallback: %w", w.Name, gname, j, err))
 		}
 	}
-	for _, set := range c.judgeSets(gname, g) {
+	for _, set := range judgeSets(rev, gname, g) {
 		named := map[string]string{}
 		for _, j := range set {
 			f := cat[j].Fallback
@@ -715,34 +715,20 @@ func (c *Config) fallbackProblems(w *workflow.Workflow, gname string, cat agent.
 }
 
 func (c *Config) reviewGate(name string) (found, check bool) {
-	check = true
-	for _, wname := range sortedKeys(c.Workflows) {
-		if c.Workflows[wname].Part != "" {
-			continue
-		}
-		g, ok := c.Workflows[wname].Gates[name]
-		if !ok {
-			continue
-		}
-		found = true
-		if sk, ok := c.skillOf(c.Workflows[wname].Part, g.Skill); !ok || !sk.IsCheck() {
-			check = false
-		}
-	}
-	return found, found && check
+	return c.reviewGateIn("")(name)
 }
 
-func (c *Config) bindingProblems(w *workflow.Workflow, cat agent.Catalog) []error {
+func (c *Config) bindingProblems(rev workflow.Review, w *workflow.Workflow, cat agent.Catalog) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {
-		for _, j := range c.judges(gname, w.Gates[gname]) {
+		for _, j := range judges(rev, gname, w.Gates[gname]) {
 			if b, ok := cat[j]; ok {
 				if err := agent.CheckJudge(b); err != nil {
 					errs = append(errs, fmt.Errorf("workflow %s: gate %q: %w", w.Name, gname, err))
 				}
 			}
 		}
-		errs = append(errs, c.fallbackProblems(w, gname, cat)...)
+		errs = append(errs, fallbackProblems(rev, w, gname, cat)...)
 		g := w.Gates[gname]
 		if sk, ok := c.skillOf(w.Part, g.Skill); ok {
 			if err := legacyAnswerProblem(w.Name, gname, g, sk); err != nil {

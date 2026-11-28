@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -72,7 +73,7 @@ func TestReviewValidate(t *testing.T) {
 		{Review{TierTag: "k", Panels: map[string]map[string][]string{"judged": {"t": {"ghost"}}}}, `agent "ghost" is not in the agents catalog`},
 	} {
 		var msgs []string
-		for _, e := range c.review.Validate(gates, agents) {
+		for _, e := range c.review.Validate("satelle.toml", gates, agents) {
 			msgs = append(msgs, e.Error())
 		}
 		all := strings.Join(msgs, "\n")
@@ -89,5 +90,42 @@ func TestReviewAgents(t *testing.T) {
 	}
 	if got := r.Agents("other"); len(got) != 0 {
 		t.Errorf("Agents of an unnamed gate = %v", got)
+	}
+}
+
+func TestReviewValidateNamesTheFile(t *testing.T) {
+	r := Review{Panels: map[string]map[string][]string{"g": {"t": {"a"}}}}
+	errs := r.Validate("repos/x/satelle.toml", func(string) (bool, bool) { return true, false }, func(string) bool { return true })
+	if len(errs) != 1 || !strings.HasPrefix(errs[0].Error(), "repos/x/satelle.toml: [review]") {
+		t.Errorf("problems %v, want one under repos/x/satelle.toml", errs)
+	}
+}
+
+func TestReviewWith(t *testing.T) {
+	shared := Review{TierTag: "risk", Panels: map[string]map[string][]string{
+		"review": {"high": {"a"}, "low": {"b"}},
+		"code":   {"high": {"c"}},
+	}}
+	for _, c := range []struct {
+		name string
+		part Review
+		want Review
+	}{
+		{"empty part keeps shared", Review{}, shared},
+		{"part gate replaces every tier of it", Review{Panels: map[string]map[string][]string{"review": {"high": {"p"}}}},
+			Review{TierTag: "risk", Panels: map[string]map[string][]string{"review": {"high": {"p"}}, "code": {"high": {"c"}}}}},
+		{"part names a new gate", Review{TierTag: "risk", Panels: map[string]map[string][]string{"sec": {"high": {"s"}}}},
+			Review{TierTag: "risk", Panels: map[string]map[string][]string{"review": {"high": {"a"}, "low": {"b"}}, "code": {"high": {"c"}}, "sec": {"high": {"s"}}}}},
+	} {
+		got := shared.With(c.part)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: With = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+	if got := (Review{}).With(Review{TierTag: "k", Panels: map[string]map[string][]string{"g": {"t": {"a"}}}}); got.TierTag != "k" || len(got.Panels["g"]["t"]) != 1 {
+		t.Errorf("With over no shared review = %+v", got)
+	}
+	if len(shared.Panels["review"]) != 2 {
+		t.Errorf("With changed the shared review: %+v", shared)
 	}
 }
