@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
@@ -180,7 +181,7 @@ func TestLedgerDevDivergence(t *testing.T) {
 	}
 	for _, args := range [][]string{{"ledger", "pull"}, {"ledger", "pull", id}} {
 		out, err := run(t, "", args...)
-		if ExitCodeOf(err) != 1 || !strings.Contains(out, "diverged: "+id+" at event 1: ") || !strings.Contains(out, "nothing appended") {
+		if ExitCodeOf(err) != 1 || !strings.Contains(out, "conflict: "+id+" at event 1: this runtime's item.updated does not commute with the store's item.updated (event 1)") || !strings.Contains(out, "nothing re-based") {
 			t.Errorf("%v over a diverged chain: %v\n%s", args, err, out)
 		}
 	}
@@ -204,4 +205,100 @@ func TestLedgerDevPullOfAPurePrefix(t *testing.T) {
 	if out := must(t, "ledger", "status"); !strings.Contains(out, "ahead") {
 		t.Errorf("status = %q", out)
 	}
+}
+
+func TestLedgerDevRebasesAQueueAddPastAFire(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	triage := []byte("name = \"triage\"\n[states.open]\nstart = true\n[states.closed]\nterminal = true\n[[transition]]\nfrom = [\"open\"]\nto = \"closed\"\n")
+	writeTriage := func() {
+		t.Helper()
+		if err := os.WriteFile(".satelle/workflows/triage.toml", triage, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := newMachine(t)
+	writeTriage()
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	s1 := createID(t, "story", "create", "--title", "one")
+	s2 := createID(t, "story", "create", "--title", "two")
+	que := createID(t, "queue", "create", "--title", "triage queue", "--trigger-workflow", "triage")
+	must(t, "queue", "add", que, s1)
+	must(t, "ledger", "push")
+
+	b := newMachine(t)
+	writeTriage()
+	must(t, "project", "bind", "shared", "--server", srv.URL)
+	must(t, "ledger", "pull")
+
+	a.use(t)
+	must(t, "queue", "fire", que)
+	must(t, "ledger", "push")
+
+	b.use(t)
+	must(t, "queue", "add", que, s2)
+	before, err := runtimeLedger(t).Read(que)
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := before[len(before)-1]
+	if added.Kind != item.KindQueueAdded {
+		t.Fatalf("B's last event is %s", added.Kind)
+	}
+	out := must(t, "ledger", "autosync")
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("B's pass reason %q\n%s", st.SyncReason, out)
+	}
+	got, err := runtimeLedger(t).Read(que)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := srv.Events("shared", que)
+	if len(stored) != len(got) || got[len(got)-1].ID != added.ID || got[len(got)-2].Kind != item.KindQueueFired {
+		t.Fatalf("B holds %d events ending %s %s, satelle.dev %d", len(got), got[len(got)-1].ID, got[len(got)-1].Kind, len(stored))
+	}
+	if status := must(t, "ledger", "status"); !strings.Contains(lineOf(status, que), "in sync") {
+		t.Errorf("status:\n%s", status)
+	}
+	if entries, _ := os.ReadDir(runtimeLedger(t).Dir() + "/forks"); len(entries) != 0 {
+		t.Errorf("set aside %d file(s)", len(entries))
+	}
+	members := func() string {
+		t.Helper()
+		show := must(t, "queue", "show", que)
+		if !strings.Contains(show, "members (1)") || !strings.Contains(show, s2) {
+			t.Fatalf("queue show:\n%s", show)
+		}
+		return show
+	}
+	shown := members()
+
+	a.use(t)
+	must(t, "ledger", "autosync")
+	theirs, err := runtimeLedger(t).Read(que)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(hashesOf(theirs), hashesOf(got)) {
+		t.Fatalf("A's %s is not B's", que)
+	}
+	if again := members(); again != shown {
+		t.Errorf("A shows\n%s\nB shows\n%s", again, shown)
+	}
+}
+
+func lineOf(out, id string) string {
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), id) {
+			return line
+		}
+	}
+	return ""
+}
+
+func hashesOf(events []ledger.Event) []string {
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.Hash)
+	}
+	return out
 }
