@@ -29,6 +29,7 @@ type Part struct {
 	Name      string
 	Rules     workflow.Rules
 	Workflows map[string]*workflow.Workflow
+	Skills    map[string]workflow.Skill
 	Problems  []error
 }
 
@@ -239,11 +240,7 @@ func (c *Config) loadParts() error {
 			c.PartWarnings = append(c.PartWarnings, PartWarning{Dir: x, Reason: reason})
 			continue
 		}
-		p := c.loadPart(dir, x)
-		if c.Parts == nil {
-			c.Parts = map[string]*Part{}
-		}
-		c.Parts[x] = p
+		c.loadPart(dir, x)
 	}
 	for _, x := range sortedKeys(c.Parts) {
 		p := c.Parts[x]
@@ -258,19 +255,24 @@ func (c *Config) loadParts() error {
 	return nil
 }
 
-func (c *Config) loadPart(dir, x string) *Part {
+func (c *Config) loadPart(dir, x string) {
 	p := &Part{Name: x, Workflows: map[string]*workflow.Workflow{}}
+	if c.Parts == nil {
+		c.Parts = map[string]*Part{}
+	}
+	c.Parts[x] = p
 	rel := PartsDir + "/" + x
 	partDir := filepath.Join(dir, x)
 	info, err := os.Lstat(partDir)
 	if err != nil {
 		p.Problems = append(p.Problems, partErr("%s: cannot be read", rel))
-		return p
+		return
 	}
 	if !info.IsDir() {
 		p.Problems = append(p.Problems, partErr("%s: not a directory", rel))
-		return p
+		return
 	}
+	c.loadPartSkills(p, partDir)
 	rules, err := loadPartRules(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)
@@ -296,7 +298,6 @@ func (c *Config) loadPart(dir, x string) *Part {
 		p.Workflows[n] = w
 	}
 	p.Problems = append(p.Problems, c.resolvePart(p)...)
-	return p
 }
 
 func (c *Config) resolvePart(p *Part) []error {
@@ -310,9 +311,8 @@ func (c *Config) resolvePart(p *Part) []error {
 	for _, e := range p.Rules.RuleProblems(exists) {
 		errs = append(errs, partErr("%s: %v", file, e))
 	}
-	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
 	for _, n := range sortedKeys(p.Workflows) {
-		for _, e := range c.workflowProblems(p.Workflows[n], skill) {
+		for _, e := range c.workflowProblems(p.Workflows[n]) {
 			errs = append(errs, partErr("%s/%s: %v", PartsDir, x, e))
 		}
 	}

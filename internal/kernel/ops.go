@@ -416,7 +416,7 @@ func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []
 		return "", "", err
 	}
 	h.Write([]byte(d))
-	return hex.EncodeToString(h.Sum(nil)), changeHash(d), nil
+	return sourcedCoverage(hex.EncodeToString(h.Sum(nil)), skillSource(k.PartSkills, it.Target())), changeHash(d), nil
 }
 
 func changeHash(diff string) string {
@@ -632,7 +632,11 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 		defer rec.Close()
 		prompt += rec.Section
 	}
-	req := agent.Request{Binding: b, System: k.Skills[perf.Skill].Body, Prompt: prompt, Dir: k.Dir}
+	skills, err := k.SkillsFor(it)
+	if err != nil {
+		return agent.Result{}, err
+	}
+	req := agent.Request{Binding: b, System: skills[perf.Skill].Body, Prompt: prompt, Dir: k.Dir}
 	start := time.Now()
 	var res agent.Result
 	var runErr error
@@ -822,10 +826,10 @@ func renderItem(it item.Item) string {
 	return b.String()
 }
 
-func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
+func judged(skills map[string]workflow.Skill, w *workflow.Workflow, tr *workflow.Transition) bool {
 	for _, g := range tr.Groups {
 		for _, name := range g.Gates {
-			if !k.Skills[w.Gates[name].Skill].IsCheck() {
+			if !skills[w.Gates[name].Skill].IsCheck() {
 				return true
 			}
 		}

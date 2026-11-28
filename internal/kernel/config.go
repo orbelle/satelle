@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
-	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
@@ -185,12 +184,8 @@ func LoadAgents(root string) (agent.Catalog, []agent.Override, error) {
 	merged, ovs, err := cat.Override(p)
 	if err != nil {
 		var errs []error
-		if j, ok := err.(interface{ Unwrap() []error }); ok {
-			for _, e := range j.Unwrap() {
-				errs = append(errs, fmt.Errorf("%s: %w", AgentsLocalFile, e))
-			}
-		} else {
-			errs = append(errs, fmt.Errorf("%s: %w", AgentsLocalFile, err))
+		for _, e := range joinedErrors(err) {
+			errs = append(errs, fmt.Errorf("%s: %w", AgentsLocalFile, e))
 		}
 		return cat, nil, errors.Join(errs...)
 	}
@@ -454,10 +449,8 @@ func (c *Config) Problems() []error {
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { w, ok := c.Workflows[n]; return ok && w.Part == "" })...)
 	errs = append(errs, c.Settings.Review.Validate(c.reviewGate, c.Agents.Has)...)
 	errs = append(errs, c.agentProblems()...)
-	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
 	for _, name := range sortedKeys(c.Workflows) {
-		w := c.Workflows[name]
-		errs = append(errs, c.workflowProblems(w, skill)...)
+		errs = append(errs, c.workflowProblems(c.Workflows[name])...)
 	}
 	for _, n := range sortedKeys(c.Skills) {
 		errs = append(errs, c.Skills[n].Problems()...)
@@ -475,8 +468,9 @@ func (c *Config) Problems() []error {
 	return append(errs, c.UI.problems()...)
 }
 
-func (c *Config) workflowProblems(w *workflow.Workflow, skill func(string) (workflow.Skill, bool)) []error {
+func (c *Config) workflowProblems(w *workflow.Workflow) []error {
 	var errs []error
+	skill := func(n string) (workflow.Skill, bool) { return c.skillOf(w.Part, n) }
 	cat := c.AgentsFor(w)
 	errs = append(errs, w.Validate(skill, cat.Has)...)
 	errs = append(errs, c.bindingProblems(w, cat)...)
@@ -714,7 +708,7 @@ func (c *Config) reviewGate(name string) (found, check bool) {
 			continue
 		}
 		found = true
-		if sk, ok := c.Skills[g.Skill]; !ok || !sk.IsCheck() {
+		if sk, ok := c.skillOf(c.Workflows[wname].Part, g.Skill); !ok || !sk.IsCheck() {
 			check = false
 		}
 	}
@@ -733,10 +727,9 @@ func (c *Config) bindingProblems(w *workflow.Workflow, cat agent.Catalog) []erro
 		}
 		errs = append(errs, c.fallbackProblems(w, gname, cat)...)
 		g := w.Gates[gname]
-		if sk, ok := c.Skills[g.Skill]; ok && len(g.Judges()) > 0 && !sk.IsCheck() {
-			if key, legacy := gate.LegacyAnswerKey(sk.Body); legacy {
-				errs = append(errs, fmt.Errorf("workflow %s: gate %q: skill %q answers with %q; a judge answers {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}, and an answer without verdict is a reject",
-					w.Name, gname, g.Skill, key))
+		if sk, ok := c.skillOf(w.Part, g.Skill); ok {
+			if err := legacyAnswerProblem(w.Name, gname, g, sk); err != nil {
+				errs = append(errs, err)
 			}
 		}
 	}
@@ -828,7 +821,7 @@ func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
 			bad("placement %q: %q is not a remote id", p, id)
 			continue
 		}
-		if s, ok := c.Skills[g.Skill]; ok && !s.IsCheck() {
+		if s, ok := c.skillOf(w.Part, g.Skill); ok && !s.IsCheck() {
 			bad("placement %q: skill %q is not a check; only a check gate runs on a remote", p, g.Skill)
 		}
 		file := filepath.Join(c.Root, RemotesDir, id, RemoteFile)
