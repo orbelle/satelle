@@ -47,6 +47,15 @@ Sync carries only items (their chains and `ItemService.PutItems` summaries) and
 attachment bodies (`AttachmentService`, keyed by project, item and name, for
 each `attachment.added` event). Configuration and documents are not synced.
 
+## Projects
+
+`GetProject` and `ListProjects` carry `Project.repositories`: one
+`RepositoryBinding{repository, installation_id}` per repository the project is
+bound to by the satelle GitHub app. `repository` is owner/name, as the
+`GitHubService` responses name it; `installation_id` is the app installation
+the repository is reached through. A project with no binding has an empty list.
+`satelle project show` prints each binding.
+
 ## GitHub
 
 `GitHubService` acts on a repository a project is bound to by the satelle
