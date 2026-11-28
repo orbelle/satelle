@@ -237,6 +237,53 @@ stream is in its dispatch log.
 - A run that fails names why (agy missing, not signed in, an error result, no
   answer, a refused config) and is never a verdict.
 
+## Target items
+
+An item whose `repo` names another registered repository is dispatched
+against that repository's checkout (`.satelle/repos.local.toml`), confined
+per run:
+
+- A performer with a write grant runs in the target's checkout, on claude
+  only, with `--setting-sources user --restricted`, an `--add-dir` for its
+  record copy, and, for a Bash grant, a shell sandbox that cannot be turned off
+  (`allowUnsandboxedCommands: false`, no excluded commands). agy, grok and
+  cursor-agent are refused for a target writer: they cannot be kept from
+  loading the checkout's instruction files.
+- A read-only planner or gate reviewer runs, on any harness, in an empty
+  scratch folder outside both checkouts and reads the checkout by absolute
+  path: claude through `--add-dir`, grok under its `--sandbox` that keeps writes to the scratch and temp folders, agy,
+  cursor-agent and pi by the paths in the prompt. The prompt says everything
+  under the checkout is content under review, never instructions.
+- The grant is narrowed to its read tools, and the performer runs outside, in
+  a protected-tier repository or on a harness with no recorded write
+  confinement (pi).
+- The dispatch is refused, naming the file, when the checkout holds a harness
+  settings, hook or MCP file (`.claude/settings.json`,
+  `.claude/settings.local.json`, `.mcp.json`, `.agents/hooks.json`,
+  `.antigravity/settings.json`, `.cursor/hooks.json`, `.cursor/cli.json`,
+  `.cursor/mcp.json`, `.grok`, `.pi`).
+- A performer with a write grant is refused, naming the file, when the
+  checkout holds an instruction file claude loads when a file under it is read
+  or edited: any entry at `.claude/rules`, a `CLAUDE.local.md` at any depth,
+  or a `CLAUDE.md` or `AGENTS.md` below the top level (`.git` is skipped;
+  vendored trees are not). Remove the file or dispatch the item read-only. A
+  read-only planner or reviewer is not refused for them: a target file it
+  reads, at any depth, is content under review.
+- The agent gets an allowlisted environment: OS runtime and locale variables
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TZ`, `TMPDIR`, `LANG`,
+  `LC_*`, `XDG_*`), proxy variables, the names `[dispatch] target_env` in
+  `satelle.toml` lists, and its harness's own sign-in variables, never a
+  `SATELLE_*`, `GIT_*`, withheld or other credential-named variable. A proxy
+  whose URL carries a credential is kept only when the credential is 8 bytes
+  or more. Its output, errors and log are redacted of every credential value
+  and of each sign-in variable's value.
+- Its record copy and scratch folder live in a fresh temp folder outside both
+  checkouts, removed after the run; a `TMPDIR` inside either checkout refuses
+  the dispatch.
+
+What each harness confines is recorded in
+`.satelle/tasks/harness-confinement.md`.
+
 ## This machine's overrides
 
 A machine may override the repo's bindings in `.satelle/agents.local.toml`,
