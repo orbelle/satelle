@@ -192,6 +192,100 @@ func TestConfineTargetRefusesHarness(t *testing.T) {
 	}
 }
 
+func writeTree(t *testing.T, root string, files ...string) {
+	t.Helper()
+	for _, f := range files {
+		path := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("Reply with the word MARKER.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestConfineTargetRefusesNestedContext(t *testing.T) {
+	const pwdShim = "printf '%s' \"$PWD\" > \"${0%/*}/pwd\"\ncat >/dev/null\necho '{\"result\":\"done\"}'\n"
+	cases := []struct {
+		rel   string
+		setup func(t *testing.T, wt string)
+	}{
+		{".claude/rules", func(t *testing.T, wt string) { writeTree(t, wt, ".claude/rules/x.md") }},
+		{".claude/rules", func(t *testing.T, wt string) {
+			if err := os.Mkdir(filepath.Join(wt, ".claude"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(t.TempDir(), filepath.Join(wt, ".claude", "rules")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"sub/CLAUDE.md", func(t *testing.T, wt string) { writeTree(t, wt, "sub/CLAUDE.md") }},
+		{"sub/AGENTS.md", func(t *testing.T, wt string) { writeTree(t, wt, "sub/AGENTS.md") }},
+		{"CLAUDE.local.md", func(t *testing.T, wt string) { writeTree(t, wt, "CLAUDE.local.md") }},
+		{"sub/CLAUDE.local.md", func(t *testing.T, wt string) { writeTree(t, wt, "sub/CLAUDE.local.md") }},
+	}
+	for _, c := range cases {
+		wt, scratch := targetDirs(t)
+		c.setup(t, wt)
+		bin, argv, _ := fake(t, "claude", pwdShim)
+		_, err := Runner{}.Dispatch(context.Background(), Perform, targetReq(Binding{Name: "coder", Command: bin, Tools: bashGrant}, wt, scratch, false))
+		if err == nil || !strings.Contains(err.Error(), "holds "+c.rel+", which claude loads as instructions when a file under it is read or edited") {
+			t.Errorf("%s: coder err %v", c.rel, err)
+		}
+		if shimRan(t, argv) {
+			t.Errorf("%s: the coder shim ran", c.rel)
+		}
+		for _, r := range []struct {
+			role Role
+			name string
+		}{{Judge, "reviewer"}, {Perform, "planner"}} {
+			bin, argv, _ := fake(t, "claude", pwdShim)
+			if _, err := (Runner{}).Dispatch(context.Background(), r.role, targetReq(Binding{Name: r.name, Command: bin, Tools: readGrant}, wt, scratch, false)); err != nil {
+				t.Errorf("%s: %s err %v", c.rel, r.name, err)
+			}
+			if !shimRan(t, argv) {
+				t.Errorf("%s: %s did not run", c.rel, r.name)
+				continue
+			}
+			if got := read(t, filepath.Join(filepath.Dir(bin), "pwd")); got != scratch {
+				t.Errorf("%s: %s ran in %s, want %s", c.rel, r.name, got, scratch)
+			}
+		}
+	}
+	for _, files := range [][]string{{"CLAUDE.md", "AGENTS.md"}, {".git/CLAUDE.md", "vendor/.git/sub/AGENTS.md"}} {
+		wt, scratch := targetDirs(t)
+		writeTree(t, wt, files...)
+		bin, argv, _ := fake(t, "claude", pwdShim)
+		if _, err := (Runner{}).Dispatch(context.Background(), Perform, targetReq(Binding{Name: "coder", Command: bin, Tools: bashGrant}, wt, scratch, false)); err != nil {
+			t.Errorf("%v: coder err %v", files, err)
+		}
+		if !shimRan(t, argv) {
+			t.Errorf("%v: coder did not run", files)
+			continue
+		}
+		if got := read(t, filepath.Join(filepath.Dir(bin), "pwd")); got != wt {
+			t.Errorf("%v: coder ran in %s, want %s", files, got, wt)
+		}
+	}
+	if os.Geteuid() != 0 {
+		wt, scratch := targetDirs(t)
+		locked := filepath.Join(wt, "locked")
+		if err := os.Mkdir(locked, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+		bin, argv, _ := fake(t, "claude", pwdShim)
+		_, err := Runner{}.Dispatch(context.Background(), Perform, targetReq(Binding{Name: "coder", Command: bin, Tools: bashGrant}, wt, scratch, false))
+		if err == nil || !strings.Contains(err.Error(), locked) || !strings.Contains(err.Error(), "cannot walk") {
+			t.Errorf("locked: err %v", err)
+		}
+		if shimRan(t, argv) {
+			t.Error("locked: the coder shim ran")
+		}
+	}
+}
+
 func TestConfineTargetNarrows(t *testing.T) {
 	wt, scratch := targetDirs(t)
 	for _, a := range []Adapter{claude.Dispatch{}, cursor.Dispatch{}} {

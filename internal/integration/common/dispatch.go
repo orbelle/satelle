@@ -57,9 +57,16 @@ type Confinement struct {
 	ProjectFiles []string
 	AuthEnv      []string
 	Context      bool
+	OnRead       OnRead
 	FileTools    bool
 	Shell        bool
 	Refuse       string
+}
+
+type OnRead struct {
+	Paths    []string
+	Nested   []string
+	Anywhere []string
 }
 
 var ErrUnconfined = errors.New("target dispatch was not confined")

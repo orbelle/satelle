@@ -249,6 +249,13 @@ per run:
   `.claude/settings.local.json`, `.mcp.json`, `.agents/hooks.json`,
   `.antigravity/settings.json`, `.cursor/hooks.json`, `.cursor/cli.json`,
   `.cursor/mcp.json`, `.grok`, `.pi`).
+- A performer with a write grant is refused, naming the file, when the
+  checkout holds an instruction file claude loads when a file under it is read
+  or edited: any entry at `.claude/rules`, a `CLAUDE.local.md` at any depth,
+  or a `CLAUDE.md` or `AGENTS.md` below the top level (`.git` is skipped;
+  vendored trees are not). Remove the file or dispatch the item read-only. A
+  read-only planner or reviewer is not refused for them: a target file it
+  reads, at any depth, is content under review.
 - The agent gets an allowlisted environment: OS runtime and locale variables
   (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TZ`, `TMPDIR`, `LANG`,
   `LC_*`, `XDG_*`), proxy variables, the names `[dispatch] target_env` in

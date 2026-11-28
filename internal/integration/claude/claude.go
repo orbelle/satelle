@@ -25,6 +25,7 @@ func (Dispatch) Confinement() common.Confinement {
 		ProjectFiles: []string{".claude/settings.json", ".claude/settings.local.json", ".mcp.json"},
 		AuthEnv:      []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"},
 		Context:      true,
+		OnRead:       common.OnRead{Paths: []string{".claude/rules"}, Nested: []string{"CLAUDE.md", "AGENTS.md"}, Anywhere: []string{"CLAUDE.local.md"}},
 		FileTools:    true,
 		Shell:        true,
 	}

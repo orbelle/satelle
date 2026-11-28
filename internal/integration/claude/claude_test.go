@@ -52,6 +52,10 @@ func TestArgvTarget(t *testing.T) {
 	if !s.Enabled || s.AllowUnsandboxedCommands == nil || *s.AllowUnsandboxedCommands || s.ExcludedCommands == nil || len(s.ExcludedCommands) != 0 {
 		t.Fatalf("sandbox settings %+v", s)
 	}
+	on := Dispatch{}.Confinement().OnRead
+	if !slices.Equal(on.Paths, []string{".claude/rules"}) || !slices.Equal(on.Nested, []string{"CLAUDE.md", "AGENTS.md"}) || !slices.Equal(on.Anywhere, []string{"CLAUDE.local.md"}) {
+		t.Fatalf("OnRead %+v", on)
+	}
 }
 
 func TestParseEnvelope(t *testing.T) {
