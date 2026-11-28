@@ -56,6 +56,16 @@ func HashOf(e Event) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func Relink(e Event, prev string) (Event, error) {
+	e.Prev = prev
+	h, err := HashOf(e)
+	if err != nil {
+		return Event{}, err
+	}
+	e.Hash = h
+	return e, nil
+}
+
 func ShortHash(h string) string {
 	if len(h) > 12 {
 		return h[:12]

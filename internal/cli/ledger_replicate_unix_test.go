@@ -81,7 +81,7 @@ func TestLedgerPushPullRoundTripsThroughTheReferenceAdapter(t *testing.T) {
 	if err == nil || ExitCodeOf(err) != 1 || !strings.Contains(err.Error(), id1) {
 		t.Fatalf("B's pull: %v\n%s", err, out)
 	}
-	if want := "diverged: " + id1 + " at event " + strconv.Itoa(n-1) + ": "; !strings.Contains(out, want) {
+	if want := "conflict: " + id1 + " at event " + strconv.Itoa(n-1) + ": "; !strings.Contains(out, want) {
 		t.Errorf("B's pull output lacks %q:\n%s", want, out)
 	}
 	if after, _ := os.ReadFile(file); !bytes.Equal(before, after) {
