@@ -233,6 +233,9 @@ satelle help ledger-store). With [ledger] store = "local" nothing replicates.`,
 				return hosted.Describe("project show", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "slug:   %s\nid:     %s\nname:   %s\nrole:   %s\nserver: %s\n", p.GetSlug(), p.GetId(), p.GetName(), p.GetRole(), srv)
+			for _, b := range p.GetRepositories() {
+				fmt.Fprintf(cmd.OutOrStdout(), "repo:   %s (installation %d)\n", b.GetRepository(), b.GetInstallationId())
+			}
 			return nil
 		}),
 	}
