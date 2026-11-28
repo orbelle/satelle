@@ -263,7 +263,11 @@ per run:
   `SATELLE_*`, `GIT_*`, withheld or other credential-named variable. A proxy
   whose URL carries a credential is kept only when the credential is 8 bytes
   or more. Its output, errors and log are redacted of every credential value
-  and of each sign-in variable's value.
+  and of each sign-in variable's value. cursor-agent's sign-in variables also
+  include `DISPLAY` and `DBUS_SESSION_BUS_ADDRESS`, so a subscription login
+  kept in the desktop keyring is reachable; the session bus reaches the whole
+  keyring, so only cursor-agent receives them, and a `DISPLAY` shorter than 8
+  bytes is not redacted.
 - Its record copy and scratch folder live in a fresh temp folder outside both
   checkouts, removed after the run; a `TMPDIR` inside either checkout refuses
   the dispatch.

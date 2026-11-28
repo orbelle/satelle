@@ -7,13 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/integration"
+	"github.com/bobmcallan/satelle/internal/integration/agy"
 	"github.com/bobmcallan/satelle/internal/integration/claude"
 	"github.com/bobmcallan/satelle/internal/integration/common"
 	"github.com/bobmcallan/satelle/internal/integration/cursor"
+	"github.com/bobmcallan/satelle/internal/integration/grok"
 	"github.com/bobmcallan/satelle/internal/integration/pi"
 )
 
@@ -283,6 +286,40 @@ func TestConfineTargetRefusesNestedContext(t *testing.T) {
 		if shimRan(t, argv) {
 			t.Error("locked: the coder shim ran")
 		}
+	}
+}
+
+func TestConfineTargetKeyringEnvIsCursorOnly(t *testing.T) {
+	const display, bus = "DISPLAY=:0", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+	t.Setenv("DISPLAY", ":0")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+	confine := func(a Adapter) Request {
+		t.Helper()
+		wt, scratch := targetDirs(t)
+		out, err := ConfineTarget(a, targetReq(Binding{Name: "j", Command: a.Name(), Tools: readGrant}, wt, scratch, false))
+		if err != nil {
+			t.Fatalf("%s: %v", a.Name(), err)
+		}
+		return out
+	}
+	out := confine(cursor.Dispatch{})
+	if !slices.Contains(out.Target.Environ, display) || !slices.Contains(out.Target.Environ, bus) {
+		t.Errorf("cursor-agent lacks the keyring variables: %q", out.Target.Environ)
+	}
+	if got := out.Clean("x unix:path=/run/user/1000/bus"); got != "x [secret]" {
+		t.Errorf("cursor-agent output keeps the bus address: %q", got)
+	}
+	for _, a := range []Adapter{claude.Dispatch{}, pi.Dispatch{}, grok.Dispatch{}, agy.Dispatch{}} {
+		env := confine(a).Target.Environ
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "DISPLAY=") || strings.HasPrefix(kv, "DBUS_SESSION_BUS_ADDRESS=") {
+				t.Errorf("%s gets %s", a.Name(), kv)
+			}
+		}
+	}
+	t.Setenv("SATELLE_NODE_WITHHOLD", "DBUS_SESSION_BUS_ADDRESS")
+	if env := confine(cursor.Dispatch{}).Target.Environ; slices.Contains(env, bus) || !slices.Contains(env, display) {
+		t.Errorf("a withheld bus address reaches cursor-agent: %q", env)
 	}
 }
 
