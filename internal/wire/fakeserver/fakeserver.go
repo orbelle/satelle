@@ -338,9 +338,19 @@ func (p projects) ListProjects(context.Context, *satellepb.ListProjectsRequest) 
 	defer p.s.mu.Unlock()
 	out := &satellepb.ListProjectsResponse{}
 	for _, pr := range p.s.projects {
-		out.Projects = append(out.Projects, proto.Clone(pr).(*satellepb.Project))
+		out.Projects = append(out.Projects, p.s.projectView(pr))
 	}
 	return out, nil
+}
+
+func (s *Server) projectView(pr *satellepb.Project) *satellepb.Project {
+	out := proto.Clone(pr).(*satellepb.Project)
+	if g := s.gh[pr.GetId()]; g != nil {
+		for _, b := range g.bindings {
+			out.Repositories = append(out.Repositories, proto.Clone(b).(*satellepb.RepositoryBinding))
+		}
+	}
+	return out
 }
 
 func (p projects) GetProject(_ context.Context, r *satellepb.GetProjectRequest) (*satellepb.Project, error) {
@@ -350,7 +360,7 @@ func (p projects) GetProject(_ context.Context, r *satellepb.GetProjectRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return proto.Clone(pr).(*satellepb.Project), nil
+	return p.s.projectView(pr), nil
 }
 
 func (p projects) CreateProject(_ context.Context, r *satellepb.CreateProjectRequest) (*satellepb.Project, error) {
