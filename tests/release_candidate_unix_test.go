@@ -946,3 +946,36 @@ func TestReleaseConflictWithMainSendsBack(t *testing.T) {
 		t.Fatalf("%s got a release-deferred attachment", idM)
 	}
 }
+
+func TestReleaseDriftGateRunsTheCandidateInItsOwnHome(t *testing.T) {
+	c := newCandidateSandbox(t, false)
+	c.item("x", "x.txt", "x\n")
+	rec := filepath.Join(c.tmp, "candidate-homes")
+	writeFile(t, filepath.Join(c.fake, "go"), `#!/bin/sh
+out=; prev=
+for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
+[ "$1" = build ] && [ -n "$out" ] || { echo "fake go: unexpected $*" >&2; exit 1; }
+{ printf '#!/bin/sh\n'; printf 'printf "%%s\\n" "${SATELLE_HOME:-unset}" >>%s\n' '`+rec+`'; printf 'exec %s "$@"\n' "$SATELLE_BIN"; } >"$out"
+chmod +x "$out"
+`, 0o755)
+	_, rd := c.fire()
+	c.mustBlock("### Build the candidate")
+	c.driftGate()
+	got, err := os.ReadFile(rec)
+	if err != nil {
+		t.Fatalf("the candidate binary never ran: %v", err)
+	}
+	want := filepath.Join(rd, "drift-home")
+	for _, h := range strings.Fields(string(got)) {
+		if h != want {
+			t.Fatalf("the candidate ran with SATELLE_HOME %q, want its own %q (the sandbox's home is %q)", h, want, c.env["SATELLE_HOME"])
+		}
+	}
+	if _, err := os.Stat(want); !os.IsNotExist(err) {
+		t.Fatalf("the drift gate left its home %s behind (%v)", want, err)
+	}
+	if _, err := os.Stat(filepath.Join(rd, "drift-checked")); err != nil {
+		t.Fatalf("the drift gate did not pass the candidate: %v", err)
+	}
+	c.must("story", "list")
+}

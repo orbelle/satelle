@@ -8,8 +8,11 @@ rm -f "$rd/drift-checked"
 cand=$(git -C "$wt" rev-parse HEAD)
 mkdir -p "$rd/bin" || exit 2
 go build -C "$wt" -o "$rd/bin/satelle" ./cmd/satelle || { echo "cannot build the candidate binary: stop the run" >&2; exit 2; }
-SATELLE_BIN="$rd/bin/satelle" bash "$wt/scripts/drift-check.sh" "$wt" >"$rd/drift.txt"
+dh="$rd/drift-home"
+rm -rf "$dh" && mkdir -p "$dh" || exit 2
+SATELLE_HOME="$dh" SATELLE_BIN="$rd/bin/satelle" bash "$wt/scripts/drift-check.sh" "$wt" >"$rd/drift.txt"
 code=$?
+rm -rf "$dh"
 case $code in
   0)
     echo "$cand" >"$rd/drift-checked"
