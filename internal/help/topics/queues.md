@@ -17,7 +17,7 @@ This repo's `.satelle/queues/release.toml`:
     id = "que_65bc4edc"   # optional: adopt a queue made before it had a file
 
     [filter]              # optional; without it, explicit adds only
-    kind = "story"        # also status, tag, category
+    kind = "story"        # also status, tag, category, repo
     status = "approved"
 
     [trigger]             # optional; without it, the queue never fires
@@ -53,8 +53,14 @@ This repo's `.satelle/queues/release.toml`:
   store's chain and mirror the file onto that. A fork with a local `queue add`
   or fire past that point is refused like any other;
   `satelle ledger adopt <item> --session <session>` resolves it.
+- `repo = "<name>"` in `[filter]` keeps only items whose target is that
+  repository (`self` for this one, also an item with no repo). It holds for
+  filter matches and for explicit or state adds alike: an add of an item
+  targeting another repository is reported and not queued, and an earlier add
+  of one is not a member. Without `repo` the queue matches every repository.
 - `satelle validate --session <session>` refuses an unknown key, a missing title, an empty
-  `[filter]`, a trigger naming both or neither target, a negative `min_size`, an
+  `[filter]`, a `[filter]` repo that `.satelle/repos.toml` does not register,
+  a trigger naming both or neither target, a negative `min_size`, an
   `overlap` other than `refuse` or `allow`, a trigger workflow that is not
   configured, and two files binding one chain.
 

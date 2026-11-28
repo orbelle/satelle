@@ -139,7 +139,7 @@ func itemRow(it item.Item) mirror.Item {
 	return mirror.Item{
 		ID: it.ID, Kind: it.Kind, Title: it.Title, Body: it.Body, Status: it.Status, Criteria: it.Criteria,
 		Tags: tags, ParentID: it.Parent, Category: it.Category, Workflow: it.Workflow, Assignees: it.Assignees,
-		Inputs: it.Inputs, Trigger: it.Trigger, CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
+		Inputs: it.Inputs, Trigger: it.Trigger, Repo: it.Repo, CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
 	}
 }
 

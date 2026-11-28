@@ -23,6 +23,7 @@ type Item struct {
 	Priority           string          `json:"priority,omitempty"`
 	Inputs             *item.Selection `json:"inputs,omitempty"`
 	Trigger            *item.Trigger   `json:"trigger,omitempty"`
+	Repo               string          `json:"repo,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 }
