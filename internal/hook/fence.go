@@ -75,7 +75,7 @@ func resolveWalk(p string, followFinal bool) string {
 			resolved = next
 			continue
 		}
-		if fi.Mode()&os.ModeSymlink == 0 || (len(rest) == 0 && !followFinal) {
+		if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 || (len(rest) == 0 && !followFinal) {
 			resolved = next
 			continue
 		}
