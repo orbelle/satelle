@@ -507,3 +507,26 @@ func TestConcurrentOpenDuringMigration(t *testing.T) {
 		c.Close()
 	}
 }
+
+func TestItemRepoRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := ledger.Open(dir)
+	c, err := Open(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr("A"), Repo: ptr("web")})
+	l.Append("b", item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr("B")})
+	if err := c.Sync(l); err != nil {
+		t.Fatal(err)
+	}
+	a, ok, err := c.Item("a")
+	if err != nil || !ok || a.Repo != "web" {
+		t.Fatalf("a %+v %v %v", a, ok, err)
+	}
+	b, ok, err := c.Item("b")
+	if err != nil || !ok || b.Repo != "" || b.Target() != "self" {
+		t.Fatalf("b %+v %v %v", b, ok, err)
+	}
+}

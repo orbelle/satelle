@@ -1,6 +1,7 @@
 package item
 
 import (
+	"slices"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -31,6 +32,10 @@ type Attachment struct {
 	At        time.Time `json:"at,omitzero"`
 	Actor     string    `json:"actor,omitempty"`
 	Operator  bool      `json:"operator,omitempty"`
+}
+
+func HeldSeat(events []ledger.Event) bool {
+	return slices.ContainsFunc(events, func(e ledger.Event) bool { return e.Kind == KindSeatBound })
 }
 
 func FoldSeats(events []ledger.Event) []Seat {

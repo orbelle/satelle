@@ -7,6 +7,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/procgroup"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
@@ -59,6 +61,7 @@ func resolveItem(k *kernel.Kernel, kind, ref string) (string, error) {
 
 type fieldFlags struct {
 	title, body, category, parent, workflow  string
+	repo                                     string
 	criteria, tags, addTags, removeTags      []string
 	addCriteria, removeCriteria              []string
 	assignees, addAssignees, removeAssignees []string
@@ -86,6 +89,9 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	fl.StringArrayVar(&f.tags, "tag", nil, "a tag (repeatable; on set, replaces the list only with --replace)")
 	fl.StringVar(&f.category, "category", "", "category")
 	fl.StringVar(&f.parent, "parent", "", "parent item id")
+	if kind != item.QueueKind {
+		fl.StringVar(&f.repo, "repo", "", "the repository the item targets: self, or a name in .satelle/repos.toml (default self); set once, before the first seat")
+	}
 	fl.StringArrayVar(&f.assignees, "assignee", nil, "an assignee (repeatable; on set, replaces the list only with --replace)")
 	fl.StringVar(&f.inKind, "input-kind", "", "input selection (a task's inputs, a queue's filter): item kind")
 	fl.StringVar(&f.inStatus, "input-status", "", "input selection (a task's inputs, a queue's filter): status")
@@ -142,6 +148,7 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 	str("category", f.category, &out.Category)
 	str("parent", f.parent, &out.Parent)
 	str("workflow", f.workflow, &out.Workflow)
+	str("repo", f.repo, &out.Repo)
 	if changed("body") {
 		body := f.body
 		if body == "-" {
@@ -361,14 +368,15 @@ func itemGetCmd(kind string) *cobra.Command {
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
+					Repo        string            `json:"repo"`
 					Assignees   []string          `json:"assignees"`
 					Working     []string          `json:"working"`
 					Attachments []item.Attachment `json:"attachments"`
 					Seats       []item.Seat       `json:"seats"`
 					Held        *item.Hold        `json:"held,omitempty"`
-				}{it, users, working, atts, seats, held})
+				}{it, it.Target(), users, working, atts, seats, held})
 			}
-			printItem(out, it, users, working)
+			printItem(out, it, users, working, repoText(k, it))
 			if held != nil {
 				fmt.Fprintf(out, "held       after %d rejected rounds leaving %s; dissent %s; accepted %s\n",
 					held.Rounds, held.State, dissentKeys(*held), orNone(held.Accepted))
@@ -414,9 +422,27 @@ func assigneesText(users, working []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func printItem(w io.Writer, it item.Item, users, working []string) {
+func repoShown(k *kernel.Kernel, items ...item.Item) bool {
+	return k.Repos.Declared() > 0 || slices.ContainsFunc(items, func(it item.Item) bool { return it.Repo != "" })
+}
+
+func repoText(k *kernel.Kernel, it item.Item) string {
+	if !repoShown(k, it) {
+		return ""
+	}
+	text := reporeg.Literal(it.Target())
+	if !k.RepoRegistered(it.Target()) {
+		text += " (not registered in .satelle/" + reporeg.TrackedFile + "; registered: " + reporeg.Literals(k.Repos.Targets()) + ")"
+	}
+	return text
+}
+
+func printItem(w io.Writer, it item.Item, users, working []string, repo string) {
 	fmt.Fprintf(w, "%s  %s\n", it.ID, it.Title)
 	fmt.Fprintf(w, "kind       %s\nstatus     %s\nworkflow   %s\n", it.Kind, it.Status, it.Workflow)
+	if repo != "" {
+		fmt.Fprintf(w, "repo       %s\n", repo)
+	}
 	for _, kv := range [][2]string{{"category", it.Category}, {"parent", it.Parent}, {"assignees", assigneesText(users, working)}, {"tags", strings.Join(it.Tags, ", ")}} {
 		if kv[1] != "" {
 			fmt.Fprintf(w, "%-10s %s\n", kv[0], kv[1])
@@ -482,17 +508,23 @@ func itemListCmd(kind string) *cobra.Command {
 				}
 				type row struct {
 					item.Item
+					Repo      string   `json:"repo"`
 					Assignees []string `json:"assignees"`
 					Working   []string `json:"working"`
 				}
 				rows := []row{}
 				for _, it := range items {
 					users, working := itemAssignees(it, byItem[it.ID])
-					rows = append(rows, row{it, users, working})
+					rows = append(rows, row{it, it.Target(), users, working})
 				}
 				return writeJSON(cmd.OutOrStdout(), rows)
 			}
+			withRepo := repoShown(k, items...)
 			for _, it := range items {
+				if withRepo {
+					fmt.Fprintf(cmd.OutOrStdout(), "%-14s %-14s %-14s %s\n", it.ID, it.Status, reporeg.Literal(it.Target()), it.Title)
+					continue
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%-14s %-14s %s\n", it.ID, it.Status, it.Title)
 			}
 			return nil
