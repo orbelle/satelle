@@ -56,8 +56,15 @@ skip that line.
 
 The hold (in `satelle story get <held> --session <session>`, under the held
 state) names each dissenting verdict as a gate and its binding. A binding's
-family is the vendor its `model` names in `.satelle/agents.toml` (claude, gpt,
-gemini or grok); a check's dissent has no family. Each breaking state of the
+family is the vendor its `model` names (claude, gpt, gemini or grok), in the
+binding the held story's workflow dispatched. Find that workflow's file as the
+`file` that `satelle workflow show <workflow> --json --session <session>`
+prints, for the workflow `satelle story get <held> --session <session>` names.
+When the file is under `.satelle/repos/<X>/workflows/` and
+`.satelle/repos/<X>/agents.toml` binds the dissenting name, that binding ran.
+Otherwise the binding in `.satelle/agents.toml` ran, whatever repository the
+story targets. Either way, the fields `.satelle/agents.local.toml` sets for
+that name apply over it. A check's dissent has no family. Each breaking state of the
 block-breaker workflow is performed by one binding
 (`satelle workflow show block-breaker --session <session>` lists them), one
 state per family.
