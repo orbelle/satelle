@@ -369,6 +369,13 @@ func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {
 	if len(errs) > 0 {
 		return nil, errs
 	}
+	for _, name := range cat.Names() {
+		if o, ok := c.override(name); ok {
+			b := cat[name]
+			agent.ApplyFields(&b, c.Agents[name], o.Fields)
+			cat[name] = b
+		}
+	}
 	wired := map[string]bool{}
 	for _, b := range c.Agents {
 		if !agent.IsSession(b) {

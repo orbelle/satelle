@@ -300,6 +300,24 @@ func TestPartAgentsUnresolved(t *testing.T) {
 	}
 }
 
+func TestPartAgentsKeepLocalOverrides(t *testing.T) {
+	root := partAgentsRoot(t, partAgentsFile, true)
+	write(t, filepath.Join(root, AgentsLocalFile), "[agents.reviewer]\nmodel = \"local-rev\"\n")
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps := cfg.Parts["x"].Problems; len(ps) > 0 {
+		t.Fatalf("part problems: %v", errors.Join(ps...))
+	}
+	if got := cfg.PartAgents["x"]["reviewer"].Model; got != "local-rev" {
+		t.Errorf("part reviewer model = %q, want the agents.local.toml override local-rev", got)
+	}
+	if got := cfg.PartAgents["x"]["coder"].Model; got != "x-coder" {
+		t.Errorf("part coder model = %q, want x-coder", got)
+	}
+}
+
 func TestPartAgentsBindingNames(t *testing.T) {
 	for _, name := range []string{"../escape", "a/b", ".hidden", "Upper"} {
 		t.Run(name, func(t *testing.T) {

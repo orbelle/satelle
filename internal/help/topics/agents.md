@@ -61,8 +61,9 @@ repository's stories are refused until it does. A part binding, or its
 fallback, may run only the exact command (its first word, as dispatched) some
 non-session binding of the shared `agents.toml` already runs, so its hooks are
 wired; any other command, the same harness name at another path included,
-leaves the part unresolved. `agents.local.toml` overrides
-only shared bindings. The judge-differs check compares a part's workflows
+leaves the part unresolved. `agents.local.toml` names only shared bindings, and the
+fields it sets also apply over a part binding of the same name, so a machine's
+local narrowing holds on every workflow. The judge-differs check compares a part's workflows
 against the part's bindings.
 
 ## Harness hooks

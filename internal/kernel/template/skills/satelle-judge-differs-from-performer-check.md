@@ -175,7 +175,7 @@ files=("$root/agents.toml")
 srcs=("-")
 if [ -f "$root/agents.local.toml" ]; then
   files+=("$root/agents.local.toml")
-  srcs+=("-")
+  srcs+=("@local")
 fi
 for part in $(printf '%s' "$parts" | sort -u); do
   f="$root/repos/$part/agents.toml"
@@ -259,8 +259,14 @@ cat=$(printf '%s' "$rows" | jq -Rn --arg fam "$FAMILIES" '
         | {command: $c, model: $m, fallback: (.fallback // ""), session: ($bin == "session"),
            family: ((if $m != "" then family($m) else family($bin) end) | if . != "" then . else "unknown" end)}
       ));
-  reduce (inputs | select(length > 0) | split("\t")) as $r ({shared: {}, parts: {}};
-    if $r[0] == "-" then .shared[$r[1]][$r[2]] = $r[3] else .parts[$r[0]][$r[1]][$r[2]] = $r[3] end)
+  reduce (inputs | select(length > 0) | split("\t")) as $r ({shared: {}, local: {}, parts: {}};
+    if $r[0] == "-" then .shared[$r[1]][$r[2]] = $r[3]
+    elif $r[0] == "@local" then .local[$r[1]][$r[2]] = $r[3]
+    else .parts[$r[0]][$r[1]][$r[2]] = $r[3] end)
+  | .local as $l
+  | .shared |= reduce ($l | to_entries[]) as $e (.; .[$e.key] = ((.[$e.key] // {}) + $e.value))
+  | .parts |= map_values(with_entries(.value = (.value + ($l[.key] // {}))))
+  | del(.local)
   | .shared |= finish
   | .parts |= map_values(finish)
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }

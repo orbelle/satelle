@@ -157,6 +157,14 @@ var overridable = []struct {
 	{"fallback", func(d *Binding, s Binding) { d.Fallback = s.Fallback }},
 }
 
+func ApplyFields(dst *Binding, src Binding, fields []string) {
+	for _, f := range overridable {
+		if slices.Contains(fields, f.key) {
+			f.copy(dst, src)
+		}
+	}
+}
+
 func (c Catalog) Override(path string) (Catalog, []Override, error) {
 	local, md, err := decodeAgents(path)
 	if err != nil {
