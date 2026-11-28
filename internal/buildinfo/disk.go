@@ -10,14 +10,36 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 const RecordsFile = "builds.json"
 
 type diskEntry struct {
-	Line    string    `json:"line"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"mod_time"`
+	Line    string         `json:"line"`
+	Size    int64          `json:"size"`
+	ModTime time.Time      `json:"mod_time"`
+	ID      *config.FileID `json:"id,omitempty"`
+}
+
+func entryFor(line string, st os.FileInfo) diskEntry {
+	e := diskEntry{Line: line, Size: st.Size(), ModTime: st.ModTime().UTC()}
+	if id, ok := config.FileIdentity(st); ok {
+		e.ID = &id
+	}
+	return e
+}
+
+func (e diskEntry) matches(st os.FileInfo) bool {
+	if e.Size != st.Size() || !e.ModTime.Equal(st.ModTime().UTC()) {
+		return false
+	}
+	id, ok := config.FileIdentity(st)
+	if !ok {
+		return e.ID == nil
+	}
+	return e.ID != nil && *e.ID == id
 }
 
 func ExeSuffix() string {
@@ -115,7 +137,7 @@ func Record(home, path, line string) error {
 			delete(m, k)
 		}
 	}
-	m[p] = diskEntry{Line: line, Size: st.Size(), ModTime: st.ModTime().UTC()}
+	m[p] = entryFor(line, st)
 	return writeRecords(home, m)
 }
 
@@ -125,7 +147,7 @@ func recordIfChanged(home, path, line string) error {
 	if err != nil {
 		return err
 	}
-	if e, ok := readRecords(home)[p]; ok && e.Line == line && e.Size == st.Size() && e.ModTime.Equal(st.ModTime().UTC()) {
+	if e, ok := readRecords(home)[p]; ok && e.Line == line && e.matches(st) {
 		return nil
 	}
 	return Record(home, p, line)
@@ -149,7 +171,7 @@ func Lookup(home, path string) string {
 	switch {
 	case !ok:
 		return fmt.Sprintf("unknown (%s has not run since it was installed)", p)
-	case e.Size != st.Size() || !e.ModTime.Equal(st.ModTime().UTC()):
+	case !e.matches(st):
 		return fmt.Sprintf("unknown (%s changed since it last ran)", p)
 	}
 	return e.Line
