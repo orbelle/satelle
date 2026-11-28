@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -28,7 +29,35 @@ type JudgeRow struct {
 	MedianDurationMS  int64  `json:"median_duration_ms"`
 }
 
+type UsageRow struct {
+	Harness    string `json:"harness"`
+	Model      string `json:"model"`
+	Gate       string `json:"gate"`
+	Runs       int    `json:"runs"`
+	Accepts    int    `json:"accepts"`
+	Rejects    int    `json:"rejects"`
+	Errors     int    `json:"errors"`
+	Fallbacks  int    `json:"fallbacks"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
 func (k *Kernel) JudgeReport(since, until time.Time) ([]JudgeRow, error) {
+	byItem, err := k.gateRunEvents()
+	if err != nil {
+		return nil, err
+	}
+	return judgeRows(byItem, since, until), nil
+}
+
+func (k *Kernel) UsageReport(since, until time.Time) ([]UsageRow, error) {
+	byItem, err := k.gateRunEvents()
+	if err != nil {
+		return nil, err
+	}
+	return usageRows(byItem, since, until), nil
+}
+
+func (k *Kernel) gateRunEvents() ([][]ledger.Event, error) {
 	all, err := k.Cache.Events("", gate.KindRun)
 	if err != nil {
 		return nil, err
@@ -47,7 +76,64 @@ func (k *Kernel) JudgeReport(since, until time.Time) ([]JudgeRow, error) {
 		}
 		byItem = append(byItem, events)
 	}
-	return judgeRows(byItem, since, until), nil
+	return byItem, nil
+}
+
+func inWindow(at, since, until time.Time) bool {
+	return (since.IsZero() || !at.Before(since)) && (until.IsZero() || at.Before(until))
+}
+
+func usageRows(byItem [][]ledger.Event, since, until time.Time) []UsageRow {
+	byKey := map[[3]string]*UsageRow{}
+	for _, events := range byItem {
+		for _, r := range GateRuns(events) {
+			if !isJudgedGateRun(r) || !inWindow(r.At, since, until) {
+				continue
+			}
+			for _, v := range verdictsOfResult(r) {
+				key := [3]string{harnessOf(v.command), modelKey(v.modelID, v.model), r.Gate}
+				row, ok := byKey[key]
+				if !ok {
+					row = &UsageRow{Harness: key[0], Model: key[1], Gate: key[2]}
+					byKey[key] = row
+				}
+				row.Runs++
+				switch v.result {
+				case gate.Accept:
+					row.Accepts++
+				case gate.Reject:
+					row.Rejects++
+				default:
+					row.Errors++
+				}
+				if v.fallback {
+					row.Fallbacks++
+				}
+				row.DurationMS += v.durationMS
+			}
+		}
+	}
+	out := make([]UsageRow, 0, len(byKey))
+	for _, row := range byKey {
+		out = append(out, *row)
+	}
+	slices.SortFunc(out, func(a, b UsageRow) int {
+		if c := strings.Compare(a.Harness, b.Harness); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.Model, b.Model); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Gate, b.Gate)
+	})
+	return out
+}
+
+func harnessOf(cmd string) string {
+	if h := agent.Preset(agent.Binding{Command: cmd}); h != "" {
+		return h
+	}
+	return UnknownModel
 }
 
 type rejectClass int
@@ -64,9 +150,6 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 		durations []int64
 	}
 	byKey := map[[2]string]*tally{}
-	inWindow := func(at time.Time) bool {
-		return (since.IsZero() || !at.Before(since)) && (until.IsZero() || at.Before(until))
-	}
 	for _, events := range byItem {
 		var runs []gate.Result
 		for _, r := range GateRuns(events) {
@@ -75,7 +158,7 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 			}
 		}
 		for i, r := range runs {
-			if !inWindow(r.At) {
+			if !inWindow(r.At, since, until) {
 				continue
 			}
 			for _, v := range verdictsOfResult(r) {

@@ -143,7 +143,11 @@ its `commands` key.
   repository itself, is always a target and is never declared; with no
   `repos.toml` it is the only one. A name is lower-case letters, digits, `.`,
   `_` and `-`. Written by `satelle repo add --session <session>`, listed by
-  `satelle repo list --session <session>`.
+  `satelle repo list --session <session>`. In a repo bound to a satelle.dev
+  project, `satelle doctor --session <session>` reports each registered
+  repository the project is not bound to; with `--no-probe`, at session start,
+  or when satelle.dev cannot be read, it notes that the check was not run
+  instead.
 - `repos.local.toml` — this machine's checkout of each registered repository,
   `[repos.<name>] path = "<absolute path>"`; ignored by git. Both files are
   read as regular files only (a symlink is refused), and no problem satelle
