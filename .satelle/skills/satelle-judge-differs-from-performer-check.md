@@ -107,8 +107,6 @@ if ! rootp=$(cd "$root" 2>/dev/null && pwd -P); then
   echo "the repo's root $root could not be resolved"
   exit 2
 fi
-# An older satelle's workflow show --json has no part key: the part is read
-# from the workflow's file, the only place its loader takes it from.
 part_of_file() {
   local f="$2" dirp base x
   if [ -z "$f" ] || [ ! -f "$f" ]; then
