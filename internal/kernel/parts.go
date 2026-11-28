@@ -29,6 +29,7 @@ type Part struct {
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	RuleFiles RuleFiles
+	Digest    string
 	Problems  []error
 }
 
@@ -243,8 +244,11 @@ func (c *Config) loadPart(dir, x string) {
 		p.Problems = append(p.Problems, partErr("%s: not a directory", rel))
 		return
 	}
-	c.loadPartSkills(p, partDir)
-	c.loadPartRuleFiles(p, partDir)
+	files := map[string][]byte{}
+	read := partReader(partDir, files)
+	c.loadPartSkills(p, partDir, read)
+	c.loadPartRuleFiles(p, partDir, read)
+	p.Digest = filesDigest(files)
 	rules, err := loadPartRules(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)

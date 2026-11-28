@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/reporeg"
 )
@@ -268,7 +270,7 @@ func TestRuleFileExemptions(t *testing.T) {
 }
 
 func TestSharedPrinciplesTreeLoads(t *testing.T) {
-	rf, errs := listRuleFiles(filepath.Join("..", "..", ".satelle"), "")
+	rf, errs := (&Config{Root: filepath.Join("..", "..", ".satelle")}).sharedRuleFiles()
 	if len(errs) > 0 || rf.Constitution != ConstitutionFile || len(rf.Principles) == 0 {
 		t.Fatalf("this repository's rule files: %+v %v", rf, errs)
 	}
@@ -276,5 +278,124 @@ func TestSharedPrinciplesTreeLoads(t *testing.T) {
 		if p != PrinciplesDir+"/"+n+".md" {
 			t.Errorf("principle %s at %s", n, p)
 		}
+	}
+}
+
+func TestPartContentChangeStopsCarry(t *testing.T) {
+	part := func(root string) string { return filepath.Join(root, PartsDir, "x") }
+	put := func(rel, body string) func(*testing.T, string) {
+		return func(t *testing.T, root string) { write(t, filepath.Join(part(root), rel), body) }
+	}
+	drop := func(rel string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			if err := os.RemoveAll(filepath.Join(part(root), rel)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	both := func(a, b func(*testing.T, string)) func(*testing.T, string) {
+		return func(t *testing.T, root string) { a(t, root); b(t, root) }
+	}
+	cons, prin := put(ConstitutionFile, "X\n"), put(PrinciplesDir+"/a.md", "A\n")
+	skills := func(t *testing.T, root string) { writePartSkills(t, root, "x") }
+	for _, c := range []struct {
+		name          string
+		setup, change func(*testing.T, string)
+		want          string
+	}{
+		{"unchanged", both(skills, cons), nil, gate.Carried},
+		{"skill removed while a rule file remains", both(skills, cons), drop(SkillsDir), gate.Accept},
+		{"skill edited", both(skills, cons), put(SkillsDir+"/rev.md", "PART-REV2\n"), gate.Accept},
+		{"principle added", cons, prin, gate.Accept},
+		{"principle edited", both(cons, prin), put(PrinciplesDir+"/a.md", "A2\n"), gate.Accept},
+		{"principle removed", both(cons, prin), drop(PrinciplesDir + "/a.md"), gate.Accept},
+		{"constitution added", prin, cons, gate.Accept},
+		{"constitution edited", both(cons, prin), put(ConstitutionFile, "X2\n"), gate.Accept},
+		{"constitution removed", both(cons, prin), drop(ConstitutionFile), gate.Accept},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := skillRoot(t, skillRepos)
+			c.setup(t, root)
+			ctx := context.Background()
+			k, _ := openSkills(t, root)
+			it := newSkillItem(t, k, "x")
+			if res, err := k.Transition(ctx, it.ID, "work", "me"); err != nil || !res.Moved {
+				t.Fatalf("open->work: %v %s", err, gates(res))
+			}
+			k.Close()
+			if c.change != nil {
+				c.change(t, root)
+			}
+			k, _ = openSkills(t, root)
+			res, err := k.Transition(ctx, it.ID, "closed", "me")
+			if err != nil || len(res.Gates) != 1 || res.Gates[0].Result != c.want {
+				t.Errorf("work->closed: %v %s, want rev=%s", err, gates(res), c.want)
+			}
+		})
+	}
+}
+
+func gitRoot(t *testing.T) string {
+	t.Helper()
+	root := skillRoot(t, skillRepos)
+	write(t, filepath.Join(root, PrinciplesDir, "a.md"), "A\n")
+	write(t, filepath.Join(root, PartsDir, "x", PrinciplesDir, "b.md"), "B\n")
+	top := filepath.Dir(root)
+	gittest.Git(t, top, "init", "-q", "-b", "main")
+	gittest.Git(t, top, "add", "-A")
+	gittest.Git(t, top, "commit", "-q", "-m", "init")
+	return root
+}
+
+func TestUntrackedPartRuleFileRefusesThePart(t *testing.T) {
+	for _, c := range []struct{ name, rel string }{
+		{"constitution", ConstitutionFile},
+		{"principle replacing a shared one", PrinciplesDir + "/a.md"},
+		{"new principle", PrinciplesDir + "/c.md"},
+		{"ignored principle", PrinciplesDir + "/d.md"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := gitRoot(t)
+			if c.name == "ignored principle" {
+				write(t, filepath.Join(filepath.Dir(root), ".gitignore"), "d.md\n")
+			}
+			write(t, filepath.Join(root, PartsDir, "x", c.rel), "PLANTED\n")
+			cfg, err := LoadConfig(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := PartsDir + "/x/" + c.rel + ": " + errUntracked.Error()
+			if !strings.Contains(fmt.Sprint(cfg.Parts["x"].Problems), want) {
+				t.Fatalf("part problems %v, want %q", cfg.Parts["x"].Problems, want)
+			}
+			k, _ := openSkills(t, root)
+			if rf, err := k.RuleFilesFor(item.Item{ID: "i", Repo: "x"}); !Refused(err) || rf.own() {
+				t.Errorf("RuleFilesFor: %+v %v", rf, err)
+			}
+			gittest.Git(t, filepath.Dir(root), "add", "-f", filepath.Join(root, PartsDir, "x", c.rel))
+			cfg, err = LoadConfig(root)
+			if err != nil || len(cfg.Parts["x"].Problems) > 0 {
+				t.Fatalf("staged: %v %v", err, cfg.Parts["x"].Problems)
+			}
+			if got := ruleFilesFor(cfg.RuleFiles, cfg.PartRuleFiles(), "x"); !strings.Contains(fmt.Sprint(got), PartsDir+"/x/"+c.rel) {
+				t.Errorf("staged rule files %+v lack %s", got, c.rel)
+			}
+		})
+	}
+}
+
+func TestUntrackedSharedRuleFileIsNotBinding(t *testing.T) {
+	root := gitRoot(t)
+	write(t, filepath.Join(root, PrinciplesDir, "planted.md"), "PLANTED\n")
+	write(t, filepath.Join(root, ConstitutionFile), "PLANTED\n")
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.RuleFiles, RuleFiles{Principles: map[string]string{"a": "principles/a.md"}}) {
+		t.Errorf("shared rule files %+v, want only the tracked principle", cfg.RuleFiles)
+	}
+	if got := ruleFilesFor(cfg.RuleFiles, cfg.PartRuleFiles(), "x"); got.Constitution != "" || len(got.Principles) != 2 {
+		t.Errorf("x rule files %+v", got)
 	}
 }

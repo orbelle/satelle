@@ -236,7 +236,7 @@ func TestCoverageSkillSourceIsDomainSeparated(t *testing.T) {
 		t.Error("a repo y item's body and criteria forge a repo x coverage")
 	}
 	inner := innerCoverage(real, diff)
-	s := sha256.Sum256([]byte("satelle-part-skills\x1fx\x1f" + inner))
+	s := sha256.Sum256([]byte("satelle-part-skills\x1f" + k.PartSources["x"] + "\x1f" + inner))
 	if got := cov(real); got != hex.EncodeToString(s[:]) {
 		t.Errorf("repo x coverage %s, want the domain-separated %x", got, s)
 	}

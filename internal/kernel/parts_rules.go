@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/reporeg"
 )
@@ -29,16 +30,32 @@ func relJoin(rel, name string) string {
 	return rel + "/" + name
 }
 
-func listRuleFiles(dir, rel string) (RuleFiles, []error) {
+type ruleLoad struct {
+	read  func(string) ([]byte, error)
+	admit func(string) (bool, error)
+}
+
+func (l ruleLoad) file(path, rel string) (bool, error) {
+	ok, err := l.admit(rel)
+	if err != nil || !ok {
+		return false, err
+	}
+	if _, err := l.read(path); err != nil {
+		return false, readErr(err)
+	}
+	return true, nil
+}
+
+func listRuleFiles(dir, rel string, l ruleLoad) (RuleFiles, []error) {
 	var out RuleFiles
 	var errs []error
 	crel := relJoin(rel, ConstitutionFile)
 	if info, err := os.Lstat(filepath.Join(dir, ConstitutionFile)); err == nil {
 		if !info.Mode().IsRegular() {
 			errs = append(errs, partErr("%s: not a regular file", crel))
-		} else if _, err := reporeg.ReadRegular(filepath.Join(dir, ConstitutionFile)); err != nil {
-			errs = append(errs, partErr("%s: %v", crel, readErr(err)))
-		} else {
+		} else if ok, err := l.file(filepath.Join(dir, ConstitutionFile), crel); err != nil {
+			errs = append(errs, partErr("%s: %v", crel, err))
+		} else if ok {
 			out.Constitution = crel
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -75,8 +92,12 @@ func listRuleFiles(dir, rel string) (RuleFiles, []error) {
 			continue
 		}
 		frel := prel + "/" + name
-		if _, err := reporeg.ReadRegular(filepath.Join(pdir, name)); err != nil {
-			errs = append(errs, partErr("%s: %v", frel, readErr(err)))
+		ok, err := l.file(filepath.Join(pdir, name), frel)
+		if err != nil {
+			errs = append(errs, partErr("%s: %v", frel, err))
+			continue
+		}
+		if !ok {
 			continue
 		}
 		if out.Principles == nil {
@@ -94,8 +115,49 @@ func readErr(err error) error {
 	return err
 }
 
-func (c *Config) loadPartRuleFiles(p *Part, partDir string) {
-	rf, errs := listRuleFiles(partDir, PartsDir+"/"+p.Name)
+var errUntracked = errors.New("not tracked by git; add it with git add or remove it")
+
+func (c *Config) gitTracks(rel string) (bool, error) {
+	if !c.trackedLoaded {
+		c.trackedLoaded = true
+		c.tracked, c.trackedErr = trackedSet(c.Root)
+	}
+	if c.trackedErr != nil {
+		return false, c.trackedErr
+	}
+	return c.tracked == nil || c.tracked[rel], nil
+}
+
+func trackedSet(root string) (map[string]bool, error) {
+	g := gitfacts.Repo{Dir: root}
+	files, err := g.TrackedFiles(".")
+	if err != nil {
+		if _, terr := g.Tracks("."); terr == nil {
+			return nil, nil
+		}
+		return nil, errors.New("cannot tell whether git tracks it")
+	}
+	set := make(map[string]bool, len(files))
+	for _, f := range files {
+		set[f] = true
+	}
+	return set, nil
+}
+
+func (c *Config) partAdmit(rel string) (bool, error) {
+	ok, err := c.gitTracks(rel)
+	if err == nil && !ok {
+		err = errUntracked
+	}
+	return ok, err
+}
+
+func (c *Config) sharedRuleFiles() (RuleFiles, []error) {
+	return listRuleFiles(c.Root, "", ruleLoad{read: reporeg.ReadRegular, admit: c.gitTracks})
+}
+
+func (c *Config) loadPartRuleFiles(p *Part, partDir string, read func(string) ([]byte, error)) {
+	rf, errs := listRuleFiles(partDir, PartsDir+"/"+p.Name, ruleLoad{read: read, admit: c.partAdmit})
 	p.Problems = append(p.Problems, errs...)
 	p.RuleFiles = rf
 }

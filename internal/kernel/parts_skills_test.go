@@ -126,14 +126,28 @@ func TestPartWorkflowNamesPartOnlySkill(t *testing.T) {
 }
 
 func TestPartSource(t *testing.T) {
-	skills := map[string]map[string]workflow.Skill{"s": {"rev": {Name: "rev"}}, "y": {}}
-	rules := map[string]RuleFiles{"r": {Constitution: "repos/r/constitution.md"}, "y": {}}
-	for target, want := range map[string]string{"r": "r", "s": "s", "self": "", "y": "", "unknown": ""} {
-		if got := partSource(skills, rules, target); got != want {
+	c := &Config{Parts: map[string]*Part{
+		"s":      {Name: "s", Skills: map[string]workflow.Skill{"rev": {Name: "rev"}}, Digest: "ds"},
+		"r":      {Name: "r", RuleFiles: RuleFiles{Constitution: "repos/r/constitution.md"}, Digest: "dr"},
+		"y":      {Name: "y", Digest: "dy"},
+		"broken": {Name: "broken", Skills: map[string]workflow.Skill{"rev": {Name: "rev"}}, Problems: []error{errors.New("p")}},
+		"self":   {Name: "self", RuleFiles: RuleFiles{Constitution: "c"}, Digest: "dself"},
+	}}
+	sources := c.PartSources()
+	for target, want := range map[string]string{"r": "r\x1fdr", "s": "s\x1fds", "self": "", "y": "", "broken": "", "unknown": ""} {
+		if got := partSource(sources, target); got != want {
 			t.Errorf("partSource(%s) = %q, want %q", target, got, want)
 		}
 	}
-	if got := partSource(skills, map[string]RuleFiles{"self": {Constitution: "c"}}, "self"); got != "" {
-		t.Errorf("partSource(self) with self rules = %q", got)
+	a := filesDigest(map[string][]byte{"skills/rev.md": []byte("R"), "constitution.md": []byte("C")})
+	for _, other := range []map[string][]byte{
+		{"skills/rev.md": []byte("R")},
+		{"skills/rev.md": []byte("R"), "constitution.md": []byte("C2")},
+		{"skills/rev.md": []byte("R"), "principles/constitution.md": []byte("C")},
+		{"skills/rev.mdconstitution.md": []byte("RC")},
+	} {
+		if filesDigest(other) == a {
+			t.Errorf("digest of %q equals the digest of a different file set", other)
+		}
 	}
 }

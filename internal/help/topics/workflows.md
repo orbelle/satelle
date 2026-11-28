@@ -174,7 +174,11 @@ repository-style name. A `principles/` directory holds only regular principle
 files, `README.md` and `.gitkeep`; any other entry (another extension, a
 subdirectory, a symlink) fails loudly: as a config load error in the shared
 `.satelle/`, and as a problem listed under the part that refuses X's stories.
-Changing a story's repo to or from one with rule files of its own ends any
+In a git work tree a rule file counts only when git tracks it (a staged file
+counts): an untracked or ignored file under `.satelle/repos/X/` is a problem
+that refuses X's stories, and an untracked shared one is not named. Changing a
+story's repo to or from one with skills or rule files of its own, or adding,
+editing or removing one of that repository's skills or rule files, ends any
 accept a gate would carry.
 
 Every check (a gate's check, its trigger, an after skill, a doctor check),

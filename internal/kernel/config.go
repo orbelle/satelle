@@ -102,6 +102,10 @@ type Config struct {
 	Parts        map[string]*Part
 	PartWarnings []PartWarning
 	UnknownKeys  []workflow.UnknownKey
+
+	trackedLoaded bool
+	tracked       map[string]bool
+	trackedErr    error
 }
 
 type HarnessSettings struct {
@@ -432,7 +436,7 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 	} else {
 		c.Queues = qs
 	}
-	rf, rerrs := listRuleFiles(root, "")
+	rf, rerrs := c.sharedRuleFiles()
 	c.RuleFiles = rf
 	errs = append(errs, rerrs...)
 	if err := c.loadParts(); err != nil {
