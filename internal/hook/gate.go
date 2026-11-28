@@ -157,6 +157,7 @@ const pushUnread = "satelle: git push blocked: %s, so the gate cannot tell which
 
 func (g Gate) judge(abs string, inline bool) Verdict {
 	root := filepath.Clean(g.Root)
+	abs = canonicalTreePrefix(abs)
 	if !within(root, abs) && g.underTemp(abs) {
 		return allow
 	}
@@ -374,6 +375,22 @@ func relSlash(root, abs string) string {
 }
 
 func Within(root, target string) bool { return within(root, target) }
+
+func canonicalTreePrefix(abs string) string {
+	tree := gitRootOf(abs)
+	if tree == "" {
+		return abs
+	}
+	c := CanonicalPath(tree)
+	if c == tree {
+		return abs
+	}
+	rel, err := filepath.Rel(tree, abs)
+	if err != nil {
+		return abs
+	}
+	return filepath.Join(c, rel)
+}
 
 func within(root, target string) bool {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(target) == "" {

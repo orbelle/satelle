@@ -1003,3 +1003,45 @@ func TestCanonicalPath(t *testing.T) {
 		}
 	}
 }
+
+func TestEditGateAliasedRootMatchesItsCanonicalTree(t *testing.T) {
+	p, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(p, "private", "var", "r")
+	other := filepath.Join(p, "private", "var", "o")
+	for _, d := range []string{filepath.Join(real, ".git"), filepath.Join(other, ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(p, "var")
+	if err := os.Symlink(filepath.Join(p, "private", "var"), alias); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	g := Gate{Root: real, TempRoots: []string{}, Grant: func(tree string) Grant { return Grant{Tree: tree == real} }}
+	for _, c := range []struct {
+		name string
+		v    Verdict
+	}{
+		{"edit through the alias", g.Edit(filepath.Join(alias, "r", "f.go"))},
+		{"edit at the canonical path", g.Edit(filepath.Join(real, "f.go"))},
+		{"shell write through the alias", g.Bash("echo x > "+filepath.Join(alias, "r", "f.go"), real)},
+	} {
+		if !c.v.Allow {
+			t.Errorf("%s: refused: %s", c.name, c.v.Reason)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		v    Verdict
+	}{
+		{"edit of another repo through the alias", g.Edit(filepath.Join(alias, "o", "f.go"))},
+		{"shell write to another repo through the alias", g.Bash("echo x > "+filepath.Join(alias, "o", "f.go"), real)},
+	} {
+		if c.v.Allow || !strings.Contains(c.v.Reason, other) {
+			t.Errorf("%s: want refusal naming %s, got %+v", c.name, other, c.v)
+		}
+	}
+}
