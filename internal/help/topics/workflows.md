@@ -545,6 +545,23 @@ older panel run without them counts in runs and verdicts only. `--since` and
 `YYYY-MM-DD` date or a duration back from now; `--json` prints the same rows
 as one document. The command only reads the ledger.
 
+To watch judge usage, `satelle gate usage --session <session>` folds the judged
+gate.run events of a window into one row per harness, model and gate: runs,
+accepts, rejects, errors, fall-backs and the total duration (`HARNESS MODEL
+GATE RUNS ACCEPT REJECT ERROR FALLBACK DURATION`). A run is one judge's
+verdict, as in `gate report`: a single-judge gate.run counts once and each
+panel member once under its own harness and model; check gates, skipped and
+carried runs are not counted. The harness is the base name of the recorded
+`command` (`agy`, `cursor-agent`), and a run recorded without a command or a
+model counts under `unknown`. A run that fell back counts under the harness and
+model that judged it, and `FALLBACK` counts the row's runs that carry
+`fallback_from`, so the cursor-agent row shows how many of its runs stood in
+for agy. The duration sums the recorded `duration_ms`: the whole gate for a
+single judge, the member's own dispatch for a panel member. `--since` defaults
+to `24h`, the last 24 hours; `--since` and `--until` take the same values as
+for `gate report` (since inclusive, until exclusive), and `--json` prints the
+same rows as one document. The command only reads the ledger.
+
 To inspect one item's outcome, `satelle gate report --item <id> --session <session>`
 lists its workflow, current status (marked `terminal` when its workflow
 declares the state terminal), each performed state with its command and model

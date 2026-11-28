@@ -4,11 +4,140 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/bobmcallan/satelle/internal/gittest"
+	"github.com/bobmcallan/satelle/internal/reporeg"
+	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
+
+func boundControl(t *testing.T) *fakeserver.Server {
+	t.Helper()
+	repoControl(t, "", "s-1")
+	t.Setenv("SATELLE_TOKEN", testToken)
+	srv := fakeserver.Start(t, testToken)
+	must(t, "project", "create", "acme", "--bind", "--server", srv.URL)
+	return srv
+}
+
+func registerRepo(t *testing.T, name, origin string) {
+	t.Helper()
+	must(t, "repo", "add", name, "--origin", origin, "--path", checkoutWith(t, origin), "--session", "s-1")
+}
+
+func notBound(repos []doctorIssue) []doctorIssue {
+	var out []doctorIssue
+	for _, is := range repos {
+		if strings.Contains(is.Problem, "not bound to") {
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+func hasNote(rep doctorReport, sub string) bool {
+	return slices.ContainsFunc(rep.Notes, func(n string) bool { return strings.Contains(n, sub) })
+}
+
+func getProjectCalls(srv *fakeserver.Server) int {
+	n := 0
+	for _, c := range srv.Calls() {
+		if strings.Contains(c.Method, "GetProject") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestDoctorReportsRegisteredRepoTheProjectIsNotBoundTo(t *testing.T) {
+	srv := boundControl(t)
+	srv.BindGitHub("acme", "o/r")
+	srv.BindGitHubVia("acme", "o/s", 2)
+	registerRepo(t, "r", "git@github.com:o/r.git")
+	registerRepo(t, "s", "https://github.com/o/s")
+	registerRepo(t, "x", "https://github.com/o/x")
+	repos, _, _, err := doctorRepos(t)
+	got := notBound(repos)
+	if len(got) != 1 {
+		t.Fatalf("not-bound issues %+v, want one", repos)
+	}
+	p := got[0].Problem
+	for _, want := range []string{"x: ", "https://github.com/o/x", "acme", "not bound", "bound: https://github.com/o/r, https://github.com/o/s"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("problem %q lacks %q", p, want)
+		}
+	}
+	if strings.Contains(p, reporeg.Unparseable) || got[0].Fix == "" {
+		t.Errorf("issue %+v", got[0])
+	}
+	for _, is := range repos {
+		if strings.HasPrefix(is.Problem, "r: ") || strings.HasPrefix(is.Problem, "s: ") {
+			t.Errorf("a bound repository raised %+v", is)
+		}
+	}
+	if err == nil {
+		t.Error("doctor exited 0 with an unbound repository")
+	}
+}
+
+func TestDoctorUnboundCheckNotesWhenNotProbing(t *testing.T) {
+	srv := boundControl(t)
+	registerRepo(t, "x", "https://github.com/o/x")
+	repos, rep, _, _ := doctorRepos(t, "--no-probe")
+	if len(notBound(repos)) != 0 || !hasNote(rep, "satelle.dev bindings not checked (--no-probe)") {
+		t.Errorf("--no-probe: issues %+v notes %q", repos, rep.Notes)
+	}
+	srv.SetDown(true)
+	repos, rep, _, _ = doctorRepos(t)
+	if len(notBound(repos)) != 0 || !hasNote(rep, "could not read the repositories project acme is bound to") {
+		t.Errorf("server down: issues %+v notes %q", repos, rep.Notes)
+	}
+	srv.SetDown(false)
+
+	unbound := fakeserver.Start(t, testToken)
+	repoControl(t, "", "s-1")
+	t.Setenv("SATELLE_TOKEN", testToken)
+	registerRepo(t, "x", "https://github.com/o/x")
+	before := getProjectCalls(srv)
+	repos, _, _, _ = doctorRepos(t)
+	if len(notBound(repos)) != 0 || getProjectCalls(unbound) != 0 || getProjectCalls(srv) != before {
+		t.Errorf("an unbound repo: issues %+v, GetProject calls %d, %d after %d", repos, getProjectCalls(unbound), getProjectCalls(srv), before)
+	}
+}
+
+func TestDoctorUnboundCheckNeverPrintsHostileText(t *testing.T) {
+	srv := boundControl(t)
+	srv.BindGitHub("acme", "o/r\x1b[31m\x07")
+	registerRepo(t, "r", "https://github.com/o/r")
+	clean := func(what, out string) {
+		t.Helper()
+		if strings.ContainsAny(out, "\x1b\x07\r") {
+			t.Errorf("%s printed a control byte:\n%q", what, out)
+		}
+	}
+	repos, _, out, _ := doctorRepos(t)
+	got := notBound(repos)
+	if len(got) != 1 || !strings.HasPrefix(got[0].Problem, "r: ") || !strings.Contains(got[0].Problem, "bound: none; 1 bound entry skipped") {
+		t.Errorf("hostile binding: %+v", repos)
+	}
+	clean("doctor --json", out)
+	text, _ := run(t, "", "doctor")
+	clean("doctor", text)
+
+	srv.RefuseItem("GetProject", "", status.Error(codes.Unavailable, "down\x1b[2J\x07\r"))
+	_, rep, out, _ := doctorRepos(t)
+	if !hasNote(rep, "could not read the repositories project acme") {
+		t.Errorf("refused GetProject: notes %q", rep.Notes)
+	}
+	clean("doctor --json", out)
+	text, _ = run(t, "", "doctor")
+	clean("doctor", text)
+}
 
 func doctorRepos(t *testing.T, args ...string) ([]doctorIssue, doctorReport, string, error) {
 	t.Helper()

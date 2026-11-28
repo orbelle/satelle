@@ -25,6 +25,7 @@ How you drive it:
     satelle gate run <workflow>/<gate> --item <id> --session <session>  # dry-run one gate, recording nothing
     satelle gate report --since 168h --session <session>      # compare judges per gate and model from the ledger
     satelle gate report --item <id> --session <session>       # one item's outcome by performer and judge model
+    satelle gate usage --since 24h --session <session>        # judge runs per harness, model and gate, with fall-backs
     satelle story seat <id> --session <session>              # bind this session here, for the edit gate
     satelle story seat <id> --base <ref> --session <session> # judge the diff from <ref> (a stacked branch)
     satelle -C <worktree> story set <id> --status <s> --session <session>  # the same, run in another worktree
