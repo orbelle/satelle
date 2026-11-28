@@ -8,9 +8,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
+
+// mapCheckouts gives each named registered repo a checkout whose origin is
+// https://github.com/o/<name> and maps it in repos.local.toml, so a gated
+// move of an item targeting it is judged rather than refused as unmapped.
+func mapCheckouts(t *testing.T, root string, names ...string) {
+	t.Helper()
+	var b strings.Builder
+	for _, n := range names {
+		dir := t.TempDir()
+		gittest.Git(t, dir, "init", "-q", "-b", "main")
+		gittest.Git(t, dir, "remote", "add", "origin", "https://github.com/o/"+n)
+		write(t, filepath.Join(dir, "a.txt"), n+"\n")
+		gittest.Git(t, dir, "add", "-A")
+		gittest.Git(t, dir, "commit", "-q", "-m", "init")
+		gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", gittest.Git(t, dir, "rev-parse", "HEAD"))
+		b.WriteString("[repos." + n + "]\npath = \"" + strings.ReplaceAll(strings.ReplaceAll(dir, `\`, `\\`), `"`, `\"`) + "\"\n")
+	}
+	write(t, filepath.Join(root, reporeg.LocalFile), b.String())
+}
 
 func TestSkillSource(t *testing.T) {
 	shared := map[string]workflow.Skill{"rev": {Name: "rev", Body: "SHARED"}, "perf": {Name: "perf", Body: "SHARED"}}
@@ -61,6 +82,7 @@ groups = [{ mode = "sequential", gates = ["xg"] }]
 
 func TestPartWorkflowNamesPartOnlySkill(t *testing.T) {
 	root := partRoot(t, true)
+	mapCheckouts(t, root, "x", "y")
 	writePart(t, root)
 	write(t, filepath.Join(root, PartsDir, "x", WorkflowsDir, "infra.toml"), partOnlyInfra)
 	write(t, filepath.Join(root, PartsDir, "x", SkillsDir, "xonly.md"), "---\ntype: check\n---\n```sh\necho xonly-ran\n```\n")

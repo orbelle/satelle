@@ -60,6 +60,7 @@ func skillRoot(t *testing.T, repos string) string {
 	write(t, filepath.Join(root, SkillsDir, "only.md"), "---\ntype: check\n---\n```sh\necho shared-only\n```\n")
 	if repos != "" {
 		write(t, filepath.Join(root, reporeg.TrackedFile), repos)
+		mapCheckouts(t, root, "x", "x2", "y")
 	}
 	return root
 }
@@ -172,7 +173,7 @@ func TestPartSkillCarryFollowsRepo(t *testing.T) {
 		{"self", "x", gate.Accept, "PART-REV\n"},
 		{"self", "", gate.Carried, ""},
 		{"x", "", gate.Carried, ""},
-		{"self", "y", gate.Carried, ""},
+		{"y", "x2", gate.Carried, ""},
 		{"y", "x", gate.Accept, "PART-REV\n"},
 		{"x", "self", gate.Accept, "SHARED-REV\n"},
 	} {
@@ -214,7 +215,7 @@ func TestCoverageSkillSourceIsDomainSeparated(t *testing.T) {
 	writePartSkills(t, root, "x")
 	writePartSkills(t, root, "x2")
 	k, d := openSkills(t, root)
-	sp := span{base: "b0"}
+	sp := span{base: "b0", git: k.Git}
 	paths := []string{"src/a.go"}
 	diff := "diff:src/a.go"
 	cov := func(it item.Item) string {
@@ -295,7 +296,7 @@ func TestNoPartsDirectorySkillsAsToday(t *testing.T) {
 				if err != nil || reflect.ValueOf(skills).UnsafePointer() != reflect.ValueOf(k.Skills).UnsafePointer() {
 					t.Errorf("repo %q skills are not the shared map: %v", repo, err)
 				}
-				got, _, err := k.coverage(it, nil, span{base: "b0"}, []string{"src/a.go"})
+				got, _, err := k.coverage(it, nil, span{base: "b0", git: k.Git}, []string{"src/a.go"})
 				if err != nil || got != innerCoverage(it, "diff:src/a.go") {
 					t.Errorf("repo %q coverage %s is not today's hash: %v", repo, got, err)
 				}
