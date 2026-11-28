@@ -68,7 +68,7 @@ func newSandbox(t *testing.T) *sandbox {
 	return newSandboxAt(t, realDir(t, t.TempDir()))
 }
 
-func newSandboxOutsideTemp(t *testing.T) *sandbox {
+func outsideTempDir(t *testing.T) string {
 	t.Helper()
 	const base = "/var/tmp"
 	if st, err := os.Stat(base); err != nil || !st.IsDir() {
@@ -82,7 +82,12 @@ func newSandboxOutsideTemp(t *testing.T) *sandbox {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	s := newSandboxAt(t, realDir(t, dir))
+	return realDir(t, dir)
+}
+
+func newSandboxOutsideTemp(t *testing.T) *sandbox {
+	t.Helper()
+	s := newSandboxAt(t, outsideTempDir(t))
 	tmp := filepath.Join(s.home, "tmp")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		t.Fatal(err)
