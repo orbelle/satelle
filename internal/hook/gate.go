@@ -63,8 +63,9 @@ func (g Gate) Edit(target string) Verdict {
 }
 
 func (g Gate) judgePath(raw string, inline bool) Verdict {
-	forms := []string{filepath.Clean(raw)}
-	for _, p := range []string{EntryPath(raw), CanonicalPath(raw)} {
+	lex := filepath.Clean(raw)
+	forms := []string{lex}
+	for _, p := range []string{EntryPath(raw), CanonicalPath(raw), EntryPath(lex), CanonicalPath(lex)} {
 		if !slices.Contains(forms, p) {
 			forms = append(forms, p)
 		}

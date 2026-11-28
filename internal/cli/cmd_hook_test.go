@@ -27,6 +27,14 @@ func TestJudgeHookJoinsFileToolPathsLiterally(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "sub"), filepath.Join(a, "sublink")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
+	if err := os.MkdirAll(filepath.Join(a, "sub", "d2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range [][2]string{{filepath.Join(a, "sub", "d2"), filepath.Join(a, "deep")}, {filepath.Join(root, "main.go"), filepath.Join(a, "mainlink")}} {
+		if err := os.Symlink(l[0], l[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("TMPDIR", temp)
 	t.Setenv("HOME", t.TempDir())
 	g := hook.Gate{
@@ -40,6 +48,10 @@ func TestJudgeHookJoinsFileToolPathsLiterally(t *testing.T) {
 	v := judgeHook(g, hook.Input{Tool: "Write", Cwd: a, Path: "sublink/../main.go"})
 	if v.Allow || !strings.Contains(v.Reason, "resolves through a symlink to "+filepath.Join(root, "main.go")) {
 		t.Errorf("sublink/../main.go: %+v", v)
+	}
+	v = judgeHook(g, hook.Input{Tool: "Write", Cwd: a, Path: "deep/../mainlink"})
+	if v.Allow || !strings.Contains(v.Reason, "resolves through a symlink to "+filepath.Join(root, "main.go")) {
+		t.Errorf("deep/../mainlink: %+v", v)
 	}
 	if v := judgeHook(g, hook.Input{Tool: "Write", Cwd: a, Path: "x.go"}); !v.Allow {
 		t.Errorf("x.go in the seated target refused: %s", v.Reason)

@@ -173,13 +173,29 @@ func TestEditGateSeatedTarget(t *testing.T) {
 		} {
 			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, root), false, note, r.lands) })
 		}
-		for _, cmd := range []string{
-			"cd missing ; cd ../sublink ; cd sublink && git commit -m x",
-			"cd deep ; cd ../sublink ; cd sublink && git commit -m x",
+		for _, r := range []struct{ cmd, lands string }{
+			{"cd missing ; cd ../sublink ; cd sublink && git commit -m x", root},
+			{"cd deep ; cd ../sublink ; cd sublink && git commit -m x", root},
+			{"cd deep ; cd ../sublink && git commit -m x", filepath.Join(root, "sub")},
+			{"cd deep/../sublink && echo x > f", filepath.Join(root, "sub", "f")},
+			{"cd deep && cd .. && echo x > mainlink", filepath.Join(root, "main.go")},
+			{"cd deep && cd ../sublink && echo x > f", filepath.Join(root, "sub", "f")},
+			{"cd deep && cd ../sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
+			{"cd deep && cd ../sublink && git -C .. commit -m x", root},
+			{"cd -P deep && cd ../../sublink && touch f", filepath.Join(root, "sub", "f")},
 		} {
-			expect(t, g.Bash(cmd, a), false, note, root)
+			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, a), false, note, r.lands) })
 		}
-		expect(t, g.Bash("cd deep ; cd ../sublink && git commit -m x", a), true)
+		for _, cmd := range []string{
+			"cd deep ; cd ../sub && touch g",
+			"cd inner && touch h",
+			"cd -P deep && cd .. && touch g",
+		} {
+			expect(t, g.Bash(cmd, a), true)
+		}
+		ga := g
+		ga.Root = a
+		expect(t, ga.Edit("deep/../mainlink"), false, note, filepath.Join(root, "main.go"))
 		expect(t, g.Edit(filepath.Join(a, "dirlink", "dl")), false, note)
 		if got := CanonicalPath(filepath.Join(a, "dirlink", "dl")); got != filepath.Join(root, "new2.go") {
 			t.Errorf("dirlink/dl lands at %s", got)
