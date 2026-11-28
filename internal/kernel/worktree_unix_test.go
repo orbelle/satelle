@@ -35,11 +35,7 @@ type targetFix struct {
 
 func hostGitFloor(t *testing.T) {
 	t.Helper()
-	out, err := exec.Command("git", "version").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err := gitfacts.ParseVersion(string(out))
+	v, err := gitfacts.ParseVersion(gittest.Git(t, "", "version"))
 	if err != nil {
 		t.Fatal(err)
 	}
