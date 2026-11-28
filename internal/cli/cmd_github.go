@@ -32,9 +32,6 @@ description) is the caller's.`,
 	return cmd
 }
 
-// githubItem resolves the item a publish is for: the --item flag when set,
-// else the gate's SATELLE_ITEM. Only the id's shape is checked; satelle.dev
-// resolves the item's repository.
 func githubItem(flag string) (string, error) {
 	id := strings.TrimSpace(flag)
 	if id == "" {

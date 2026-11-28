@@ -52,7 +52,6 @@ func (e CheckEnv) Payload() []byte {
 	return b
 }
 
-// ItemEnv is the variable a check gets its item id from.
 const ItemEnv = "SATELLE_ITEM"
 
 func (e CheckEnv) Vars() []string {

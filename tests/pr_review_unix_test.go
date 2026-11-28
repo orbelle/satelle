@@ -415,8 +415,6 @@ func (p *prSandbox) statusesSince(n int) []string {
 	return out
 }
 
-// statusItemsAre wants every status published since n to carry item as its
-// item_id: the gate's SATELLE_ITEM, sent by satelle github status.
 func (p *prSandbox) statusItemsAre(n int, item string) {
 	p.t.Helper()
 	for _, s := range p.srv.PublishedStatuses("acme")[n:] {

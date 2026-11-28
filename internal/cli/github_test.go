@@ -155,9 +155,6 @@ func TestGitHubStatusNeedsABoundRepo(t *testing.T) {
 	}
 }
 
-// refuseItem runs a publish command that has every required flag but no
-// usable item, and wants it refused before any request: with neither --item
-// nor SATELLE_ITEM set the error names both, and a malformed id is invalid.
 func refuseItem(t *testing.T, args []string) {
 	t.Helper()
 	if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "--item") || !strings.Contains(err.Error(), "SATELLE_ITEM") {
