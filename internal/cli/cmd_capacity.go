@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -26,20 +27,24 @@ import (
 )
 
 var (
-	takeSample   = capacity.Take
+	readMachine  = capacity.Read
 	processTable = procgroup.Table
 )
+
+const capacitySampleFile = "capacity-sample.json"
 
 var remoteTimeout = 30 * time.Second
 
 type capacityReport struct {
 	Host         string            `json:"host"`
 	MachineID    string            `json:"machine_id"`
+	TakenAt      time.Time         `json:"taken_at"`
 	Cores        int               `json:"cores"`
 	MemTotal     uint64            `json:"mem_total"`
 	MemAvailable uint64            `json:"mem_available"`
 	Load         [3]float64        `json:"load"`
 	Agents       map[string]int    `json:"agents"`
+	Ceiling      string            `json:"ceiling,omitempty"`
 	Unavailable  map[string]string `json:"unavailable,omitempty"`
 	Seats        []engagedSeat     `json:"seats"`
 	Errors       []string          `json:"errors,omitempty"`
@@ -62,11 +67,15 @@ func capacityCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "capacity",
 		Short: "Show the cores, memory, load, running agent sessions and engaged seats of this machine and the machines it reaches",
-		Long: `capacity reads this machine's figures once, when asked, and prints them:
-cores (the CPUs this process may use), total and available memory, the 1, 5
-and 15 minute load average, the coding-agent sessions running per harness
-across every project on this machine, and the satelle seats engaged here
-across every registered project. Nothing is stored and no process is started.
+		Long: `capacity prints this machine's figures: cores (the CPUs this process may
+use), total and available memory, the 1, 5 and 15 minute load average, the
+coding-agent sessions running per harness across every project on this
+machine, and the satelle seats engaged here across every registered project.
+
+The machine figures are read at most once per 30 second cadence and kept in the
+satelle home as capacity-sample.json, readable by this user only, so every
+project on the machine reuses them; the sampled line says when they were read.
+Seats are read on every run. No process is started.
 
 Agent sessions are counted from the process table by the harness commands
 satelle knows: each integrated harness's CLI and the command of each
@@ -79,7 +88,12 @@ machine. Each is asked with "satelle capacity --json --here" over that exec,
 after its [connect] check when it has one, so satelle must be on that
 machine's PATH. A machine that does not answer within the timeout, or answers
 with no report, is named unreachable and the others are still reported.
---here reports this machine only.`,
+--here reports this machine only.
+
+The agents line ends with the total and this machine's worker ceiling, from [capacity]
+workers in ~/.satelle/config.toml (satelle settings set capacity.workers N), or
+"no ceiling" when none is set, the default: how many agents to run is then the
+orchestrator's choice. The ceiling is shown, never enforced.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			local := localReport()
@@ -125,17 +139,24 @@ with no report, is named unreachable and the others are still reported.
 
 func localReport() capacityReport {
 	repos, reposErr := capacityRepos()
-	s := takeSample(knownHarnesses(repos), processTable)
+	sn, keepErr := capacity.Reuse(filepath.Join(config.GlobalDir(), capacitySampleFile), time.Now(), func() capacity.Snapshot {
+		return readMachine(processTable)
+	})
+	s := sn.Sample(knownHarnesses(repos))
 	seats, seatErrs := machineSeats(repos)
+	if keepErr != nil {
+		seatErrs = append(seatErrs, fmt.Errorf("sample not kept: %w", keepErr))
+	}
+	ceiling := workerCeiling(&seatErrs)
 	host, _ := os.Hostname()
 	id, ok := config.ReadMachineID(config.GlobalDir())
 	if !ok {
 		id = "no machine id"
 	}
 	rep := capacityReport{
-		Host: host, MachineID: id, Cores: s.Cores,
+		Host: host, MachineID: id, TakenAt: s.TakenAt, Cores: s.Cores,
 		MemTotal: s.MemTotal, MemAvailable: s.MemAvailable, Load: s.Load,
-		Agents: s.Agents, Seats: seats,
+		Agents: s.Agents, Ceiling: ceiling, Seats: seats,
 	}
 	for fig, err := range s.Errs {
 		if err != nil {
@@ -228,6 +249,18 @@ func tailText(s string, n int) string {
 	return s
 }
 
+func workerCeiling(errs *[]error) string {
+	g, err := config.LoadGlobal()
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("worker ceiling unreadable: %w", err))
+		return "ceiling unavailable"
+	}
+	if n, ok := g.Capacity.Ceiling(); ok {
+		return fmt.Sprintf("ceiling %d", n)
+	}
+	return "no ceiling"
+}
+
 func capacityRepos() ([]repo, error) {
 	var out []repo
 	if r, err := findRepo(""); err == nil {
@@ -296,6 +329,9 @@ func printCapacity(w io.Writer, rep capacityReport, via string) {
 		via = " via remote " + via
 	}
 	fmt.Fprintf(w, "machine   %s (%s)%s\n", rep.Host, rep.MachineID, via)
+	if !rep.TakenAt.IsZero() {
+		fmt.Fprintf(w, "sampled   %s (reused for %s)\n", rep.TakenAt.UTC().Format(time.RFC3339), capacity.Cadence)
+	}
 	fmt.Fprintf(w, "cores     %d\n", rep.Cores)
 	if reason, ok := rep.Unavailable[capacity.FigMemory]; ok {
 		fmt.Fprintf(w, "memory    unavailable: %s\n", reason)
@@ -307,15 +343,21 @@ func printCapacity(w io.Writer, rep capacityReport, via string) {
 	} else {
 		fmt.Fprintf(w, "load      %.2f %.2f %.2f (1, 5, 15 min)\n", rep.Load[0], rep.Load[1], rep.Load[2])
 	}
+	ceiling := ""
+	if rep.Ceiling != "" {
+		ceiling = "; " + rep.Ceiling
+	}
 	if reason, ok := rep.Unavailable[capacity.FigAgents]; ok {
-		fmt.Fprintf(w, "agents    unavailable: %s\n", reason)
+		fmt.Fprintf(w, "agents    unavailable: %s (%s)\n", reason, strings.TrimPrefix(ceiling, "; "))
 	} else {
 		labels := slices.Sorted(maps.Keys(rep.Agents))
 		parts := make([]string, len(labels))
+		total := 0
 		for i, l := range labels {
 			parts[i] = fmt.Sprintf("%s %d", l, rep.Agents[l])
+			total += rep.Agents[l]
 		}
-		fmt.Fprintf(w, "agents    %s (all projects on this machine)\n", strings.Join(parts, ", "))
+		fmt.Fprintf(w, "agents    %s (all projects on this machine; %d in all%s)\n", strings.Join(parts, ", "), total, ceiling)
 	}
 	fmt.Fprintf(w, "seats     %d engaged here\n", len(rep.Seats))
 	for _, st := range rep.Seats {

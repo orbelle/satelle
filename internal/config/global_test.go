@@ -120,6 +120,84 @@ func TestWakeQueuesMatchesRepoRoot(t *testing.T) {
 	}
 }
 
+func TestSaveGlobalKeepsCapacity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SATELLE_HOME", home)
+	if err := SaveGlobal(GlobalConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, GlobalConfigName))
+	if !strings.Contains(string(b), "# workers = 4") || strings.Contains(string(b), "\nworkers =") {
+		t.Fatalf("an unset ceiling renders more than the commented example:\n%s", b)
+	}
+	gc, err := LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); ok {
+		t.Fatalf("an unset ceiling reads as %d", n)
+	}
+	if err := SaveGlobal(GlobalConfig{Capacity: CapacityConfig{Workers: 3}}); err != nil {
+		t.Fatal(err)
+	}
+	if gc, err = LoadGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveGlobal(gc); err != nil {
+		t.Fatal(err)
+	}
+	if gc, err = LoadGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); !ok || n != 3 {
+		t.Fatalf("after load and save, ceiling %d %t, want 3", n, ok)
+	}
+	gc.Capacity.Workers = 0
+	if err := SaveGlobal(gc); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, GlobalConfigName))
+	if !strings.Contains(string(b), "# workers = 4") || strings.Contains(string(b), "\nworkers =") {
+		t.Fatalf("a cleared ceiling left a live workers line:\n%s", b)
+	}
+	if gc, err = LoadGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); ok {
+		t.Fatalf("a cleared ceiling reads as %d", n)
+	}
+}
+
+func TestCapacityWorkersBelowOneIsRefused(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SATELLE_HOME", home)
+	path := filepath.Join(home, GlobalConfigName)
+	for _, bad := range []string{"0", "-1"} {
+		if err := os.WriteFile(path, []byte("[capacity]\nworkers = "+bad+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := LoadGlobal()
+		if err == nil {
+			t.Fatalf("[capacity] workers = %s loaded", bad)
+		}
+		for _, want := range []string{path, "[capacity] workers = " + bad} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("workers = %s: error %q does not name %q", bad, err, want)
+			}
+		}
+	}
+	if err := os.WriteFile(path, []byte("[capacity]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gc, err := LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); ok {
+		t.Fatalf("[capacity] with no workers key reads as ceiling %d", n)
+	}
+}
+
 func TestSaveGlobalKeepsWake(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SATELLE_HOME", home)
