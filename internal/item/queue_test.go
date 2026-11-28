@@ -91,12 +91,12 @@ func TestMembers(t *testing.T) {
 		{ID: "tas_1", Status: "approved"},
 		{ID: "exe_t", Status: "approved", Parent: "tas_1"},
 	}
-	got := Members(q, QueueState{Explicit: []string{"sto_c", "sto_b"}}, cands, nil).Members
+	got := Members(q, QueueState{Explicit: []string{"sto_c", "sto_b"}}, cands, nil, nil).Members
 	if want := []string{"sto_c", "sto_b", "sto_a"}; !slices.Equal(got, want) {
 		t.Fatalf("members %v, want %v", got, want)
 	}
 	q.Inputs = nil
-	if got := Members(q, QueueState{Explicit: []string{"sto_c"}}, cands, nil).Members; !slices.Equal(got, []string{"sto_c"}) {
+	if got := Members(q, QueueState{Explicit: []string{"sto_c"}}, cands, nil, nil).Members; !slices.Equal(got, []string{"sto_c"}) {
 		t.Fatalf("explicit only %v", got)
 	}
 }
@@ -112,20 +112,20 @@ func TestMembersLapse(t *testing.T) {
 	q := Item{ID: "que_1"}
 	state := QueueState{Explicit: []string{"sto_a"}, Causes: map[string]string{"sto_a": "d:review->approved"}}
 
-	got := Members(q, state, nil, statusOf(map[string]string{"sto_a": "in_progress"}))
+	got := Members(q, state, nil, statusOf(map[string]string{"sto_a": "in_progress"}), nil)
 	if len(got.Members) != 0 || !slices.Equal(got.Lapsed, []Lapse{{ID: "sto_a", Status: "in_progress"}}) {
 		t.Fatalf("sent back: %+v", got)
 	}
-	got = Members(q, state, nil, statusOf(map[string]string{"sto_a": "approved"}))
+	got = Members(q, state, nil, statusOf(map[string]string{"sto_a": "approved"}), nil)
 	if !slices.Equal(got.Members, []string{"sto_a"}) || len(got.Lapsed) != 0 {
 		t.Fatalf("still approved: %+v", got)
 	}
-	if got = Members(q, state, nil, statusOf(nil)); !slices.Equal(got.Members, []string{"sto_a"}) {
+	if got = Members(q, state, nil, statusOf(nil), nil); !slices.Equal(got.Members, []string{"sto_a"}) {
 		t.Fatalf("unknown: %+v", got)
 	}
 	fq := Item{ID: "que_1", Inputs: &Selection{Status: "in_progress"}}
 	cands := []Item{{ID: "sto_a", Status: "in_progress"}}
-	got = Members(fq, state, cands, statusOf(map[string]string{"sto_a": "in_progress"}))
+	got = Members(fq, state, cands, statusOf(map[string]string{"sto_a": "in_progress"}), nil)
 	if !slices.Equal(got.Members, []string{"sto_a"}) || len(got.Lapsed) != 0 {
 		t.Fatalf("filter member: %+v", got)
 	}
@@ -140,7 +140,7 @@ func TestMembersLapse(t *testing.T) {
 		{"server:event", "backlog", false},
 	} {
 		st := QueueState{Explicit: []string{"sto_h"}, Causes: map[string]string{"sto_h": c.cause}}
-		got := Members(q, st, nil, statusOf(map[string]string{"sto_h": c.status}))
+		got := Members(q, st, nil, statusOf(map[string]string{"sto_h": c.status}), nil)
 		if c.lapse != (len(got.Members) == 0) || c.lapse != slices.Equal(got.Lapsed, []Lapse{{ID: "sto_h", Status: c.status}}) {
 			t.Errorf("cause %q status %s: %+v", c.cause, c.status, got)
 		}
@@ -187,5 +187,42 @@ func TestZeroSelectionClearsInputs(t *testing.T) {
 	Fields{Inputs: &Selection{}}.Apply(&it)
 	if it.Inputs != nil {
 		t.Fatalf("inputs %+v", it.Inputs)
+	}
+}
+
+func TestSelectionRepo(t *testing.T) {
+	items := []Item{{ID: "sto_none"}, {ID: "sto_self", Repo: "self"}, {ID: "sto_srv", Repo: "satelle-server"}, {ID: "sto_sat", Repo: "satelle"}}
+	for _, c := range []struct {
+		repo string
+		want []string
+	}{
+		{"", []string{"sto_none", "sto_self", "sto_srv", "sto_sat"}},
+		{"self", []string{"sto_none", "sto_self"}},
+		{"satelle-server", []string{"sto_srv"}},
+	} {
+		var got []string
+		for _, it := range items {
+			if (Selection{Repo: c.repo}).Matches(it) {
+				got = append(got, it.ID)
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("repo %q: %v, want %v", c.repo, got, c.want)
+		}
+	}
+}
+
+func TestMembersRepoExcludesExplicit(t *testing.T) {
+	targets := map[string]string{"sto_srv": "satelle-server", "sto_sat": "satelle", "sto_gone": "satelle"}
+	target := func(id string) (string, bool) { s, ok := targets[id]; return s, ok }
+	q := Item{ID: "que_1", Inputs: &Selection{Repo: "satelle-server"}}
+	st := QueueState{Explicit: []string{"sto_srv", "sto_sat", "sto_gone", "sto_unknown"}, Causes: map[string]string{"sto_gone": "d:review->approved"}}
+	got := Members(q, st, nil, statusOf(map[string]string{"sto_gone": "in_progress"}), target)
+	if !slices.Equal(got.Members, []string{"sto_srv", "sto_unknown"}) || len(got.Lapsed) != 0 {
+		t.Fatalf("repo members: %+v", got)
+	}
+	q.Inputs = &Selection{Kind: "story"}
+	if got := Members(q, QueueState{Explicit: []string{"sto_srv", "sto_sat"}}, nil, nil, target); !slices.Equal(got.Members, []string{"sto_srv", "sto_sat"}) {
+		t.Fatalf("no repo filter: %+v", got)
 	}
 }

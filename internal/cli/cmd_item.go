@@ -453,7 +453,11 @@ func printItem(w io.Writer, it item.Item, users, working []string, repo string) 
 		if it.Kind == item.QueueKind {
 			label = "filter"
 		}
-		fmt.Fprintf(w, "%-10s kind=%q status=%q tag=%q category=%q\n", label, it.Inputs.Kind, it.Inputs.Status, it.Inputs.Tag, it.Inputs.Category)
+		repo := ""
+		if it.Inputs.Repo != "" {
+			repo = " repo=" + reporeg.Literal(it.Inputs.Repo)
+		}
+		fmt.Fprintf(w, "%-10s kind=%q status=%q tag=%q category=%q%s\n", label, it.Inputs.Kind, it.Inputs.Status, it.Inputs.Tag, it.Inputs.Category, repo)
 	}
 	if it.Trigger != nil {
 		fmt.Fprintf(w, "trigger    %s\n", triggerText(*it.Trigger))
