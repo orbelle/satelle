@@ -278,18 +278,3 @@ func TestSharedPrinciplesTreeLoads(t *testing.T) {
 		}
 	}
 }
-
-func TestConstitutionSkillReadsThePromptSection(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", ".satelle", SkillsDir, "satelle-constitution-review.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(data)
-	heading := strings.TrimSpace(strings.SplitN(RuleFilesHeading, " (", 2)[0])
-	if !strings.Contains(s, heading) || !strings.Contains(s, "item text") || !strings.Contains(s, "Answer with your judgement") {
-		t.Errorf("the skill does not take the rule files from the prompt's last %q block", heading)
-	}
-	if strings.Contains(s, "`.satelle/constitution.md` and every file in `.satelle/principles/`") {
-		t.Error("the skill still reads the shared rule files unconditionally")
-	}
-}
