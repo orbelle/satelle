@@ -116,6 +116,24 @@ func ownedSeat(t *testing.T, id, session string, p procgroup.Proc) {
 	}
 }
 
+func ownedStaleSeat(t *testing.T, id, session string, p procgroup.Proc) {
+	t.Helper()
+	machine, host := thisMachine(t)
+	staleSeat(t, id, session, machine, host)
+	if err := seatlife.Own(config.GlobalDir(), session, p); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func endsReleasedAny(evs []ledger.Event, session string) bool {
+	if len(evs) == 0 {
+		return false
+	}
+	last := evs[len(evs)-1]
+	var rel item.SeatRelease
+	return last.Kind == item.KindSeatReleased && last.Decode(&rel) == nil && rel.Session == session
+}
+
 func otherRepo(t *testing.T, back string) string {
 	t.Helper()
 	other, err := filepath.EvalSymlinks(t.TempDir())
@@ -177,14 +195,14 @@ func TestAutosyncReleasesStaleSeats(t *testing.T) {
 	}
 	terminal := func(title, session string, seat func(id string)) row {
 		id := createID(t, "story", "create", "--title", title, "--criteria", "c")
-		seat(id)
 		must(t, "story", "set", id, "--status", "done")
+		seat(id)
 		return row{id, session, true}
 	}
 	rows := []row{
-		terminal("here, owner alive", "s-here", func(id string) { ownedSeat(t, id, "s-here", procgroup.Self()) }),
-		terminal("elsewhere", "s-other", func(id string) { seatAs(t, id, "s-other", "m-other", "other-host") }),
-		terminal("no machine", "s-legacy", func(id string) { seatAs(t, id, "s-legacy", "", "") }),
+		terminal("here, owner alive", "s-here", func(id string) { ownedStaleSeat(t, id, "s-here", procgroup.Self()) }),
+		terminal("elsewhere", "s-other", func(id string) { staleSeat(t, id, "s-other", "m-other", "other-host") }),
+		terminal("no machine", "s-legacy", func(id string) { staleSeat(t, id, "s-legacy", "", "") }),
 	}
 	gone := createID(t, "story", "create", "--title", "gone session", "--criteria", "c")
 	ownedSeat(t, gone, "s-gone", killedProc(t))
@@ -261,8 +279,9 @@ func TestAutosyncReleaseDoesNotFork(t *testing.T) {
 		a, b := boundPair(t, srv)
 		a.use(t)
 		id := createID(t, "story", "create", "--title", "closed on a", "--criteria", "c")
-		must(t, "story", "seat", id, "--session", "s-a")
 		must(t, "story", "set", id, "--status", "done")
+		machine, host := thisMachine(t)
+		staleSeat(t, id, "s-a", machine, host)
 		autosync(t, a)
 		if !storeEndsReleased(srv, id) {
 			t.Fatalf("the store's chain of %s does not end in a release by %s", id, syncServiceName)
@@ -289,10 +308,13 @@ func TestAutosyncReleaseDoesNotFork(t *testing.T) {
 		autosync(t, a)
 		autosync(t, b)
 		runOn(t, b, "story", "set", id, "--status", "done")
+		if !endsReleasedAny(chain(t, id), "s-a") {
+			t.Fatalf("B's move to done did not release A's seat")
+		}
 		autosync(t, b)
 		onB := chain(t, id)
-		if !endsReleased(onB, "s-a") || !storeEndsReleased(srv, id) {
-			t.Fatalf("B did not release A's seat and push it in one pass")
+		if evs := srv.Events("shared", id); len(evs) == 0 || evs[len(evs)-1].GetKind() != item.KindSeatReleased {
+			t.Fatalf("B did not push the release of A's seat")
 		}
 		autosync(t, a)
 		onA := chain(t, id)
@@ -315,23 +337,24 @@ func TestAutosyncLeavesSeatsWhenTheStoreIsNotReached(t *testing.T) {
 	home := config.GlobalDir()
 
 	done := createID(t, "story", "create", "--title", "to close", "--criteria", "c")
-	ownedSeat(t, done, "s-done", procgroup.Self())
 	gone := createID(t, "story", "create", "--title", "to lose its session", "--criteria", "c")
 	ownedSeat(t, gone, "s-gone", procgroup.Self())
 	must(t, "ledger", "autosync")
-	if len(seatsOn(t, done)) != 1 || len(seatsOn(t, gone)) != 1 {
+	if len(seatsOn(t, gone)) != 1 {
 		t.Fatal("setup: a live seat was released")
 	}
 
 	srv.SetDown(true)
 	must(t, "story", "set", done, "--status", "done")
+	ownedStaleSeat(t, done, "s-done", procgroup.Self())
 	if err := seatlife.Own(home, "s-gone", killedProc(t)); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(other)
 	local := createID(t, "story", "create", "--title", "local store", "--criteria", "c")
-	must(t, "story", "seat", local, "--session", "s-local")
 	must(t, "story", "set", local, "--status", "done")
+	machine, host := thisMachine(t)
+	staleSeat(t, local, "s-local", machine, host)
 	t.Chdir(m.dir)
 
 	if out, err := run(t, "", "ledger", "autosync"); err == nil {
@@ -374,17 +397,18 @@ func TestAutosyncLeavesSeatsOnUnsyncedItems(t *testing.T) {
 	a, b := boundPair(t, srv)
 	a.use(t)
 	x := createID(t, "story", "create", "--title", "forks", "--criteria", "c")
-	must(t, "story", "seat", x, "--session", "s-x")
 	autosync(t, a)
 	autosync(t, b)
 	runOn(t, a, "story", "set", x, "--title", "edited on a")
 	runOn(t, b, "story", "set", x, "--status", "done")
+	machine, host := thisMachine(t)
+	staleSeat(t, x, "s-x", machine, host)
 	autosync(t, a)
 
 	b.use(t)
 	y := createID(t, "story", "create", "--title", "in sync", "--criteria", "c")
-	must(t, "story", "seat", y, "--session", "s-y")
 	must(t, "story", "set", y, "--status", "done")
+	staleSeat(t, y, "s-y", machine, host)
 	if out, err := run(t, "", "ledger", "autosync"); err == nil {
 		t.Fatalf("autosync with a forked item exited 0:\n%s", out)
 	}
@@ -414,6 +438,7 @@ func TestAutosyncLeavesSeatsOnUnsyncedItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	must(t, "story", "set", x, "--status", "done")
+	staleSeat(t, x, "s-x", machine, host)
 	autosync(t, b)
 	if !endsReleased(chain(t, x), "s-x") || !storeEndsReleased(srv, x) {
 		t.Errorf("%s: not released and pushed once in sync", x)
@@ -428,8 +453,9 @@ func TestAutosyncPushesAReleaseTheNextPass(t *testing.T) {
 	newMachine(t)
 	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
 	id := createID(t, "story", "create", "--title", "closed", "--criteria", "c")
-	must(t, "story", "seat", id, "--session", "s-c")
 	must(t, "story", "set", id, "--status", "done")
+	machine, host := thisMachine(t)
+	staleSeat(t, id, "s-c", machine, host)
 	must(t, "ledger", "push")
 
 	srv.FailMethods("Chain/Append")
@@ -606,8 +632,8 @@ func TestSessionStartListsOnlyWhatThePassLeft(t *testing.T) {
 		registered(t)
 		writeFile(t, filepath.Join(f.dir, "FAIL"), "one\n")
 		id := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-		seatAs(t, id, "s-t", "", "")
 		must(t, "story", "set", id, "--status", "done")
+		staleSeat(t, id, "s-t", "", "")
 		wantListed(t, f.dir, "seats", true)
 		wantListed(t, f.dir, "check:fixture-check", true)
 		must(t, "ledger", "autosync")
@@ -621,8 +647,8 @@ func TestSessionStartListsOnlyWhatThePassLeft(t *testing.T) {
 		f := newDoctorFixture(t)
 		registered(t)
 		id := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-		seatAs(t, id, "s-t", "", "")
 		must(t, "story", "set", id, "--status", "done")
+		staleSeat(t, id, "s-t", "", "")
 		must(t, "ledger", "autosync")
 		if ctx, _, raw := hookContextText(t, f.dir); strings.Contains(ctx, "satelle doctor:") || strings.Contains(raw, "systemMessage") {
 			t.Errorf("session start after a clean pass printed a doctor block or notice:\n%s", raw)

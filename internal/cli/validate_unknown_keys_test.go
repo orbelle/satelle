@@ -113,6 +113,8 @@ owner_tag = "ops"
 		t.Fatalf("hook gate denied edit while seated with lenient unknown keys: %s", reason)
 	}
 	must(t, "story", "set", id, "--status", "done")
+	machine, host := thisMachine(t)
+	staleSeat(t, id, "s-work", machine, host)
 	must(t, "status")
 	must(t, "story", "list")
 	must(t, "story", "get", id)

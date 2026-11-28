@@ -359,16 +359,17 @@ func TestResolveReleasesSeatsOnTerminalItems(t *testing.T) {
 		seat          func(t *testing.T, id string)
 	}{
 		{name: "here, owner alive", session: "s-here", seat: func(t *testing.T, id string) {
-			must(t, "story", "seat", id, "--session", "s-here")
+			machine, host := thisMachine(t)
+			staleSeat(t, id, "s-here", machine, host)
 			if err := seatlife.Own(config.GlobalDir(), "s-here", procgroup.Self()); err != nil {
 				t.Fatal(err)
 			}
 		}},
 		{name: "elsewhere", session: "s-elsewhere", seat: func(t *testing.T, id string) {
-			seatAs(t, id, "s-elsewhere", "m-other", "other-host")
+			staleSeat(t, id, "s-elsewhere", "m-other", "other-host")
 		}},
 		{name: "unverified", session: "s-u", seat: func(t *testing.T, id string) {
-			seatAs(t, id, "s-u", "", "")
+			staleSeat(t, id, "s-u", "", "")
 		}},
 	}
 	for _, row := range rows {
@@ -376,8 +377,8 @@ func TestResolveReleasesSeatsOnTerminalItems(t *testing.T) {
 			t.Run(row.name+"/"+map[bool]string{false: "no terminal", true: "terminal"}[withTTY], func(t *testing.T) {
 				newDoctorFixture(t)
 				id := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-				row.seat(t, id)
 				must(t, "story", "set", id, "--status", "done")
+				row.seat(t, id)
 				var tty *fakeTTY
 				if withTTY {
 					tty = withTerminal(t, "")
@@ -458,8 +459,8 @@ func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
 	t.Run("valid configuration", func(t *testing.T) {
 		newDoctorFixture(t)
 		done := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-		seatAs(t, done, "s-done", "", "")
 		must(t, "story", "set", done, "--status", "done")
+		staleSeat(t, done, "s-done", "", "")
 		open := createID(t, "story", "create", "--title", "open", "--criteria", "c")
 		_, location := missingWorktree(t)
 		seatAt(t, open, "s-open", "", "", location)
@@ -489,8 +490,8 @@ func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
 	t.Run("invalid configuration", func(t *testing.T) {
 		f := newDoctorFixture(t)
 		done := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-		seatAs(t, done, "s-done", "", "")
 		must(t, "story", "set", done, "--status", "done")
+		staleSeat(t, done, "s-done", "", "")
 		p := filepath.Join(f.dir, ".satelle", "satelle.toml")
 		b, _ := os.ReadFile(p)
 		writeFile(t, p, string(b)+"\n[gate]\nbogus_key = 1\n")

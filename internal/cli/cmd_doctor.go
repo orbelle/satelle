@@ -110,7 +110,9 @@ Its checks:
 
 Outside a satelle repo only the machine checks (versions, upgrade, projects,
 sync) run; in a pre-1.0 repo only versions, upgrade, projects and the sync
-timer are checked. The
+timer are checked. In a checkout a control repository maps in its
+.satelle/repos.local.toml, doctor runs those machine checks and notes the
+control repository to run the rest from (satelle -C <control> doctor). The
 session-start hook runs the same checks, except context, which measures that
 hook's own output, and runs no agent probe, within ` + doctorHookBudget.String() + ` and prints a short
 summary; a check still running then is listed as not checked. doctor exits 0

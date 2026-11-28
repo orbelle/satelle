@@ -145,6 +145,15 @@ its `commands` key.
   `[repos.<name>] path = "<absolute path>"`; ignored by git. Both files are
   read as regular files only (a symlink is refused), and no problem satelle
   reports about them quotes a value from them.
+  In a checkout a control repository maps there, or a linked worktree of it,
+  when that control repository is one of this machine's projects and the
+  checkout's `origin` matches its registration, `satelle status --session <session>` shows the
+  control directory, the work tree and the target's name (`self` in the
+  control repository itself), session context comes from the control
+  repository, read-only, and `satelle doctor --session <session>` notes the mapping. Every
+  other command there still finds no `.satelle`: run it from the control
+  repository (`satelle -C <control checkout> <command>`) until an item can name
+  its target repository.
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` or `skills/<name>/SKILL.md` — the skills performers, gates
   and checks follow. A skill may be a single file (`skills/<name>.md`) or a
