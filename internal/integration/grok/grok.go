@@ -22,6 +22,14 @@ const promptFilePlaceholder = "<prompt file>"
 func (Dispatch) Name() string         { return CLI }
 func (Dispatch) EnforcesGrants() bool { return true }
 
+func (Dispatch) Confinement() common.Confinement {
+	return common.Confinement{
+		ProjectFiles: []string{".grok"},
+		AuthEnv:      []string{"XAI_API_KEY", "GROK_API_KEY"},
+		Refuse:       "its argv has no flag that stops it loading the checkout's AGENTS.md, and the harness record shows none",
+	}
+}
+
 var grokTools = map[string]string{
 	common.ToolRead:  "read_file",
 	common.ToolGrep:  "grep",
@@ -67,6 +75,9 @@ func (Dispatch) argv(req common.Request, promptFile string) ([]string, error) {
 	argv = append(argv, "--tools", strings.Join(tools, ","))
 	for _, d := range deny {
 		argv = append(argv, "--deny", d)
+	}
+	if req.Target != nil {
+		argv = append(argv, "--sandbox", "workspace")
 	}
 	return argv, nil
 }

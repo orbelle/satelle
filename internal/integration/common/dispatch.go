@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,6 +38,75 @@ type Request struct {
 	Log     string
 	Trace   *Log
 	Redact  func(string) string
+	Target  *Target
+}
+
+type Target struct {
+	Repo, Worktree string
+	Scratch        string
+	ReadDirs       []string
+	Protected      bool
+	Environ        []string
+	EnvNames       []string
+	Narrowed       string
+	Outside        bool
+	Confined       bool
+}
+
+type Confinement struct {
+	ProjectFiles []string
+	AuthEnv      []string
+	Context      bool
+	FileTools    bool
+	Shell        bool
+	Refuse       string
+}
+
+var ErrUnconfined = errors.New("target dispatch was not confined")
+
+func Environ(req Request) []string {
+	if req.Target == nil {
+		return append(os.Environ(), req.Env...)
+	}
+	out := make([]string, 0, len(req.Target.Environ)+len(req.Env))
+	out = append(out, req.Target.Environ...)
+	return append(out, req.Env...)
+}
+
+func CheckConfined(req Request) error {
+	if req.Target != nil && req.Target.Environ == nil {
+		return ErrUnconfined
+	}
+	return nil
+}
+
+func ValueRedactor(values []string) func(string) string {
+	var vs []string
+	for _, v := range values {
+		if v != "" && !slices.Contains(vs, v) {
+			vs = append(vs, v)
+		}
+	}
+	if len(vs) == 0 {
+		return nil
+	}
+	slices.SortStableFunc(vs, func(a, b string) int { return len(b) - len(a) })
+	return func(s string) string {
+		for _, v := range vs {
+			s = strings.ReplaceAll(s, v, "[secret]")
+		}
+		return s
+	}
+}
+
+func Chain(a, b func(string) string) func(string) string {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	}
+	return func(s string) string { return b(a(s)) }
 }
 
 func (r Request) Clean(s string) string {
@@ -64,6 +134,7 @@ type DispatchAdapter interface {
 	EnforcesGrants() bool
 	Argv(req Request) ([]string, error)
 	Run(ctx context.Context, req Request) (Result, error)
+	Confinement() Confinement
 }
 
 const (
@@ -158,9 +229,12 @@ func Preset(bin string) string {
 }
 
 func RunOnce(ctx context.Context, argv []string, stdin string, req Request) ([]byte, error) {
+	if err := CheckConfined(req); err != nil {
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = req.Dir
-	cmd.Env = append(os.Environ(), req.Env...)
+	cmd.Env = Environ(req)
 	procgroup.Set(cmd)
 	cmd.Cancel = func() error { return procgroup.Kill(cmd) }
 	cmd.WaitDelay = 2 * time.Second
