@@ -85,6 +85,7 @@ type doctorInput struct {
 	cfgErr  error
 	harness string
 	legacy  []string
+	target  string
 
 	sessionStart bool
 	noProbe      bool
@@ -95,7 +96,17 @@ type doctorCheck struct {
 	run  func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string)
 }
 
-func loadDoctorInput(dir string) (*doctorInput, error) { return doctorInputFor(findRepo(dir)) }
+func loadDoctorInput(dir string) (*doctorInput, error) {
+	in, err := doctorInputFor(findRepo(dir))
+	if err != nil || in.inRepo {
+		return in, err
+	}
+	if v, terr := resolveTarget(dir, true); terr == nil && v.mapped() {
+		in.target = fmt.Sprintf("%s is target %s of the control repository %s; its repository checks run there: satelle -C %s doctor",
+			show(v.Tree), show(v.Target), show(v.control.Tree), show(v.control.Tree))
+	}
+	return in, nil
+}
 
 func doctorInputFor(r repo, err error) (*doctorInput, error) {
 	if errors.Is(err, config.ErrNodeHint) {
@@ -195,6 +206,9 @@ func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
 		}
 		rep.Issues = append(rep.Issues, results[i].issues...)
 		rep.Notes = append(rep.Notes, results[i].notes...)
+	}
+	if in.target != "" {
+		rep.Notes = append(rep.Notes, in.target)
 	}
 	return rep
 }

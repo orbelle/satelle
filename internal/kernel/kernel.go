@@ -84,9 +84,13 @@ type Options struct {
 	Runtime  string
 	Dir      string
 	ReadOnly string
+	Target   string
 }
 
 func Open(o Options) (*Kernel, error) {
+	if err := RefuseAtTarget(o); err != nil {
+		return nil, err
+	}
 	cfg, err := LoadConfig(o.Root)
 	if err != nil {
 		return nil, err
