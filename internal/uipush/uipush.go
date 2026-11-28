@@ -191,11 +191,18 @@ func workflowDocs(src Source) ([]json.RawMessage, error) {
 		w := src.Workflows[n]
 		doc := mirror.Doc{Kind: mirror.DocKindWorkflows, Name: n, Workflow: wireWorkflow(w)}
 		if w.File != "" {
-			if b, err := os.ReadFile(w.File); err == nil {
-				doc.Body = string(b)
-			}
-			if st, err := os.Stat(w.File); err == nil {
-				doc.ModTime = st.ModTime().UTC()
+			if w.Part != "" {
+				doc.Body = string(w.Source)
+				if st, err := os.Lstat(w.File); err == nil {
+					doc.ModTime = st.ModTime().UTC()
+				}
+			} else {
+				if b, err := os.ReadFile(w.File); err == nil {
+					doc.Body = string(b)
+				}
+				if st, err := os.Stat(w.File); err == nil {
+					doc.ModTime = st.ModTime().UTC()
+				}
 			}
 			doc.Source = w.File
 			if rel, err := filepath.Rel(src.RepoRoot, w.File); err == nil && !strings.HasPrefix(rel, "..") {
@@ -208,7 +215,7 @@ func workflowDocs(src Source) ([]json.RawMessage, error) {
 }
 
 func wireWorkflow(w *workflow.Workflow) *mirror.Workflow {
-	out := &mirror.Workflow{Name: w.Name, Panel: w.PanelName(), States: []mirror.WorkflowState{}, Transitions: []mirror.WorkflowTransition{}}
+	out := &mirror.Workflow{Name: w.Name, Part: w.Part, Panel: w.PanelName(), States: []mirror.WorkflowState{}, Transitions: []mirror.WorkflowTransition{}}
 	for _, n := range sortedKeys(w.States) {
 		s := w.States[n]
 		ws := mirror.WorkflowState{Name: n, Start: s.Start, Terminal: s.Terminal, Park: s.Park, Resumes: s.Resumes}

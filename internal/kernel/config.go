@@ -83,6 +83,7 @@ type Config struct {
 	Init        InitSettings
 	Harness     map[string]HarnessSettings
 	Repos       reporeg.Registry
+	Parts       map[string]workflow.Rules
 	UnknownKeys []workflow.UnknownKey
 }
 
@@ -159,6 +160,7 @@ const (
 	SessionFile     = "session.md"
 	AutoModeFile    = "auto-mode.md"
 	WorkflowsDir    = "workflows"
+	PartsDir        = "repos"
 	SkillsDir       = "skills"
 	QueuesDir       = "queues"
 	RemotesDir      = "remotes"
@@ -387,6 +389,10 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 	} else {
 		c.Workflows = wfs
 	}
+	parts, pwfs, perrs := loadParts(root, reg)
+	c.Parts = parts
+	errs = append(errs, perrs...)
+	errs = append(errs, mergeParts(c, pwfs)...)
 	if sk, err := workflow.LoadSkills(skillsDir); err != nil {
 		errs = append(errs, err)
 		if sk != nil {
@@ -444,27 +450,14 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func (c *Config) Problems() []error {
 	var errs []error
-	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { _, ok := c.Workflows[n]; return ok })...)
+	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { w, ok := c.Workflows[n]; return ok && w.Part == "" })...)
+	errs = append(errs, c.partProblems()...)
 	errs = append(errs, c.Settings.Review.Validate(c.reviewGate, c.Agents.Has)...)
 	errs = append(errs, c.agentProblems()...)
 	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
 	for _, name := range sortedKeys(c.Workflows) {
 		w := c.Workflows[name]
-		errs = append(errs, w.Validate(skill, c.Agents.Has)...)
-		errs = append(errs, c.bindingProblems(w)...)
-		errs = append(errs, c.gatePlacementProblems(w)...)
-		for _, sname := range sortedKeys(w.States) {
-			if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
-				errs = append(errs, fmt.Errorf("workflow %s: state %q operator type %q is not a valid attachment type (letters, digits, '.', '_', '-')",
-					w.Name, sname, typ))
-			}
-			for _, q := range w.States[sname].Enqueue {
-				if _, ok := c.Queues[q]; !ok {
-					errs = append(errs, fmt.Errorf("workflow %s: state %q enqueues into %q, which has no %s/%s/%s.toml",
-						w.Name, sname, q, filepath.Base(c.Root), QueuesDir, q))
-				}
-			}
-		}
+		errs = append(errs, c.workflowProblems(w, skill)...)
 	}
 	for _, n := range sortedKeys(c.Skills) {
 		errs = append(errs, c.Skills[n].Problems()...)
@@ -480,6 +473,31 @@ func (c *Config) Problems() []error {
 	errs = append(errs, c.harnessProblems()...)
 	errs = append(errs, c.Repos.Problems()...)
 	return append(errs, c.UI.problems()...)
+}
+
+func (c *Config) workflowProblems(w *workflow.Workflow, skill func(string) (workflow.Skill, bool)) []error {
+	var errs []error
+	errs = append(errs, w.Validate(skill, c.Agents.Has)...)
+	errs = append(errs, c.bindingProblems(w)...)
+	errs = append(errs, c.gatePlacementProblems(w)...)
+	for _, sname := range sortedKeys(w.States) {
+		if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
+			errs = append(errs, fmt.Errorf("workflow %s: state %q operator type %q is not a valid attachment type (letters, digits, '.', '_', '-')",
+				w.Name, sname, typ))
+		}
+		for _, q := range w.States[sname].Enqueue {
+			if _, ok := c.Queues[q]; !ok {
+				errs = append(errs, fmt.Errorf("workflow %s: state %q enqueues into %q, which has no %s/%s/%s.toml",
+					w.Name, sname, q, filepath.Base(c.Root), QueuesDir, q))
+			}
+		}
+	}
+	if w.Part != "" {
+		for i, e := range errs {
+			errs[i] = partSafe(e)
+		}
+	}
+	return errs
 }
 
 func (c *Config) harnessProblems() []error {
@@ -575,7 +593,7 @@ func (c *Config) packProblems() []error {
 
 func (c *Config) queueProblems() []error {
 	var errs []error
-	wf := func(n string) bool { _, ok := c.Workflows[n]; return ok }
+	wf := func(n string) bool { w, ok := c.Workflows[n]; return ok && w.Part == "" }
 	bound := map[string]string{}
 	for _, name := range sortedKeys(c.Queues) {
 		q := c.Queues[name]
