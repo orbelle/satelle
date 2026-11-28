@@ -110,13 +110,11 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 }
 
 func onboardingIssues(in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []string) {
-	gc, err := config.LoadGlobal()
-	if err != nil || len(gc.Projects.Paths) == 0 {
+	others := onboardings(in.r.gitEnv)
+	if len(others) == 0 {
 		return nil, nil
 	}
-	env := in.r.gitEnv
-	rootOf := func(p string) string { return canonical(config.CanonicalRepoRootEnv(p, env)) }
-	here := rootOf(filepath.Dir(in.r.DataDir))
+	here := canonical(config.CanonicalRepoRootEnv(filepath.Dir(in.r.DataDir), in.r.gitEnv))
 	mine := map[string]string{here: reporeg.Self}
 	for _, name := range declaredNames(reg) {
 		if p, mapped, ok := reg.LocalPath(name); reg.EntryOK(name) && mapped && ok {
@@ -125,21 +123,17 @@ func onboardingIssues(in *doctorInput, reg reporeg.Registry) ([]doctorIssue, []s
 	}
 	var out []doctorIssue
 	var notes []string
-	for _, p := range gc.Projects.Paths {
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		root := rootOf(p)
+	for _, o := range others {
+		root := o.root
 		if root == here {
 			continue
 		}
-		local, ok := reporeg.LoadLocalQuiet(filepath.Join(root, config.DefaultDataDir))
-		if !ok {
+		if !o.ok {
 			notes = append(notes, checkReposName+": "+show(root)+": its "+kernel.ReposLocalFile+" could not be read")
 			continue
 		}
 		theirs := map[string]string{root: reporeg.Self}
-		for name, path := range local {
+		for name, path := range o.local {
 			theirs[canonical(path)] = name
 		}
 		for _, co := range slices.Sorted(maps.Keys(mine)) {

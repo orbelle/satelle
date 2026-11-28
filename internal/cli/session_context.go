@@ -16,6 +16,7 @@ type sessionSource struct {
 	Harness  map[string]kernel.HarnessSettings
 	Seats    func(session string) []seatView
 	Invalid  error
+	NoDoctor bool
 }
 
 type indexedContext struct {
