@@ -369,10 +369,27 @@ func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {
 	if len(errs) > 0 {
 		return nil, errs
 	}
+	wired := map[string]bool{}
+	for _, b := range c.Agents {
+		if !agent.IsSession(b) {
+			wired[agent.Preset(b)] = true
+		}
+	}
 	all := c.Agents.Overlay(cat)
+	checked := map[string]bool{}
 	for _, name := range cat.Names() {
 		for _, e := range append(agent.Problems(cat[name]), all.FallbackProblems(name)...) {
 			errs = append(errs, partErr("%s: agents.%s: %v", file, name, e))
+		}
+		for _, n := range []string{name, cat[name].Fallback} {
+			b, ok := all[n]
+			if !ok || checked[n] {
+				continue
+			}
+			checked[n] = true
+			if cli := agent.Preset(b); cli != "" && !agent.IsSession(b) && !wired[cli] {
+				errs = append(errs, partErr("%s: agents.%s: runs %s, a harness the shared %s does not run; the shared %s must already run that harness so its hooks are wired", file, strconv.Quote(n), cli, AgentsFile, AgentsFile))
+			}
 		}
 	}
 	if len(errs) > 0 {

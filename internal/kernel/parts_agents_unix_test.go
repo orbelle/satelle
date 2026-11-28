@@ -259,6 +259,8 @@ func TestPartAgentsUnresolved(t *testing.T) {
 		{"bad binding", "[agents.coder]\ncommand = \"claude\"\ntools = [\"Nope\"]\n" + partAgentsFile[strings.Index(partAgentsFile, "[agents.reviewer]"):], "agents.coder", false},
 		{"unbound fallback", partAgentsFile + "fallback = \"nobody\"\n", "nobody", false},
 		{"symlink", "", "agents.toml", true},
+		{"unwired harness", strings.Replace(partAgentsFile, "command = \"claude\"\nmodel = \"x-rev\"", "command = \"grok\"\nmodel = \"x-rev\"", 1), `agents."reviewer": runs grok, a harness the shared agents.toml does not run`, false},
+		{"unwired fallback", partAgentsFile + "fallback = \"spare\"\n[agents.spare]\ncommand = \"grok\"\nmodel = \"m\"\ntools = [\"Read\"]\n", `agents."spare": runs grok`, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			root := partAgentsRoot(t, c.agents, true)
@@ -327,7 +329,7 @@ func TestPartAgentsBindingNames(t *testing.T) {
 			}
 		})
 	}
-	root := partAgentsRoot(t, partAgentsFile+"[agents.\"reviewer-grok-4.7\"]\ncommand = \"grok\"\nmodel = \"grok-4.7\"\ntools = [\"Read\"]\n", true)
+	root := partAgentsRoot(t, partAgentsFile+"[agents.\"reviewer-grok-4.7\"]\ncommand = \"claude\"\nmodel = \"grok-4.7\"\ntools = [\"Read\"]\n", true)
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
