@@ -88,6 +88,9 @@ func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 }
 
 func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
+	if err := k.Resolver().Refusal(it); err != nil {
+		return "", "", err
+	}
 	name := it.Workflow
 	if name == "" {
 		name = k.partName(it)
@@ -99,7 +102,7 @@ func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
 	if !ok {
 		return "", "", fmt.Errorf("workflow %q does not exist", name)
 	}
-	if err := ServesTarget(w, it); err != nil {
+	if err := k.Resolver().Serves(w, it); err != nil {
 		return "", "", err
 	}
 	return name, w.StartState(), nil

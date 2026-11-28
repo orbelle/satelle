@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 
@@ -10,11 +9,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-func editScope(workflows map[string]*workflow.Workflow, it item.Item) (string, error) {
-	w, err := kernel.ItemWorkflow(workflows, it)
+func editScope(res kernel.Resolver, it item.Item) (string, error) {
+	w, err := res.ItemWorkflow(it)
 	if err != nil {
-		var mismatch *kernel.TargetMismatch
-		if errors.As(err, &mismatch) {
+		if kernel.Refused(err) {
 			return "", err
 		}
 		return "", nil
@@ -36,7 +34,7 @@ func seatsOf(k *kernel.Kernel, session string) ([]seatView, error) {
 		if !ok {
 			continue
 		}
-		edits, _ := editScope(k.Workflows, it)
+		edits, _ := editScope(k.Resolver(), it)
 		out = append(out, seatView{Item: it.ID, Title: it.Title, Status: it.Status, Location: s.Location, Performing: edits != "", Edits: edits})
 	}
 	return out, nil

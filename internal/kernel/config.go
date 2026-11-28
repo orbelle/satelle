@@ -69,22 +69,23 @@ type LedgerSettings struct {
 }
 
 type Config struct {
-	Root        string
-	Settings    Settings
-	Workflows   map[string]*workflow.Workflow
-	Skills      map[string]workflow.Skill
-	Packs       map[string]workflow.Pack
-	Agents      agent.Catalog
-	Overrides   []agent.Override
-	Queues      map[string]*workflow.Queue
-	Doctor      DoctorSettings
-	Volatile    substrate.VolatileRules
-	UI          UISettings
-	Init        InitSettings
-	Harness     map[string]HarnessSettings
-	Repos       reporeg.Registry
-	Parts       map[string]workflow.Rules
-	UnknownKeys []workflow.UnknownKey
+	Root         string
+	Settings     Settings
+	Workflows    map[string]*workflow.Workflow
+	Skills       map[string]workflow.Skill
+	Packs        map[string]workflow.Pack
+	Agents       agent.Catalog
+	Overrides    []agent.Override
+	Queues       map[string]*workflow.Queue
+	Doctor       DoctorSettings
+	Volatile     substrate.VolatileRules
+	UI           UISettings
+	Init         InitSettings
+	Harness      map[string]HarnessSettings
+	Repos        reporeg.Registry
+	Parts        map[string]*Part
+	PartWarnings []PartWarning
+	UnknownKeys  []workflow.UnknownKey
 }
 
 type HarnessSettings struct {
@@ -389,10 +390,6 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 	} else {
 		c.Workflows = wfs
 	}
-	parts, pwfs, perrs := loadParts(root, reg)
-	c.Parts = parts
-	errs = append(errs, perrs...)
-	errs = append(errs, mergeParts(c, pwfs)...)
 	if sk, err := workflow.LoadSkills(skillsDir); err != nil {
 		errs = append(errs, err)
 		if sk != nil {
@@ -419,6 +416,9 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 		}
 	} else {
 		c.Queues = qs
+	}
+	if err := c.loadParts(); err != nil {
+		errs = append(errs, err)
 	}
 	return c, errors.Join(errs...)
 }
@@ -451,7 +451,6 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 func (c *Config) Problems() []error {
 	var errs []error
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { w, ok := c.Workflows[n]; return ok && w.Part == "" })...)
-	errs = append(errs, c.partProblems()...)
 	errs = append(errs, c.Settings.Review.Validate(c.reviewGate, c.Agents.Has)...)
 	errs = append(errs, c.agentProblems()...)
 	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
@@ -704,6 +703,9 @@ func (c *Config) fallbackProblems(w *workflow.Workflow, gname string) []error {
 func (c *Config) reviewGate(name string) (found, check bool) {
 	check = true
 	for _, wname := range sortedKeys(c.Workflows) {
+		if c.Workflows[wname].Part != "" {
+			continue
+		}
 		g, ok := c.Workflows[wname].Gates[name]
 		if !ok {
 			continue

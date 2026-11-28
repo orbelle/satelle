@@ -33,8 +33,14 @@ placed first by the `[[workflows.rule]]` and `[workflows] default` of
 `.satelle/repos/X/workflows/`; it falls to the shared rules when none of them
 applies. Such a workflow is recorded and shown as `X/<name>` and serves only
 `X`'s items: an item on it that targets another repository gets no gate, edit,
-push or terminal release, and its repo cannot change. Without `.satelle/repos/`
-every story is placed by the shared rules.
+push or terminal release, and its repo cannot change. A `.satelle/repos/<name>/`
+that repos.toml does not register is not loaded, and
+`satelle validate --session <session>` and `satelle doctor --session <session>`
+list it. A registered part whose rules or workflows cannot be
+read, or name a skill, agent, queue or workflow it cannot resolve, is listed
+under that part, and that repository's stories are refused until it resolves;
+the shared configuration stays valid. Without `.satelle/repos/` every story is
+placed by the shared rules.
 
 A workflow may name a panel, `panel = "<name>"` at the top of its file: satelled
 lists its stories on a tab of that name instead of Stories (they leave the

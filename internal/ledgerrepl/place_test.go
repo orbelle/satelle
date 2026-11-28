@@ -182,3 +182,32 @@ func TestUnpushedLocalEventsAreNotPlacedOver(t *testing.T) {
 		t.Fatalf("placed %v unplaced %v (%v)", res.Placed, res.Unplaced, err)
 	}
 }
+
+type refusingRules struct{ rules }
+
+func (r *refusingRules) WorkflowFor(it item.Item) (string, string, error) {
+	if it.Repo == "infra" {
+		return "", "", &kernel.PartUnresolved{Item: it.ID, Repo: it.Repo}
+	}
+	return r.rules.WorkflowFor(it)
+}
+
+func TestPullLeavesAnUnresolvedPartsItemUnplaced(t *testing.T) {
+	w := newWorld(t)
+	infra := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "infra", "repo": "infra"})
+	plain := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "plain"})
+	a := w.home(t, &refusingRules{})
+	res, err := a.Pull(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Placed) != 1 || res.Placed[0] != plain {
+		t.Errorf("placed %v", res.Placed)
+	}
+	if len(res.Unplaced) != 1 || res.Unplaced[0] != infra {
+		t.Errorf("unplaced %v", res.Unplaced)
+	}
+	if n := len(chainOf(t, a, infra)); n != 1 {
+		t.Errorf("the unresolved part's item has %d events", n)
+	}
+}

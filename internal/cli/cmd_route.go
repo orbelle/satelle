@@ -11,7 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
-	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -180,11 +179,8 @@ func routeCmd(kind string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w, ok := k.Workflows[it.Workflow]
-			if !ok {
-				return fmt.Errorf("%s names workflow %q, which does not exist", it.ID, it.Workflow)
-			}
-			if err := kernel.ServesTarget(w, it); err != nil {
+			w, err := k.ItemWorkflow(it)
+			if err != nil {
 				return err
 			}
 			results, err := gateResults(k, it.ID)

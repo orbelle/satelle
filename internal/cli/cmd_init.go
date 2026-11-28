@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -245,6 +247,23 @@ func unknownKeyFindings(dataDir string) []workflow.UnknownKey {
 	return cfg.UnknownKeys
 }
 
+func partFindings(dataDir string) ([]kernel.PartWarning, map[string][]string) {
+	cfg, _ := kernel.LoadConfig(dataDir)
+	if cfg == nil {
+		return nil, nil
+	}
+	var problems map[string][]string
+	for x, ps := range cfg.Unresolved() {
+		if problems == nil {
+			problems = map[string][]string{}
+		}
+		for _, e := range ps {
+			problems[x] = append(problems[x], e.Error())
+		}
+	}
+	return cfg.PartWarnings, problems
+}
+
 func skillWarnings(dataDir string, configValid bool) []kernel.SkillWarning {
 	if !configValid {
 		return []kernel.SkillWarning{}
@@ -310,7 +329,16 @@ check; satelle doctor reports each as an unknown-keys issue. Unknown keys in
 workflows/*.toml, queues/*.toml, agents.toml, agents.local.toml, repos.toml,
 repos.local.toml, in
 satelle.toml's [workflows], [gate] or [review] tables, or any unknown top-level
-key or table in satelle.toml fail configuration loading.`,
+key or table in satelle.toml fail configuration loading.
+
+It also lists each .satelle/repos/<name>/ that repos.toml does not register,
+as repos/<name>: not loaded: <why> (under the part_warnings key with --json);
+such a directory is never read. A registered repository's part whose
+satelle.toml [workflows] rules or workflows/*.toml cannot be read, or name a
+skill, agent, queue or workflow it cannot resolve, is listed under that part
+(under the part_problems key with --json), and that repository's stories are
+refused until it resolves. Neither fails the check; satelle doctor reports
+each as a repos issue.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -335,6 +363,7 @@ key or table in satelle.toml fail configuration loading.`,
 			}
 			unnamed := skillWarnings(r.DataDir, len(problems) == 0)
 			unknown := unknownKeyFindings(r.DataDir)
+			partWarns, partProblems := partFindings(r.DataDir)
 			problems = append(problems, kernel.RemoteDefinitionProblems(r.DataDir)...)
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
@@ -342,8 +371,19 @@ key or table in satelle.toml fail configuration loading.`,
 				for _, p := range problems {
 					msgs = append(msgs, p.Error())
 				}
-				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
-					substrate.VolatileField: volatile, "tag_warnings": tagged, "skill_warnings": unnamed, "unknown_keys": unknown}); err != nil {
+				doc := map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
+					substrate.VolatileField: volatile, "tag_warnings": tagged, "skill_warnings": unnamed, "unknown_keys": unknown}
+				if len(partWarns) > 0 {
+					lines := make([]string, len(partWarns))
+					for i, w := range partWarns {
+						lines[i] = w.String()
+					}
+					doc["part_warnings"] = lines
+				}
+				if len(partProblems) > 0 {
+					doc["part_problems"] = partProblems
+				}
+				if err := writeJSON(cmd.OutOrStdout(), doc); err != nil {
 					return err
 				}
 			} else {
@@ -356,6 +396,7 @@ key or table in satelle.toml fail configuration loading.`,
 						fmt.Fprintln(cmd.OutOrStdout(), u.String())
 					}
 				}
+				printPartFindings(cmd.OutOrStdout(), r.DataDir, partWarns, partProblems)
 				if len(volatile) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "volatile literals in %s (%d):\n", r.DataDir, len(volatile))
 					for _, f := range volatile {
@@ -530,4 +571,22 @@ func statusCmd() *cobra.Command {
 	}
 	asJSON = jsonFlag(cmd)
 	return cmd
+}
+
+func printPartFindings(w io.Writer, dataDir string, warns []kernel.PartWarning, problems map[string][]string) {
+	if len(warns) > 0 {
+		fmt.Fprintf(w, "repository parts not loaded in %s (%d):\n", dataDir, len(warns))
+		for _, pw := range warns {
+			fmt.Fprintln(w, pw.String())
+		}
+	}
+	if len(problems) > 0 {
+		fmt.Fprintf(w, "repository parts that do not resolve in %s (%d):\n", dataDir, len(problems))
+		for _, x := range slices.Sorted(maps.Keys(problems)) {
+			fmt.Fprintf(w, "%s/%s: its stories are refused until it resolves\n", kernel.PartsDir, reporeg.Literal(x))
+			for _, e := range problems[x] {
+				fmt.Fprintln(w, "  "+e)
+			}
+		}
+	}
 }

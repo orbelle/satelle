@@ -15,6 +15,37 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
+type PartWarning struct {
+	Dir, Reason string
+}
+
+func (w PartWarning) String() string {
+	return fmt.Sprintf("%s/%s: not loaded: %s", PartsDir, reporeg.Literal(w.Dir), w.Reason)
+}
+
+type Part struct {
+	Name      string
+	Rules     workflow.Rules
+	Workflows map[string]*workflow.Workflow
+	Problems  []error
+}
+
+type PartUnresolved struct {
+	Item, Repo string
+	Problems   []error
+}
+
+func (e *PartUnresolved) Error() string {
+	msgs := make([]string, len(e.Problems))
+	for i, p := range e.Problems {
+		msgs[i] = p.Error()
+	}
+	return fmt.Sprintf("item %s targets repository %s, whose part .satelle/%s/%s/ does not resolve, so its stories are refused until it does: %s",
+		e.Item, reporeg.Literal(e.Repo), PartsDir, reporeg.Literal(e.Repo), strings.Join(msgs, "; "))
+}
+
+func (e *PartUnresolved) Unplaceable() bool { return true }
+
 type TargetMismatch struct {
 	Item, Workflow, Part, Target string
 }
@@ -24,26 +55,62 @@ func (e *TargetMismatch) Error() string {
 		e.Item, reporeg.Literal(e.Workflow), reporeg.Literal(e.Part), reporeg.Literal(e.Target))
 }
 
-func ServesTarget(w *workflow.Workflow, it item.Item) error {
+func Refused(err error) bool {
+	var u *PartUnresolved
+	var m *TargetMismatch
+	return errors.As(err, &u) || errors.As(err, &m)
+}
+
+type Resolver struct {
+	Workflows  map[string]*workflow.Workflow
+	Unresolved map[string][]error
+}
+
+func (r Resolver) Refusal(it item.Item) error {
+	t := it.Target()
+	if ps := r.Unresolved[t]; len(ps) > 0 {
+		return &PartUnresolved{Item: it.ID, Repo: t, Problems: ps}
+	}
+	return nil
+}
+
+func (r Resolver) Serves(w *workflow.Workflow, it item.Item) error {
+	if err := r.Refusal(it); err != nil {
+		return err
+	}
 	if w.Part == "" || w.Part == it.Target() {
 		return nil
 	}
 	return &TargetMismatch{Item: it.ID, Workflow: w.Name, Part: w.Part, Target: it.Target()}
 }
 
-func ItemWorkflow(ws map[string]*workflow.Workflow, it item.Item) (*workflow.Workflow, error) {
-	w, ok := ws[it.Workflow]
+func (r Resolver) ItemWorkflow(it item.Item) (*workflow.Workflow, error) {
+	if err := r.Refusal(it); err != nil {
+		return nil, err
+	}
+	w, ok := r.Workflows[it.Workflow]
 	if !ok {
 		return nil, fmt.Errorf("item %s names workflow %q, which does not exist", it.ID, it.Workflow)
 	}
-	if err := ServesTarget(w, it); err != nil {
+	if err := r.Serves(w, it); err != nil {
 		return nil, err
 	}
 	return w, nil
 }
 
+func (k *Kernel) Resolver() Resolver {
+	return Resolver{Workflows: k.Workflows, Unresolved: k.Unresolved}
+}
+
+func (c *Config) Resolver() Resolver {
+	if c == nil {
+		return Resolver{}
+	}
+	return Resolver{Workflows: c.Workflows, Unresolved: c.Unresolved()}
+}
+
 func (k *Kernel) ItemWorkflow(it item.Item) (*workflow.Workflow, error) {
-	return ItemWorkflow(k.Workflows, it)
+	return k.Resolver().ItemWorkflow(it)
 }
 
 func (k *Kernel) servedWorkflow(it item.Item) *workflow.Workflow {
@@ -66,6 +133,34 @@ func (k *Kernel) partName(it item.Item) string {
 	return ""
 }
 
+func (c *Config) PartRules() map[string]workflow.Rules {
+	var out map[string]workflow.Rules
+	for x, p := range c.Parts {
+		if len(p.Problems) > 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string]workflow.Rules{}
+		}
+		out[x] = p.Rules
+	}
+	return out
+}
+
+func (c *Config) Unresolved() map[string][]error {
+	var out map[string][]error
+	for x, p := range c.Parts {
+		if len(p.Problems) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string][]error{}
+		}
+		out[x] = p.Problems
+	}
+	return out
+}
+
 func partSafe(err error) error {
 	if err == nil {
 		return nil
@@ -81,70 +176,109 @@ func partErr(format string, a ...any) error {
 	return partSafe(fmt.Errorf(format, a...))
 }
 
-func loadParts(root string, reg reporeg.Registry) (map[string]workflow.Rules, map[string]*workflow.Workflow, []error) {
-	dir := filepath.Join(root, PartsDir)
+func partSkip(reg reporeg.Registry, x string) string {
+	switch {
+	case !reporeg.ValidName(x):
+		return "not a valid repository name"
+	case x == reporeg.Self:
+		return "self is the control repository; its workflows are the shared " + WorkflowsDir + "/"
+	case !reg.EntryOK(x):
+		return reporeg.TrackedFile + " registers no valid repository of that name"
+	}
+	return ""
+}
+
+func (c *Config) loadParts() error {
+	dir := filepath.Join(c.Root, PartsDir)
 	info, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
+		return nil
 	}
 	if err != nil {
-		return nil, nil, []error{partErr("%s: cannot be read", PartsDir)}
+		return partErr("%s: cannot be read", PartsDir)
 	}
 	if !info.IsDir() {
-		return nil, nil, []error{partErr("%s: not a directory", PartsDir)}
+		return partErr("%s: not a directory", PartsDir)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, []error{partErr("%s: cannot be read", PartsDir)}
+		return partErr("%s: cannot be read", PartsDir)
 	}
-	rules := map[string]workflow.Rules{}
-	wfs := map[string]*workflow.Workflow{}
-	var errs []error
 	for _, e := range entries {
 		x := e.Name()
-		switch {
-		case !reporeg.ValidName(x):
-			errs = append(errs, partErr("%s/%s: not a valid repository name", PartsDir, reporeg.Literal(x)))
-			continue
-		case x == reporeg.Self:
-			errs = append(errs, partErr("%s/%s: self is the control repository; its workflows are the shared %s/", PartsDir, x, WorkflowsDir))
-			continue
-		case !reg.EntryOK(x):
-			errs = append(errs, partErr("%s/%s: %s registers no valid repository of that name", PartsDir, x, reporeg.TrackedFile))
+		if reason := partSkip(c.Repos, x); reason != "" {
+			c.PartWarnings = append(c.PartWarnings, PartWarning{Dir: x, Reason: reason})
 			continue
 		}
-		r, ws, perrs := loadPart(dir, x)
-		errs = append(errs, perrs...)
-		if r != nil {
-			rules[x] = *r
+		p := c.loadPart(dir, x)
+		if c.Parts == nil {
+			c.Parts = map[string]*Part{}
 		}
-		for _, n := range sortedKeys(ws) {
-			wfs[n] = ws[n]
+		c.Parts[x] = p
+	}
+	for _, x := range sortedKeys(c.Parts) {
+		p := c.Parts[x]
+		if len(p.Problems) > 0 {
+			continue
+		}
+		for _, n := range sortedKeys(p.Workflows) {
+			c.Workflows[n] = p.Workflows[n]
 		}
 	}
-	if len(rules) == 0 {
-		rules = nil
-	}
-	return rules, wfs, errs
+	return nil
 }
 
-func loadPart(dir, x string) (*workflow.Rules, map[string]*workflow.Workflow, []error) {
+func (c *Config) loadPart(dir, x string) *Part {
+	p := &Part{Name: x, Workflows: map[string]*workflow.Workflow{}}
 	rel := PartsDir + "/" + x
 	partDir := filepath.Join(dir, x)
 	info, err := os.Lstat(partDir)
 	if err != nil {
-		return nil, nil, []error{partErr("%s: cannot be read", rel)}
+		p.Problems = append(p.Problems, partErr("%s: cannot be read", rel))
+		return p
 	}
 	if !info.IsDir() {
-		return nil, nil, []error{partErr("%s: not a directory", rel)}
+		p.Problems = append(p.Problems, partErr("%s: not a directory", rel))
+		return p
 	}
-	var errs []error
 	rules, err := loadPartRules(partDir, rel)
 	if err != nil {
-		errs = append(errs, err)
+		p.Problems = append(p.Problems, err)
+	} else if rules != nil {
+		p.Rules = *rules
 	}
-	wfs, werrs := loadPartWorkflows(partDir, rel, x)
-	return rules, wfs, append(errs, werrs...)
+	wfs, errs := loadPartWorkflows(partDir, rel, x)
+	p.Problems = append(p.Problems, errs...)
+	for _, n := range sortedKeys(wfs) {
+		w := wfs[n]
+		if prev, dup := c.Workflows[n]; dup {
+			p.Problems = append(p.Problems, partErr("%s/%s: workflow %s is also defined in %s", rel, WorkflowsDir, n, prev.File))
+			continue
+		}
+		p.Workflows[n] = w
+	}
+	p.Problems = append(p.Problems, c.resolvePart(p)...)
+	return p
+}
+
+func (c *Config) resolvePart(p *Part) []error {
+	x := p.Name
+	file := PartsDir + "/" + x + "/" + SettingsFile
+	exists := func(n string) bool { _, ok := p.Workflows[x+"/"+n]; return ok }
+	var errs []error
+	if d := p.Rules.Default; d != "" && !exists(d) {
+		errs = append(errs, partErr("%s: workflows: default workflow %s is not defined under %s/%s/%s/", file, reporeg.Literal(d), PartsDir, x, WorkflowsDir))
+	}
+	for _, e := range p.Rules.RuleProblems(exists) {
+		errs = append(errs, partErr("%s: %v", file, e))
+	}
+	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
+	for _, n := range sortedKeys(p.Workflows) {
+		for _, e := range c.workflowProblems(p.Workflows[n], skill) {
+			errs = append(errs, partErr("%s/%s: %v", PartsDir, x, e))
+		}
+	}
+	return errs
 }
 
 func loadPartRules(partDir, rel string) (*workflow.Rules, error) {
@@ -235,36 +369,4 @@ func loadPartWorkflows(partDir, rel, x string) (map[string]*workflow.Workflow, [
 		out[w.Name] = w
 	}
 	return out, errs
-}
-
-func mergeParts(c *Config, wfs map[string]*workflow.Workflow) []error {
-	var errs []error
-	for _, n := range sortedKeys(wfs) {
-		w := wfs[n]
-		if prev, dup := c.Workflows[n]; dup {
-			errs = append(errs, partErr("%s/%s/%s: workflow %s is also defined in %s", PartsDir, w.Part, WorkflowsDir, n, prev.File))
-			continue
-		}
-		c.Workflows[n] = w
-	}
-	return errs
-}
-
-func (c *Config) partProblems() []error {
-	var errs []error
-	for _, x := range sortedKeys(c.Parts) {
-		r := c.Parts[x]
-		file := PartsDir + "/" + x + "/" + SettingsFile
-		exists := func(n string) bool {
-			w, ok := c.Workflows[x+"/"+n]
-			return ok && w.Part == x
-		}
-		if r.Default != "" && !exists(r.Default) {
-			errs = append(errs, partErr("%s: workflows: default workflow %s is not defined under %s/%s/%s/", file, reporeg.Literal(r.Default), PartsDir, x, WorkflowsDir))
-		}
-		for _, e := range r.RuleProblems(exists) {
-			errs = append(errs, partErr("%s: %v", file, e))
-		}
-	}
-	return errs
 }

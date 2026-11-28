@@ -171,8 +171,8 @@ func TestNoPartsDirectoryPlacesAsToday(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Parts != nil {
-			t.Errorf("parts %v with no %s/", cfg.Parts, PartsDir)
+		if cfg.Parts != nil || cfg.PartWarnings != nil {
+			t.Errorf("parts %v %v with no %s/", cfg.Parts, cfg.PartWarnings, PartsDir)
 		}
 		for n, w := range cfg.Workflows {
 			if w.Part != "" {
@@ -199,7 +199,168 @@ func TestNoPartsDirectoryPlacesAsToday(t *testing.T) {
 	}
 }
 
-func TestPartProblems(t *testing.T) {
+const partForeign = `[states.intake]
+start = true
+[states.build]
+performer = { agent = "infra-reviewer", skill = "infra-tests-check" }
+[states.shipped]
+terminal = true
+[[transition]]
+from = ["intake"]
+to = "build"
+[[transition]]
+from = ["build"]
+to = "shipped"
+`
+
+func writeForeignPart(t *testing.T, root string) {
+	t.Helper()
+	write(t, filepath.Join(root, PartsDir, "infra", SettingsFile), "[[workflows.rule]]\nworkflow = \"delivery\"\ncategory = \"c\"\n")
+	write(t, filepath.Join(root, PartsDir, "infra", WorkflowsDir, "delivery.toml"), partForeign)
+}
+
+func TestPartUnregisteredIsIgnored(t *testing.T) {
+	root := partRoot(t, false)
+	writeForeignPart(t, root)
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps := cfg.Problems(); len(ps) > 0 {
+		t.Fatalf("problems: %v", errors.Join(ps...))
+	}
+	if len(cfg.Parts) != 0 {
+		t.Errorf("parts %v", cfg.Parts)
+	}
+	if len(cfg.PartWarnings) != 1 || cfg.PartWarnings[0].String() != "repos/infra: not loaded: repos.toml registers no valid repository of that name" {
+		t.Errorf("warnings %v", cfg.PartWarnings)
+	}
+	if _, ok := cfg.Workflows["infra/delivery"]; ok {
+		t.Error("an unregistered part's workflow loaded")
+	}
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a"), Category: ptr("c")}, "me")
+	if err != nil || it.Workflow != "default" {
+		t.Errorf("self story = %s %v", it.Workflow, err)
+	}
+}
+
+func TestPartWarningNames(t *testing.T) {
+	root := partRoot(t, true)
+	write(t, filepath.Join(root, PartsDir, "self", SettingsFile), "")
+	if runtime.GOOS != "windows" {
+		write(t, filepath.Join(root, PartsDir, "a\x1b[31m\nb", SettingsFile), "")
+	}
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps := cfg.Problems(); len(ps) > 0 {
+		t.Fatalf("problems: %v", errors.Join(ps...))
+	}
+	var lines []string
+	for _, w := range cfg.PartWarnings {
+		lines = append(lines, w.String())
+	}
+	all := strings.Join(lines, "\n")
+	if !strings.Contains(all, "repos/self: not loaded: self is the control repository") {
+		t.Errorf("warnings %q", all)
+	}
+	if runtime.GOOS != "windows" && (!strings.Contains(all, "not a valid repository name") || strings.Contains(all, "\x1b")) {
+		t.Errorf("warnings %q", all)
+	}
+	if len(cfg.Parts) != 0 {
+		t.Errorf("parts %v", cfg.Parts)
+	}
+}
+
+func foreignRoot(t *testing.T) string {
+	t.Helper()
+	root := partRoot(t, false)
+	write(t, filepath.Join(root, reporeg.TrackedFile), "[repos.infra]\norigin = \"https://github.com/o/infra\"\n[repos.y]\norigin = \"https://github.com/o/y\"\n")
+	return root
+}
+
+func TestPartUnresolvedRefusesItsStories(t *testing.T) {
+	root := foreignRoot(t)
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	early, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a"), Category: ptr("c"), Repo: ptr("infra")}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("s"), Category: ptr("c")}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.Close()
+	writeForeignPart(t, root)
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps := cfg.Problems(); len(ps) > 0 {
+		t.Fatalf("problems: %v", errors.Join(ps...))
+	}
+	p := cfg.Parts["infra"]
+	if p == nil || len(p.Problems) == 0 {
+		t.Fatalf("part %+v", p)
+	}
+	all := errors.Join(p.Problems...).Error()
+	for _, want := range []string{"infra-reviewer", "infra-tests-check", "repos/infra: "} {
+		if !strings.Contains(all, want) {
+			t.Errorf("part problems lack %q: %s", want, all)
+		}
+	}
+	k, err = Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if _, ok := k.Workflows["infra/delivery"]; ok {
+		t.Error("an unresolved part's workflow loaded")
+	}
+	var refused *PartUnresolved
+	if _, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("b"), Category: ptr("c"), Repo: ptr("infra")}, "me"); !errors.As(err, &refused) || !strings.Contains(err.Error(), "infra-reviewer") {
+		t.Errorf("create --repo infra: %v", err)
+	}
+	for _, repo := range []string{"self", "y"} {
+		it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("b"), Category: ptr("c"), Repo: ptr(repo)}, "me")
+		if err != nil || it.Workflow != "default" {
+			t.Errorf("create --repo %s = %s %v", repo, it.Workflow, err)
+		}
+	}
+	if _, err := k.Seat(early.ID, "s", LocalLocation(t.TempDir()), "", "me"); !errors.As(err, &refused) {
+		t.Errorf("seat: %v", err)
+	}
+	if _, err := k.Perform(context.Background(), early.ID, "me"); !errors.As(err, &refused) {
+		t.Errorf("perform: %v", err)
+	}
+	if _, err := k.Transition(context.Background(), early.ID, "done", "me"); !errors.As(err, &refused) {
+		t.Errorf("transition: %v", err)
+	}
+	if _, err := k.GateDry(context.Background(), GateDryRequest{Workflow: "default", Gate: "any", Item: early.ID}); !errors.As(err, &refused) {
+		t.Errorf("dry gate: %v", err)
+	}
+	if _, err := k.Update(self.ID, item.Fields{Repo: ptr("infra")}, "me"); !errors.As(err, &refused) {
+		t.Errorf("repo change to infra: %v", err)
+	}
+	if !Refused(refused) {
+		t.Error("Refused does not accept a PartUnresolved")
+	}
+	var u interface{ Unplaceable() bool }
+	if !errors.As(error(refused), &u) || !u.Unplaceable() {
+		t.Error("a PartUnresolved is not unplaceable")
+	}
+}
+
+func TestPartLoadProblems(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "outside")
 	write(t, filepath.Join(outside, "infra.toml"), "SECRET-OUTSIDE = 1\n")
 	write(t, filepath.Join(outside, SettingsFile), "SECRET-OUTSIDE = 1\n")
@@ -227,21 +388,6 @@ func TestPartProblems(t *testing.T) {
 		{"undefined default", func(t *testing.T, root string) {
 			write(t, filepath.Join(root, PartsDir, "x", SettingsFile), "[workflows]\ndefault = \"nope\"\n")
 		}, "default workflow nope is not defined under repos/x/workflows/"},
-		{"unregistered", func(t *testing.T, root string) {
-			write(t, filepath.Join(root, PartsDir, "z", SettingsFile), "")
-		}, "repos/z: repos.toml registers no valid repository"},
-		{"self", func(t *testing.T, root string) {
-			write(t, filepath.Join(root, PartsDir, "self", SettingsFile), "")
-		}, "repos/self: self is the control repository"},
-		{"unsafe name", func(t *testing.T, root string) {
-			if runtime.GOOS == "windows" {
-				t.Skip("no control characters in Windows file names")
-			}
-			write(t, filepath.Join(root, PartsDir, "a\x1b[31m\nb", SettingsFile), "")
-		}, "not a valid repository name"},
-		{"repos link", func(t *testing.T, root string) {
-			link(t, outside, filepath.Join(root, PartsDir))
-		}, "repos: not a directory"},
 		{"part link", func(t *testing.T, root string) {
 			link(t, filepath.Join(outside, "x"), filepath.Join(root, PartsDir, "x"))
 		}, "repos/x: not a directory"},
@@ -292,24 +438,49 @@ func TestPartProblems(t *testing.T) {
 			writePart(t, root)
 			c.setup(t, root)
 			cfg, err := LoadConfig(root)
-			all := err
-			if cfg != nil {
-				all = errors.Join(err, errors.Join(cfg.Problems()...))
+			if err != nil {
+				t.Fatalf("load: %v", err)
 			}
-			if all == nil || !strings.Contains(all.Error(), c.want) {
-				t.Fatalf("problems %v, want %q", all, c.want)
+			if ps := cfg.Problems(); len(ps) > 0 {
+				t.Fatalf("shared problems: %v", errors.Join(ps...))
 			}
-			if strings.Contains(all.Error(), "SECRET-OUTSIDE") || strings.Contains(all.Error(), "\x1b") {
+			p := cfg.Parts["x"]
+			if p == nil || len(p.Problems) == 0 {
+				t.Fatalf("part %+v", p)
+			}
+			all := errors.Join(p.Problems...).Error()
+			if !strings.Contains(all, c.want) {
+				t.Fatalf("part problems %q, want %q", all, c.want)
+			}
+			if strings.Contains(all, "SECRET-OUTSIDE") || strings.Contains(all, "\x1b") {
 				t.Errorf("a problem shows outside or unsafe content: %q", all)
 			}
-			if strings.Contains(c.name, "link") && cfg != nil {
-				if w, ok := cfg.Workflows["x/infra"]; ok && w.Part == "x" && c.name != "settings link" {
-					t.Errorf("a part workflow loaded through a link")
-				}
+			if w, ok := cfg.Workflows["x/infra"]; ok && w.Part == "x" {
+				t.Error("an unresolved part's workflow loaded")
 			}
-			if _, err := Open(Options{Root: root}); err == nil {
-				t.Error("Open accepted the configuration")
+			k, err := Open(Options{Root: root})
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			defer k.Close()
+			var refused *PartUnresolved
+			if _, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a"), Category: ptr("c"), Repo: ptr("x")}, "me"); !errors.As(err, &refused) {
+				t.Errorf("create --repo x: %v", err)
 			}
 		})
+	}
+}
+
+func TestPartsDirectoryUnreadableFailsClosed(t *testing.T) {
+	outside := t.TempDir()
+	root := partRoot(t, true)
+	if err := os.Symlink(outside, filepath.Join(root, PartsDir)); err != nil {
+		t.Skip(err)
+	}
+	if _, err := LoadConfig(root); err == nil || !strings.Contains(err.Error(), "repos: not a directory") {
+		t.Errorf("load: %v", err)
+	}
+	if _, err := Open(Options{Root: root}); err == nil {
+		t.Error("Open accepted a linked repos/")
 	}
 }

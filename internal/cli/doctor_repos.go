@@ -94,7 +94,7 @@ func unregisteredTargets(in *doctorInput) []doctorIssue {
 	registered := reporeg.Literals(targets)
 	var out []doctorIssue
 	for _, ri := range items {
-		if itemTerminal(ri.it, in.cfg.Workflows) {
+		if itemTerminal(ri.it, in.cfg.Resolver()) {
 			continue
 		}
 		target := ri.it.Target()
@@ -113,11 +113,33 @@ func unregisteredTargets(in *doctorInput) []doctorIssue {
 	return out
 }
 
+func partIssues(in *doctorInput) []doctorIssue {
+	var out []doctorIssue
+	for _, w := range in.cfg.PartWarnings {
+		dir := kernel.PartsDir + "/" + reporeg.Literal(w.Dir)
+		fix := "remove .satelle/" + dir + "/"
+		if reporeg.ValidName(w.Dir) && !reporeg.HasUnsafe(w.Dir) && w.Dir != reporeg.Self {
+			fix = "register it with satelle repo add " + w.Dir + " --origin <url> --path <dir>, or " + fix
+		}
+		out = append(out, doctorIssue{Check: checkReposName, Problem: w.String(), Fix: fix})
+	}
+	unresolved := in.cfg.Unresolved()
+	for _, x := range slices.Sorted(maps.Keys(unresolved)) {
+		for _, e := range unresolved[x] {
+			out = append(out, doctorIssue{Check: checkReposName,
+				Problem: kernel.PartsDir + "/" + reporeg.Literal(x) + ": " + e.Error() + "; its stories are refused until it resolves",
+				Fix:     "satelle validate"})
+		}
+	}
+	return out
+}
+
 func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if in.cfg == nil {
 		return nil, nil
 	}
 	out := unregisteredTargets(in)
+	out = append(out, partIssues(in)...)
 	if !reporeg.Exists(in.r.DataDir) {
 		return out, nil
 	}

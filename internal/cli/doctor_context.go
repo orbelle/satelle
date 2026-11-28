@@ -64,7 +64,7 @@ func ledgerSeats(in *doctorInput, session string) []seatView {
 			if s.Session != session {
 				continue
 			}
-			edits, _ := editScope(in.cfg.Workflows, ri.it)
+			edits, _ := editScope(in.cfg.Resolver(), ri.it)
 			seats = append(seats, bound{
 				view: seatView{Item: ri.it.ID, Title: ri.it.Title, Status: ri.it.Status, Location: s.Location, Performing: edits != "", Edits: edits},
 				at:   s.BoundAt.UTC().Format(time.RFC3339Nano),

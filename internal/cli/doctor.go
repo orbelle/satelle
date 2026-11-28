@@ -716,13 +716,13 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	here, _ := config.ReadMachineID(home)
 	var out []doctorIssue
 	engaged := map[string]bool{}
-	for _, e := range engagedHere(items, in.cfg.Workflows, home, here) {
+	for _, e := range engagedHere(items, in.cfg.Resolver(), home, here) {
 		engaged[e.Item] = true
 	}
 	var elsewhere, gone, unverified []string
 	seen := 0
 	for _, ri := range items {
-		terminal := itemTerminal(ri.it, in.cfg.Workflows)
+		terminal := itemTerminal(ri.it, in.cfg.Resolver())
 		for _, s := range ri.seats {
 			seen++
 			rec, ok := seatlife.Load(home, s.Session)
@@ -807,15 +807,15 @@ type readItem struct {
 
 type engagedSeat struct{ Item, Session, Location string }
 
-func itemTerminal(it item.Item, workflows map[string]*workflow.Workflow) bool {
-	w, err := kernel.ItemWorkflow(workflows, it)
+func itemTerminal(it item.Item, res kernel.Resolver) bool {
+	w, err := res.ItemWorkflow(it)
 	return err == nil && w.IsTerminal(it.Status)
 }
 
-func engagedHere(items []readItem, workflows map[string]*workflow.Workflow, home, here string) []engagedSeat {
+func engagedHere(items []readItem, res kernel.Resolver, home, here string) []engagedSeat {
 	var out []engagedSeat
 	for _, ri := range items {
-		if itemTerminal(ri.it, workflows) {
+		if itemTerminal(ri.it, res) {
 			continue
 		}
 		for _, s := range ri.seats {
@@ -868,7 +868,7 @@ func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 		if !sel.Matches(ri.it) {
 			continue
 		}
-		if itemTerminal(ri.it, in.cfg.Workflows) {
+		if itemTerminal(ri.it, in.cfg.Resolver()) {
 			continue
 		}
 		out = append(out, doctorIssue{Check: "open:" + o.Name,
