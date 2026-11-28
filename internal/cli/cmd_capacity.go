@@ -43,7 +43,12 @@ Seats are read on every run. No process is started.
 Agent sessions are counted from the process table by the harness commands
 satelle knows: each integrated harness's CLI and the command of each
 agents.toml binding of this repo and the registered projects. A process whose
-parent is a session of the same harness is counted with that session.`,
+parent is a session of the same harness is counted with that session.
+
+The agents line ends with the total and this machine's worker ceiling, from [capacity]
+workers in ~/.satelle/config.toml (satelle settings set capacity.workers N), or
+"no ceiling" when none is set, the default: how many agents to run is then the
+orchestrator's choice. The ceiling is shown, never enforced.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			repos, reposErr := capacityRepos()
@@ -56,10 +61,23 @@ parent is a session of the same harness is counted with that session.`,
 			if keepErr != nil {
 				errs = append(errs, fmt.Errorf("sample not kept: %w", keepErr))
 			}
-			printCapacity(cmd.OutOrStdout(), s, seats, errs)
+			ceiling := workerCeiling(&errs)
+			printCapacity(cmd.OutOrStdout(), s, ceiling, seats, errs)
 			return nil
 		},
 	}
+}
+
+func workerCeiling(errs *[]error) string {
+	g, err := config.LoadGlobal()
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("worker ceiling unreadable: %w", err))
+		return "ceiling unavailable"
+	}
+	if n, ok := g.Capacity.Ceiling(); ok {
+		return fmt.Sprintf("ceiling %d", n)
+	}
+	return "no ceiling"
 }
 
 func capacityRepos() ([]repo, error) {
@@ -125,7 +143,7 @@ func machineSeats(repos []repo) ([]engagedSeat, []error) {
 
 const gib = 1 << 30
 
-func printCapacity(w io.Writer, s capacity.Sample, seats []engagedSeat, errs []error) {
+func printCapacity(w io.Writer, s capacity.Sample, ceiling string, seats []engagedSeat, errs []error) {
 	host, _ := os.Hostname()
 	id, ok := config.ReadMachineID(config.GlobalDir())
 	if !ok {
@@ -145,7 +163,7 @@ func printCapacity(w io.Writer, s capacity.Sample, seats []engagedSeat, errs []e
 		fmt.Fprintf(w, "load      %.2f %.2f %.2f (1, 5, 15 min)\n", s.Load[0], s.Load[1], s.Load[2])
 	}
 	if err := s.Errs[capacity.FigAgents]; err != nil {
-		fmt.Fprintf(w, "agents    unavailable: %v\n", err)
+		fmt.Fprintf(w, "agents    unavailable: %v (%s)\n", err, ceiling)
 	} else {
 		labels := make([]string, 0, len(s.Agents))
 		for l := range s.Agents {
@@ -153,10 +171,12 @@ func printCapacity(w io.Writer, s capacity.Sample, seats []engagedSeat, errs []e
 		}
 		slices.Sort(labels)
 		parts := make([]string, len(labels))
+		total := 0
 		for i, l := range labels {
 			parts[i] = fmt.Sprintf("%s %d", l, s.Agents[l])
+			total += s.Agents[l]
 		}
-		fmt.Fprintf(w, "agents    %s (all projects on this machine)\n", strings.Join(parts, ", "))
+		fmt.Fprintf(w, "agents    %s (all projects on this machine; %d in all; %s)\n", strings.Join(parts, ", "), total, ceiling)
 	}
 	fmt.Fprintf(w, "seats     %d engaged here\n", len(seats))
 	for _, st := range seats {
