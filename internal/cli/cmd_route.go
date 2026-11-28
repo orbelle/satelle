@@ -179,9 +179,9 @@ func routeCmd(kind string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w, ok := k.Workflows[it.Workflow]
-			if !ok {
-				return fmt.Errorf("%s names workflow %q, which does not exist", it.ID, it.Workflow)
+			w, err := k.ItemWorkflow(it)
+			if err != nil {
+				return err
 			}
 			results, err := gateResults(k, it.ID)
 			if err != nil {
