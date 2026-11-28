@@ -24,7 +24,7 @@ func TestLoadQueuesAndApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := qs["release"]
-	if q == nil || q.ChainID("que") != "que_release" || len(q.Validate(func(string) bool { return false })) != 0 {
+	if q == nil || q.ChainID("que") != "que_release" || len(q.Validate(func(string) bool { return false }, nil)) != 0 {
 		t.Fatalf("queue %+v", q)
 	}
 	q.ID = "que_65bc4edc"
@@ -63,16 +63,37 @@ func TestQueueOverlapSetting(t *testing.T) {
 		return q
 	}
 	q := write("allow", "allow")
-	if q.Trigger.Overlap != item.OverlapAllow || !q.Trigger.Overlaps() || len(q.Validate(func(string) bool { return false })) != 0 {
-		t.Fatalf("allow: %+v %v", q.Trigger, q.Validate(func(string) bool { return false }))
+	if q.Trigger.Overlap != item.OverlapAllow || !q.Trigger.Overlaps() || len(q.Validate(func(string) bool { return false }, nil)) != 0 {
+		t.Fatalf("allow: %+v %v", q.Trigger, q.Validate(func(string) bool { return false }, nil))
 	}
 	q = write("odd", "sometimes")
-	errs := q.Validate(func(string) bool { return false })
+	errs := q.Validate(func(string) bool { return false }, nil)
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), q.File) || !strings.Contains(errs[0].Error(), "sometimes") {
 		t.Fatalf("unknown overlap: %v", errs)
 	}
 	b, err := json.Marshal(item.Trigger{Task: "t"})
 	if err != nil || strings.Contains(string(b), "overlap") {
 		t.Fatalf("an unset overlap changes the trigger's json: %s %v", b, err)
+	}
+}
+
+func TestQueueFilterRepo(t *testing.T) {
+	no := func(string) bool { return false }
+	repos := []string{"self", "satelle-server"}
+	for _, r := range []string{"self", "satelle-server"} {
+		q := &Queue{Name: "release", File: "release.toml", Title: "R", Filter: &item.Selection{Repo: r}}
+		if errs := q.Validate(no, repos); len(errs) != 0 {
+			t.Fatalf("repo %s: %v", r, errs)
+		}
+	}
+	q := &Queue{Name: "release", File: "release.toml", Title: "R", Filter: &item.Selection{Repo: "other"}}
+	errs := q.Validate(no, repos)
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "other") || !strings.Contains(errs[0].Error(), "not registered") || !strings.Contains(errs[0].Error(), "satelle-server") {
+		t.Fatalf("unregistered: %v", errs)
+	}
+	q.Filter.Repo = "Bad\x1bName"
+	errs = q.Validate(no, repos)
+	if len(errs) != 1 || strings.Contains(errs[0].Error(), "\x1b") || !strings.Contains(errs[0].Error(), "not a repository name") {
+		t.Fatalf("bad name: %q", errs)
 	}
 }

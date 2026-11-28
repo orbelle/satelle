@@ -6,6 +6,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
 type queueVM struct {
@@ -29,7 +30,7 @@ type lastFireVM struct {
 
 func asItem(it Item) item.Item {
 	return item.Item{ID: it.ID, Kind: it.Kind, Title: it.Title, Status: it.Status, Tags: it.Tags,
-		Parent: it.ParentID, Category: it.Category, Workflow: it.Workflow, Inputs: it.Inputs, Trigger: it.Trigger}
+		Parent: it.ParentID, Category: it.Category, Workflow: it.Workflow, Inputs: it.Inputs, Trigger: it.Trigger, Repo: it.Repo}
 }
 
 func filterText(s *item.Selection) string {
@@ -44,6 +45,12 @@ func filterText(s *item.Selection) string {
 			}
 			out += kv[0] + ":" + kv[1]
 		}
+	}
+	if s.Repo != "" {
+		if out != "" {
+			out += " "
+		}
+		out += "repo:" + reporeg.Literal(s.Repo)
 	}
 	if out == "" {
 		return "every item"
@@ -84,6 +91,13 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 		s, _ := workflowState(workflows[it.Workflow], it.Status)
 		return it.Status, s.Terminal, true
 	}
+	target := func(id string) (string, bool) {
+		it, ok := byID[id]
+		if !ok {
+			return "", false
+		}
+		return asItem(it).Target(), true
+	}
 	out := make([]queueVM, 0, len(queues))
 	for _, q := range queues {
 		st := item.FoldQueue(chains[q.ID])
@@ -92,7 +106,7 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 			Filter:  filterText(q.Inputs),
 			Trigger: triggerLabel(q.Trigger),
 		}
-		for _, id := range item.Members(asItem(q), st, cands, status).Members {
+		for _, id := range item.Members(asItem(q), st, cands, status, target).Members {
 			m := memberVM{ID: id}
 			if it, ok := byID[id]; ok {
 				m.Kind, m.Title, m.Status = it.Kind, it.Title, it.Status

@@ -152,3 +152,51 @@ func TestQueueFileMirrorInPlainRepo(t *testing.T) {
 		t.Fatalf("unchanged file: %d events, want 2", n)
 	}
 }
+
+func TestQueueRepoFilterLinkedWorktree(t *testing.T) {
+	main, wt := worktreeQueueRepo(t)
+	mk := openAt(t, main, main)
+	before := chainLen(t, mk, "que_release")
+	if before != 1 {
+		t.Fatalf("main checkout wrote %d events, want the genesis", before)
+	}
+	mk.Close()
+
+	wroot := filepath.Join(wt, ".satelle")
+	writeTwoRepos(t, wroot)
+	queueFile(t, wroot, "release", "title = \"Release A\"\n[filter]\nkind = \"story\"\nrepo = \"satelle-server\"\n")
+	wk := openAt(t, main, wt)
+	if n := chainLen(t, wk, "que_release"); n != before {
+		t.Fatalf("linked worktree open: chain %d events, want %d", n, before)
+	}
+	if wrote, err := wk.Remirror("que_release"); wrote || err != nil {
+		t.Fatalf("remirror in a linked worktree: wrote %v, %v", wrote, err)
+	}
+	srv := repoStory(t, wk, "server", "satelle-server")
+	repoStory(t, wk, "self", "")
+	_, _, ms, err := wk.QueueMembers("release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Members) != 1 || ms.Members[0] != srv.ID {
+		t.Fatalf("worktree members %v, want [%s]", ms.Members, srv.ID)
+	}
+	if n := chainLen(t, wk, "que_release"); n != before {
+		t.Fatalf("linked worktree writes: chain %d events, want %d", n, before)
+	}
+	wk.Close()
+
+	mroot := filepath.Join(main, ".satelle")
+	writeTwoRepos(t, mroot)
+	queueFile(t, mroot, "release", "title = \"Release A\"\n[filter]\nkind = \"story\"\nrepo = \"satelle-server\"\n")
+	mk = openAt(t, main, main)
+	if n := chainLen(t, mk, "que_release"); n != before+1 {
+		t.Fatalf("main checkout edit: chain %d events, want %d", n, before+1)
+	}
+	lastMirror(t, mk, "que_release")
+	assertChainIsFile(t, mk, "que_release", releaseFile(main))
+	q, err := mk.Get("que_release")
+	if err != nil || q.Inputs == nil || q.Inputs.Repo != "satelle-server" {
+		t.Fatalf("chain inputs %+v %v", q.Inputs, err)
+	}
+}

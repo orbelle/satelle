@@ -26,6 +26,8 @@ type QueueOutcome struct {
 	Name    string       `json:"name,omitempty"`
 	Added   []string     `json:"added"`
 	Already []string     `json:"already,omitempty"`
+	Outside []string     `json:"outside,omitempty"`
+	Repo    string       `json:"repo,omitempty"`
 	Fire    *FireOutcome `json:"fire,omitempty"`
 	Held    string       `json:"held,omitempty"`
 }
@@ -245,6 +247,14 @@ func (k *Kernel) memberStatus(id string) (string, bool, bool) {
 	return it.Status, w != nil && w.IsTerminal(it.Status), true
 }
 
+func (k *Kernel) memberTarget(id string) (string, bool) {
+	it, err := k.Get(id)
+	if err != nil {
+		return "", false
+	}
+	return it.Target(), true
+}
+
 func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, error) {
 	var candidates []item.Item
 	if q.Inputs != nil {
@@ -253,7 +263,7 @@ func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, e
 			return item.Membership{}, err
 		}
 	}
-	return item.Members(q, st, candidates, k.memberStatus), nil
+	return item.Members(q, st, candidates, k.memberStatus, k.memberTarget), nil
 }
 
 func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Membership, error) {
@@ -289,7 +299,10 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	}
 	st := item.FoldQueue(events)
 	_, stateCause := item.EnqueuedState(cause)
-	live := item.Members(item.Item{ID: q.ID}, st, nil, k.memberStatus).Members
+	live := item.Members(item.Item{ID: q.ID}, st, nil, k.memberStatus, nil).Members
+	if q.Inputs != nil {
+		out.Repo = q.Inputs.Repo
+	}
 	for _, id := range ids {
 		if id == queueID {
 			return out, fmt.Errorf("a queue cannot hold itself")
@@ -297,6 +310,10 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 		it, err := k.Get(id)
 		if err != nil {
 			return out, err
+		}
+		if out.Repo != "" && it.Target() != out.Repo {
+			out.Outside = append(out.Outside, id)
+			continue
 		}
 		if slices.Contains(out.Added, id) || (!stateCause && slices.Contains(live, id)) ||
 			(cause != "" && !stateCause && st.AddedWith(id, cause)) {

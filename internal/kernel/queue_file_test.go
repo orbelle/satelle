@@ -15,6 +15,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -362,6 +363,8 @@ func TestQueueFileProblems(t *testing.T) {
 		"workflow":        "title = \"x\"\n[trigger]\nworkflow = \"nope\"\n",
 		"invalid id":      "id = \"bad id\"\ntitle = \"x\"\n",
 		"bad file name!":  "title = \"x\"\n",
+		"unknown repo":    "title = \"x\"\n[filter]\nrepo = \"satelle-server\"\n",
+		"bad repo name":   "title = \"x\"\n[filter]\nrepo = \"Bad Name\"\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -381,6 +384,12 @@ func TestQueueFileProblems(t *testing.T) {
 			}
 			if !strings.Contains(joined, filepath.Join(QueuesDir, file+".toml")) {
 				t.Fatalf("problems do not name the file:\n%s", joined)
+			}
+			if name == "unknown repo" && (!strings.Contains(joined, "satelle-server") || !strings.Contains(joined, "not registered")) {
+				t.Fatalf("unknown repo not named:\n%s", joined)
+			}
+			if name == "bad repo name" && !strings.Contains(joined, reporeg.Literal("Bad Name")) {
+				t.Fatalf("bad repo name not shown literally:\n%s", joined)
 			}
 		})
 	}

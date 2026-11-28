@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
 type Queue struct {
@@ -52,7 +54,7 @@ func LoadQueues(dir string) (map[string]*Queue, error) {
 	return out, errors.Join(errs...)
 }
 
-func (q *Queue) Validate(workflowExists func(string) bool) []error {
+func (q *Queue) Validate(workflowExists func(string) bool, repos []string) []error {
 	var errs []error
 	bad := func(format string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", q.File, fmt.Sprintf(format, a...)))
@@ -67,7 +69,16 @@ func (q *Queue) Validate(workflowExists func(string) bool) []error {
 		bad("id %q is not an item id", q.ID)
 	}
 	if q.Filter != nil && *q.Filter == (item.Selection{}) {
-		bad("[filter] is empty: name at least one of kind, status, tag, category, or remove it (no filter = explicit adds only)")
+		bad("[filter] is empty: name at least one of kind, status, tag, category, repo, or remove it (no filter = explicit adds only)")
+	}
+	if q.Filter != nil && q.Filter.Repo != "" {
+		r := q.Filter.Repo
+		switch {
+		case r != reporeg.Self && (!reporeg.ValidName(r) || reporeg.HasUnsafe(r)):
+			bad("[filter] repo %s is not a repository name: self, or a name .satelle/repos.toml registers", reporeg.Literal(r))
+		case !slices.Contains(repos, r):
+			bad("[filter] repo %s is not registered in .satelle/repos.toml (registered: %s)", reporeg.Literal(r), reporeg.Literals(repos))
+		}
 	}
 	if q.Trigger != nil {
 		if err := q.Trigger.Validate(); err != nil {
