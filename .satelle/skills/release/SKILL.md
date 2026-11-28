@@ -203,7 +203,7 @@ candidate's current HEAD as the tip:
 - the head is already in the candidate (`git merge-base --is-ancestor <head> <tip>`; a resumed run's head already on main too, and a carried head): kept, contained; a head a `v*` release tag already contains prints `contained, released in v<X>` (the earliest such tag), and step 3 writes no lines for it;
 - the tip is an ancestor of the head: kept, the candidate fast-forwards to it;
 - else the head is merged onto the tip in the candidate (`--no-ff`, a merge commit; the head itself is never rewritten): kept, merged. The tip before the first merge is recorded in `$rd/ff` (the fast-forward prefix);
-- a merge that conflicts is aborted, the item is dropped from the candidate and goes on the send-back list naming the conflicting paths: "head <sha> conflicts with the release candidate after <kept ids> in: <paths>; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again".
+- a merge that conflicts is aborted and the item is dropped from the candidate. When its head merges cleanly onto `origin/main` alone (`git merge-tree --write-tree origin/main <head>`), it conflicts only with items kept before it in this run: it stays `approved`, prints `left approved`, and gets a `release-deferred` attachment naming the conflicting paths and those items, so it merges main once they land and the next run takes it. Otherwise it conflicts with main too and goes on the send-back list naming the conflicting paths: "head <sha> conflicts with the release candidate after <kept ids> in: <paths>; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again".
 
 An item with no open pull request goes on the send-back list too, unless its
 merged pull request's head is an ancestor of `origin/main` (step 0): that head
@@ -211,8 +211,10 @@ is carried and lands contained, since the candidate starts at `origin/main`.
 It is never sent back for the missing open pull request. Each kept
 item is recorded `<id> <head>` in `$rd/kept`, in queue order (the landing
 order). Each item prints one line, `<id>: <fast-forward|merged|contained|sent
-back|skipped> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
-"nothing lands" when no item is kept (send back, step 2c, and stop).
+back|skipped|left out> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
+"nothing lands" when no item is kept (send back, step 2c, and stop). While a
+failed suite is being isolated (`### Isolate a failing suite`), it leaves out
+the items the current trial names and does not send them back.
 
 Run `.satelle/skills/release/scripts/build-candidate.sh`.
 
@@ -333,7 +335,10 @@ refuses the attach.
   version-stamp, changelog-entry, ci-published and release-installed gates
   read) and `release-node` (the result, the status line and the sprite check),
   then removes the candidate worktree and `$rd`. Step 7 follows.
-- Rejected or stopped: it attaches `release-evidence` (the failed step, the
+- Rejected at `test`, the suite, with at least one suspect: the run is not
+  cancelled. It exits 3, printing `isolate:` and the items the next trial
+  leaves out; follow `### Isolate a failing suite`.
+- Rejected or stopped otherwise: it attaches `release-evidence` (the failed step, the
   status line, the failing tests the node named, the failed step's last log
   lines the node brought back as `step-log`, and every item that entered
   the candidate by merge as a suspect, with the commands that send it back
@@ -349,10 +354,44 @@ refuses the attach.
 
 Run `.satelle/skills/release/scripts/read-node-result.sh`.
 
-A suspect is sent back only on the session's reading of the failure (a red
-suite names its tests in `failing`): run the line `release-evidence` gives it,
-after the run is cancelled. An item in the fast-forward prefix is never a
-suspect.
+An item in the fast-forward prefix is never a suspect: its head is exactly the
+tree that passed its own integration. When the run is cancelled, a suspect is
+sent back only on the session's reading of the failure (a red suite names its
+tests in `failing`), by the line `release-evidence` gives it.
+
+### Isolate a failing suite
+
+When `### Read the node's result` exits 3 (`isolate:`), the suite failed on
+a candidate with merged suspects, and the run looks for the story that breaks
+it instead of cancelling. The suspects are the kept items that entered the
+candidate by merge, newest first. Each trial builds a candidate that leaves
+some of them out:
+
+1. one suspect at a time, each alone, newest first;
+2. then cumulatively, the newest two, the newest three, and so on, down to the
+   fast-forward prefix alone.
+
+For each trial, run again, in order, with the same `held` lines as the first
+build: `### Build the candidate` (it prints `left out` for this trial's
+items), `### Send back`, `### Drift gate on the candidate`,
+`### The node's input`, `### Fire the node's part` and
+`### Read the node's result`. The trial's node part is a real one: a
+candidate whose suite passes goes on to bump, publish and push main, so the
+first passing trial is the release of every story it kept.
+
+- A trial that passes: the read sends back only the items that trial left
+  out. Their `release-sendback` names the failing tests of the first
+  candidate and says that leaving them out made the suite pass. It attaches
+  `release-isolation`: the first failing tests and each trial's outcome.
+  Step 7 follows.
+- A trial whose suite fails again exits 3 with the next trial.
+- A trial that fails at another step, or the last trial failing: the read
+  cancels the run as today. `release-evidence` then carries each trial's
+  outcome, and every item stays `approved`.
+
+The trials' state is `${TMPDIR:-/tmp}/satelle-release-<exe>.isolate`, beside
+`$rd`. Rebuilding the candidate keeps it, and an accepted or cancelled run
+removes it.
 
 ## 3. Bump once
 

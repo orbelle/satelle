@@ -129,8 +129,7 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 		if r.Mirrors != nil && r.Mirrors.MirrorTail(item, local, s) {
 			return r.adopt(ctx, res, item, c, local, s)
 		}
-		r.diverge(res, Divergence{Item: item, Seq: s, StoreHash: seen[s], LocalHash: local[s].Hash}, "nothing appended")
-		return nil
+		return r.rebase(ctx, res, c, local, Divergence{Item: item, Seq: s, StoreHash: seen[s], LocalHash: local[s].Hash})
 	}
 	if n <= len(local) {
 		return nil
@@ -175,7 +174,7 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 		r.diverge(res, d, "nothing appended")
 		return nil
 	}
-	if err := r.replaceWith(item, local, fetched); err != nil {
+	if err := r.replaceWith(item, local, fetched, "adopting"); err != nil {
 		return err
 	}
 	r.printf("adopted: %s: this runtime's %d queue-file event(s) replaced by the store's %d\n", item, len(local)-fork, len(fetched))
@@ -217,11 +216,11 @@ func (r *Replicator) fetchVerified(ctx context.Context, item string, c Chain) ([
 	return fetched, nil
 }
 
-func (r *Replicator) replaceWith(item string, local, fetched []ledger.Event) error {
+func (r *Replicator) replaceWith(item string, local, fetched []ledger.Event, verb string) error {
 	if err := r.Ledger.Replace(item, local[len(local)-1].Hash, fetched); err != nil {
 		var stale *ledger.StaleTail
 		if errors.As(err, &stale) {
-			return &refusal{fmt.Sprintf("%s changed in this runtime while adopting the store's chain; nothing replaced", item)}
+			return &refusal{fmt.Sprintf("%s changed in this runtime while %s the store's chain; nothing replaced", item, verb)}
 		}
 		return err
 	}

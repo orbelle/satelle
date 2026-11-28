@@ -33,7 +33,10 @@ ledger to and from the [ledger] store (satelle.dev, a store command, or local),
 by the same rules for every store. The automatic pass that installing or
 updating satelle starts (satelle-sync.timer, or the dev.satelle.sync launch agent on macOS, every 30 seconds) runs
 the same push, then pull, for each project on this machine whose store is not
-local. adopt resolves a fork pull refuses, for the items named. See
+local. A fork whose local events are all seat releases and queue adds that
+commute with the store's newer events is re-based onto the store's head (a queue
+add passes a fire only when the fire did not claim or keep its item); any other
+fork is a conflict, which adopt resolves for the items named. See
 'satelle help ledger-store'.`,
 	}
 	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAdoptCmd(), ledgerAutosyncCmd(), ledgerFollowCmd())
@@ -160,9 +163,17 @@ func ledgerPullCmd() *cobra.Command {
 		Long: `Read every chain the [ledger] store holds (or only the named items') and
 append the events this runtime lacks, after verifying them against the hash
 chain. Before appending, the store's event at the last sequence both chains
-hold is compared, whatever their lengths: a chain that diverged is refused,
-naming the item and fork point, nothing is appended to it, and pull exits 1. A
-store chain that is a prefix of the local one is not a conflict: pull imports
+hold is compared, whatever their lengths. A chain that diverged is re-based
+when every local event past the fork commutes with each of the store's newer
+events: a seat release, except beside a bind of the same session, and a queue
+add, beside adds of other items or the same cause, removes of other items, seat
+events, and a fire that neither claimed nor kept its item on a queue with no
+input filter. Its events keep their ids, are re-linked onto the store's head,
+and the next push writes them. Any other fork, every status transition
+included, is a conflict: pull names the item and both sides, re-bases nothing,
+keeps this runtime's events for 'satelle ledger adopt', and exits 1. A fork at
+event 0, or a chain that does not fold as an item, is refused with nothing
+appended. A store chain that is a prefix of the local one is not a conflict: pull imports
 nothing and the next push writes the rest. A named item the store does not
 hold is refused. An item that arrives without a workflow is placed by this
 repo's rules. With the local store pull says so and makes no store or network
@@ -181,6 +192,9 @@ ledger-store'.`,
 				}
 				fmt.Fprintf(out, "pull: %d event(s) on %d item(s) and %d blob(s); %d blob gap(s)\n",
 					res.Events, res.Items, res.Blobs, len(res.Gaps))
+				if len(res.Rebased) > 0 {
+					fmt.Fprintf(out, "Re-based %d item(s) onto the store's head: %s.\n", len(res.Rebased), strings.Join(res.Rebased, ", "))
+				}
 				if len(res.Placed) > 0 {
 					fmt.Fprintf(out, "Placed %d item(s) by this repo's rules.\n", len(res.Placed))
 				}

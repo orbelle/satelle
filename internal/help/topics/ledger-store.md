@@ -134,17 +134,31 @@ The rules are the same for every store:
   every append is conditional.
 - Pull compares the store's event at the last sequence both chains hold,
   whatever their lengths, and finds the fork point when it differs. A chain
-  that forked, in a longer, an equal-length or a shorter store chain, is
-  refused, `diverged: <item> at event <seq>: ...; nothing appended`, nothing is
-  appended to it, and pull exits 1. The one exception is a fork whose local
+  that forked past event 0, in a longer, an equal-length or a shorter store
+  chain, is re-based when every local event past the fork commutes with each of
+  the store's newer events, judged on the store's chain up to that event: a
+  seat release, except beside a bind of the same session, and a queue add,
+  beside adds of other items or of the same cause, removes of other items, seat
+  events, and a fire that neither claimed nor kept its item on a queue with no
+  input filter. Its events keep their ids and content and are re-linked onto
+  the store's head, `rebased: <item>: ...`; nothing is set aside, and the next
+  push (or the same automatic pass) writes them. Any other fork, every status
+  transition included, is a conflict, `conflict: <item> at event <seq>: this
+  runtime's <kind or transition> does not commute with the store's <kind or
+  transition> (event <seq>); nothing re-based, ...`: one such event leaves the
+  whole tail un-re-based, this runtime's events are kept for adopt (below), and
+  pull exits 1. A fork at event 0, or a chain that does not fold as
+  an item, is refused, `diverged: <item> at event <seq>: ...; nothing
+  appended`, nothing is appended to it, and pull exits 1. The other exception
+  to that refusal is a fork whose local
   events from the fork point on are all a queue file's mirror events (actor
   `satelle`, cause `queue file <path>`): a chain written before the first pull,
   or one whose only local events past the store's are mirror events written
   while another machine appended. It is not refused: the store's chain replaces
   it, `adopted: <item>: ...`, provided the chain the store serves keeps the
   shared prefix, then the file is mirrored onto it as one `item.updated` when
-  they differ. A fork with any other local event past the fork point is still
-  refused. A store chain that is a prefix of the
+  they differ. A fork with any other local event past the fork point is
+  re-based or reported as a conflict as above. A store chain that is a prefix of the
   local one, for a pull of every item or of one, is not a conflict: pull
   imports nothing, exits 0, and the next push writes the rest. New events are
   verified with the local chain before any is appended; one that does not
@@ -154,8 +168,8 @@ The rules are the same for every store:
 - Status prints one row per item, `ITEM LOCAL STORE STATE`, the event counts
   and `in sync`, `ahead`, `behind`, `diverged at <seq>`, `local only` or
   `store only`. It writes nothing and exits 0.
-- Adopt, `satelle ledger adopt <item>... --session <session>`, resolves a fork pull refuses, for
-  the named items only. For each named item whose chain diverged it writes this
+- Adopt, `satelle ledger adopt <item>... --session <session>`, resolves a fork pull refuses or
+  reports as a conflict, for the named items only. For each named item whose chain diverged it writes this
   runtime's events from the fork point on, verbatim, to
   `<runtime>/forks/<item>.<seq>.<stamp>.jsonl` and lists them by sequence and
   kind, then takes the store's chain, verified, in place of the local one and
@@ -186,7 +200,9 @@ store is ahead on, by the same rules as push and pull. An item in sync is not
 touched. One that diverged or was refused does not stop the pass for any
 other item; it is left on both sides and named, never merged, except a fork whose local events past the fork point are only a
 queue file's mirror events: it is pulled, the store's chain replacing it, and its mirror event is
-pushed in the same pass. `satelle ledger adopt <item> --session <session>` resolves any other fork. A write made while the store is unreachable stays in the local
+pushed in the same pass. A fork past event 0 whose local events all commute with the store's newer
+events (see pull) is re-based onto the store's head and pushed in the same pass; any other such fork
+is named as a conflict with both sides. `satelle ledger adopt <item> --session <session>` resolves any other fork. A write made while the store is unreachable stays in the local
 ledger and is pushed by the next pass that reaches it. A change on one machine
 therefore reaches satelle.dev within one period plus a pass, and another
 signed-in, bound machine within 90 seconds. Each project's outcome is shown on
@@ -269,7 +285,10 @@ and push exits 1. A rerun is safe: every write is conditional.
 
 Pull lists `chains/`, compares the store's event at the last sequence both
 chains hold, whatever their lengths, and finds the fork point when it
-differs. A chain that forked, in a longer, an equal-length or a shorter store
+differs. A chain that forked past event 0 is re-based onto the store's head
+when its local events commute with the store's newer events, and is otherwise
+a conflict naming both sides, by the rules above. A fork at event 0, or a chain
+that does not fold as an item, in a longer, an equal-length or a shorter store
 chain, is refused, `diverged: <item> at event <seq>: ...; nothing appended`,
 nothing is appended to it, and pull exits 1. A store chain that is a prefix of
 the local one is not a conflict: pull appends nothing and the next push writes
