@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/kernel"
-	"github.com/bobmcallan/satelle/internal/remotenode"
+	"github.com/bobmcallan/satelle/internal/shq"
 )
 
 const resolveUserDecision = "user-decision"
@@ -26,9 +26,9 @@ func findingCriterion(check, problem string) string {
 
 func substrateStoryCommand(category string, rels []string) string {
 	var b strings.Builder
-	b.WriteString("satelle story create --category " + remotenode.ShQuote(category) + " --title " + remotenode.ShQuote(substrateStoryTitle))
+	b.WriteString("satelle story create --category " + shq.Quote(category) + " --title " + shq.Quote(substrateStoryTitle))
 	for _, rel := range rels {
-		b.WriteString(" --criteria " + remotenode.ShQuote(findingCriterion("init", initProblem(rel))))
+		b.WriteString(" --criteria " + shq.Quote(findingCriterion("init", initProblem(rel))))
 	}
 	b.WriteString(" --session <session>")
 	return b.String()

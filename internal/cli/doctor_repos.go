@@ -66,12 +66,44 @@ func checkoutOf(reg reporeg.Registry, name string, env []string) checkout {
 
 func declaredNames(reg reporeg.Registry) []string { return reg.Targets()[1:] }
 
+func unregisteredTargets(in *doctorInput) []doctorIssue {
+	items, err := readItems(in)
+	if err != nil {
+		return nil
+	}
+	targets := in.cfg.Repos.Targets()
+	registered := reporeg.Literals(targets)
+	var out []doctorIssue
+	for _, ri := range items {
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+			continue
+		}
+		target := ri.it.Target()
+		if slices.Contains(targets, target) {
+			continue
+		}
+		id, lit := ri.it.ID, reporeg.Literal(target)
+		fix := lit + " is not a name a repository can be registered under, so it cannot be registered here: drive " + id + " from a control repository that registers it, or leave it unseated"
+		if reporeg.ValidName(target) && !reporeg.HasUnsafe(target) {
+			fix = "register it with satelle repo add " + target + " --origin <url> --path <dir>, or drive " + id + " from a control repository that registers it"
+		}
+		out = append(out, doctorIssue{Check: checkReposName,
+			Problem: id + " targets repo " + lit + ", which .satelle/" + kernel.ReposFile + " does not register (registered: " + registered + ")",
+			Fix:     fix})
+	}
+	return out
+}
+
 func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
-	if in.cfg == nil || !reporeg.Exists(in.r.DataDir) {
+	if in.cfg == nil {
 		return nil, nil
 	}
+	out := unregisteredTargets(in)
+	if !reporeg.Exists(in.r.DataDir) {
+		return out, nil
+	}
 	reg := in.cfg.Repos
-	out := machineFileIssues(in, checkReposName, kernel.ReposLocalFile, "a machine's checkout paths")
+	out = append(out, machineFileIssues(in, checkReposName, kernel.ReposLocalFile, "a machine's checkout paths")...)
 	remap := func(name string) string { return "satelle repo add " + name + " --path <dir>" }
 	for _, name := range declaredNames(reg) {
 		co := checkoutOf(reg, name, in.r.gitEnv)

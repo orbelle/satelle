@@ -19,6 +19,7 @@ How you drive it:
 
     satelle init --session <session>                         # .satelle/ with a two-state workflow
     satelle story create --title "..." --session <session>   # starts in the workflow's start state
+    satelle story create --title "..." --repo <name> --session <session>  # targets a repo .satelle/repos.toml registers (default self; set once, before the first seat)
     satelle story set <id> --status <s> --session <session>  # presents a transition; gates judge it
     satelle story route <id> --session <session>             # where it is, and every gate result
     satelle gate run <workflow>/<gate> --item <id> --session <session>  # dry-run one gate, recording nothing

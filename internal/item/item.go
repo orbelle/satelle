@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
 const (
@@ -74,6 +75,7 @@ type Item struct {
 	Inputs    *Selection `json:"inputs,omitempty"`
 	Trigger   *Trigger   `json:"trigger,omitempty"`
 	Base      string     `json:"base,omitempty"`
+	Repo      string     `json:"repo,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 }
@@ -93,6 +95,7 @@ type Fields struct {
 	Inputs    *Selection `json:"inputs,omitempty"`
 	Trigger   *Trigger   `json:"trigger,omitempty"`
 	Base      *string    `json:"base,omitempty"`
+	Repo      *string    `json:"repo,omitempty"`
 }
 
 func Placement(workflow, from, start string) (Fields, Move) {
@@ -149,6 +152,7 @@ func (f Fields) Apply(it *Item) {
 	set(&it.Category, f.Category)
 	set(&it.Workflow, f.Workflow)
 	set(&it.Base, f.Base)
+	set(&it.Repo, f.Repo)
 	if f.Criteria != nil {
 		it.Criteria = slices.Clone(*f.Criteria)
 	}
@@ -181,8 +185,16 @@ func (f Fields) Apply(it *Item) {
 	}
 }
 
+func (it Item) Target() string {
+	if it.Repo == "" {
+		return reporeg.Self
+	}
+	return it.Repo
+}
+
 func Fold(events []ledger.Event) (Item, error) {
 	var it Item
+	seated := false
 	for i, e := range events {
 		switch e.Kind {
 		case KindCreated:
@@ -201,6 +213,9 @@ func Fold(events []ledger.Event) (Item, error) {
 				return it, fmt.Errorf("item: %s: %w", e.Item, err)
 			}
 			f.Status = nil
+			if seated {
+				f.Repo = nil
+			}
 			f.Apply(&it)
 		case KindTransitioned:
 			var m Move
@@ -209,6 +224,7 @@ func Fold(events []ledger.Event) (Item, error) {
 			}
 			it.Status = m.To
 		default:
+			seated = seated || e.Kind == KindSeatBound
 			if i == 0 {
 				return it, fmt.Errorf("item: %s: chain starts with %s, not %s", e.Item, e.Kind, KindCreated)
 			}
