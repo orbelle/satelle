@@ -751,11 +751,8 @@ type Item struct {
 	// assignees, then each user holding a live seat on it.
 	Assignees []string `protobuf:"bytes,13,rep,name=assignees,proto3" json:"assignees,omitempty"`
 	// working is the users of assignees holding a live seat, in that order.
-	Working []string `protobuf:"bytes,14,rep,name=working,proto3" json:"working,omitempty"`
-	// repo is the repository the item targets, as set once before its first
-	// seat: self, or a name .satelle/repos.toml registers; empty when never set
-	// (the item targets self).
-	Repo          string `protobuf:"bytes,15,opt,name=repo,proto3" json:"repo,omitempty"`
+	Working       []string `protobuf:"bytes,14,rep,name=working,proto3" json:"working,omitempty"`
+	Repo          string   `protobuf:"bytes,15,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

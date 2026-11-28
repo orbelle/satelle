@@ -104,9 +104,6 @@ message Item {
   repeated string assignees = 13;
   // working is the users of assignees holding a live seat, in that order.
   repeated string working = 14;
-  // repo is the repository the item targets, as set once before its first
-  // seat: self, or a name .satelle/repos.toml registers; empty when never set
-  // (the item targets self).
   string repo = 15;
 }
 message PutItemsRequest {
