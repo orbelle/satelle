@@ -228,7 +228,7 @@ func remoteFireCmd() *cobra.Command {
 }
 
 func fireOnServer(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) error {
-	if _, err := k.Get(args[1]); err != nil {
+	if err := k.CheckFire(args[1]); err != nil {
 		return err
 	}
 	res, err := b.Repl.Push(cmd.Context(), args[1])

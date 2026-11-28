@@ -124,6 +124,11 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 	if err := k.checkTrigger(draft.Kind, f.Trigger); err != nil {
 		return draft, err
 	}
+	if f.Repo != nil {
+		if err := k.checkRepo(*f.Repo); err != nil {
+			return draft, err
+		}
+	}
 	name, start, err := k.WorkflowFor(draft)
 	if err != nil {
 		return draft, err
@@ -208,7 +213,7 @@ func (k *Kernel) Reselect(id, want, actor string) (item.Item, error) {
 }
 
 func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, error) {
-	it, err := k.Get(id)
+	it, events, err := k.load(id)
 	if err != nil {
 		return it, err
 	}
@@ -232,6 +237,17 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 		}
 		if _, err := k.Get(*f.Parent); err != nil {
 			return it, fmt.Errorf("parent: %w", err)
+		}
+	}
+	if f.Repo != nil {
+		if err := k.checkRepoChange(it, events, *f.Repo); err != nil {
+			return it, err
+		}
+		if item.HeldSeat(events) {
+			f.Repo = nil
+		}
+		if f == (item.Fields{}) {
+			return it, nil
 		}
 	}
 	if _, err := k.append(id, item.KindUpdated, actor, f); err != nil {
@@ -413,6 +429,9 @@ func (k *Kernel) bindSeat(id string, s item.Seat, actor string) (item.Seat, erro
 	if err != nil {
 		return item.Seat{}, err
 	}
+	if err := k.CheckTarget(it); err != nil {
+		return item.Seat{}, err
+	}
 	if session == "" {
 		return item.Seat{}, errors.New("a seat needs a session")
 	}
@@ -521,6 +540,9 @@ func (k *Kernel) sessionPerformerRun(it item.Item, events []ledger.Event, w *wor
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {
 	it, events, err := k.load(id)
 	if err != nil {
+		return agent.Result{}, err
+	}
+	if err := k.CheckTarget(it); err != nil {
 		return agent.Result{}, err
 	}
 	w, err := k.workflowOf(it)
@@ -668,6 +690,12 @@ func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecor
 	}
 	task, err := k.Get(taskID)
 	if err != nil {
+		return item.Item{}, rec, err
+	}
+	if err := k.CheckTarget(task); err != nil {
+		return item.Item{}, rec, err
+	}
+	if err := k.CheckTargets(inputs...); err != nil {
 		return item.Item{}, rec, err
 	}
 	rec.Inputs = inputs

@@ -16,6 +16,11 @@ import (
 func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workflow, tr *workflow.Transition, from, to string) (gate.Run, span, func(), error) {
 	done := func() {}
 	sp := span{}
+	if len(tr.Groups) > 0 {
+		if err := k.CheckTarget(it); err != nil {
+			return gate.Run{}, sp, done, err
+		}
+	}
 	if k.Git != nil {
 		sp = k.spanOf(it, events)
 	}
