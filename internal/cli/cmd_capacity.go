@@ -22,7 +22,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode"
-	"github.com/bobmcallan/satelle/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -313,11 +312,11 @@ func machineSeats(repos []repo) ([]engagedSeat, []error) {
 			errs = append(errs, fmt.Errorf("%s: %w", r.Tree, err))
 			continue
 		}
-		var wfs map[string]*workflow.Workflow
+		var res kernel.Resolver
 		if c, err := kernel.LoadConfig(r.DataDir); err == nil {
-			wfs = c.Workflows
+			res = c.Resolver()
 		}
-		out = append(out, engagedHere(items, wfs, home, here)...)
+		out = append(out, engagedHere(items, res, home, here)...)
 	}
 	return out, errs
 }

@@ -495,7 +495,7 @@ func itemListCmd(kind string) *cobra.Command {
 			if onlyOpen {
 				kept := items[:0]
 				for _, it := range items {
-					if w := k.Workflows[it.Workflow]; w == nil || !w.IsTerminal(it.Status) {
+					if !itemTerminal(it, k.Resolver()) {
 						kept = append(kept, it)
 					}
 				}

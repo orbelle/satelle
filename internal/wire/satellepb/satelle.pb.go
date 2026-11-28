@@ -812,6 +812,7 @@ type Item struct {
 	Assignees []string `protobuf:"bytes,13,rep,name=assignees,proto3" json:"assignees,omitempty"`
 	// working is the users of assignees holding a live seat, in that order.
 	Working       []string `protobuf:"bytes,14,rep,name=working,proto3" json:"working,omitempty"`
+	Repo          string   `protobuf:"bytes,15,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -935,6 +936,13 @@ func (x *Item) GetWorking() []string {
 		return x.Working
 	}
 	return nil
+}
+
+func (x *Item) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
 }
 
 type PutItemsRequest struct {
@@ -4255,7 +4263,7 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\blocation\x18\x01 \x01(\tR\blocation\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\"3\n" +
 	"\x18RegisterLocationResponse\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\"\xf4\x02\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x88\x03\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -4271,7 +4279,8 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x16\n" +
 	"\x06record\x18\f \x01(\fR\x06record\x12\x1c\n" +
 	"\tassignees\x18\r \x03(\tR\tassignees\x12\x18\n" +
-	"\aworking\x18\x0e \x03(\tR\aworkingJ\x04\b\t\x10\n" +
+	"\aworking\x18\x0e \x03(\tR\aworking\x12\x12\n" +
+	"\x04repo\x18\x0f \x01(\tR\x04repoJ\x04\b\t\x10\n" +
 	"R\bassignee\"S\n" +
 	"\x0fPutItemsRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12&\n" +
