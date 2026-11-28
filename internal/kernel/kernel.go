@@ -44,6 +44,7 @@ type Kernel struct {
 	PartSources   map[string]string
 	Packs         map[string]workflow.Pack
 	Agents        agent.Catalog
+	PartAgents    map[string]agent.Catalog
 	Overrides     []agent.Override
 	Queues        map[string]*workflow.Queue
 	Repos         reporeg.Registry
@@ -127,7 +128,7 @@ func Open(o Options) (*Kernel, error) {
 	}
 	k := &Kernel{
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
-		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Packs: cfg.Packs, Agents: cfg.Agents, Overrides: cfg.Overrides,
+		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Packs: cfg.Packs, Agents: cfg.Agents, PartAgents: cfg.PartAgents, Overrides: cfg.Overrides,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness, Repos: cfg.Repos,
 		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Parts: cfg.Parts, PartSkills: cfg.PartSkills(), RuleFiles: cfg.RuleFiles, PartRuleFiles: cfg.PartRuleFiles(), PartSources: cfg.PartSources(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
@@ -151,7 +152,7 @@ func Open(o Options) (*Kernel, error) {
 func (k *Kernel) Close() error { return k.Cache.Close() }
 
 func (k *Kernel) Validate() []error {
-	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Packs: k.Packs, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness, Repos: k.Repos, Parts: k.Parts}
+	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Packs: k.Packs, Agents: k.Agents, PartAgents: k.PartAgents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness, Repos: k.Repos, Parts: k.Parts}
 	c.Settings.Workflows = k.Rules
 	return c.Problems()
 }
