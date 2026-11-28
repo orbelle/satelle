@@ -12,11 +12,46 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type Repo struct {
-	Dir string
-	Env []string
+	Dir        string
+	Env        []string
+	Untrusted  bool
+	AttrSource string
+}
+
+var ErrNoAttrSource = errors.New("untrusted git read has no attribute source")
+
+var untrustedConfig = []string{
+	"-c", "core.fsmonitor=false",
+	"-c", "credential.helper=",
+	"-c", "core.attributesFile=",
+	"-c", "diff.submodule=short",
+	"-c", "submodule.recurse=false",
+	"-c", "status.submoduleSummary=false",
+}
+
+func (r Repo) command(args ...string) (*exec.Cmd, error) {
+	argv := []string{"-C", r.Dir}
+	if r.Untrusted {
+		if r.AttrSource != "" {
+			argv = append(argv, "--attr-source="+r.AttrSource)
+		} else if len(args) == 0 || !slices.Contains([]string{"config", "rev-parse", "version"}, args[0]) {
+			return nil, ErrNoAttrSource
+		}
+		argv = append(argv, untrustedConfig...)
+		switch {
+		case len(args) > 0 && args[0] == "diff":
+			args = append([]string{"diff", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--submodule=short"}, args[1:]...)
+		case len(args) > 0 && args[0] == "status":
+			args = append([]string{"status", "--ignore-submodules=dirty"}, args[1:]...)
+		}
+	}
+	cmd := exec.Command("git", append(argv, args...)...)
+	cmd.Env = r.environ()
+	return cmd, nil
 }
 
 func (r Repo) environ() []string {
@@ -28,8 +63,10 @@ func (r Repo) environ() []string {
 }
 
 func (r Repo) git(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", r.Dir}, args...)...)
-	cmd.Env = r.environ()
+	cmd, err := r.command(args...)
+	if err != nil {
+		return "", err
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -130,11 +167,13 @@ func (r Repo) Resolve(ref string) (string, error) {
 }
 
 func (r Repo) IsAncestor(a, b string) (bool, error) {
-	cmd := exec.Command("git", "-C", r.Dir, "merge-base", "--is-ancestor", a, b)
-	cmd.Env = r.environ()
+	cmd, err := r.command("merge-base", "--is-ancestor", a, b)
+	if err != nil {
+		return false, err
+	}
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
-	err := cmd.Run()
+	err = cmd.Run()
 	if err == nil {
 		return true, nil
 	}
@@ -149,8 +188,10 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 	if len(paths) == 0 {
 		return out, nil
 	}
-	cmd := exec.Command("git", append([]string{"-C", r.Dir, "check-ignore", "-v", "--"}, paths...)...)
-	cmd.Env = r.environ()
+	cmd, err := r.command(append([]string{"check-ignore", "-v", "--"}, paths...)...)
+	if err != nil {
+		return nil, err
+	}
 	var stdout, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &errb
 	if err := cmd.Run(); err != nil {
@@ -179,7 +220,7 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 var ErrNoRemote = errors.New("no such remote")
 
 func (r Repo) RemoteURL(name string) (string, error) {
-	out, err := r.git("config", "--get", "remote."+name+".url")
+	out, err := r.git("config", "--local", "--get", "remote."+name+".url")
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && ee.ExitCode() == 1 {
@@ -191,11 +232,13 @@ func (r Repo) RemoteURL(name string) (string, error) {
 }
 
 func (r Repo) Branch() (string, error) {
-	cmd := exec.Command("git", "-C", r.Dir, "symbolic-ref", "--short", "-q", "HEAD")
-	cmd.Env = r.environ()
+	cmd, err := r.command("symbolic-ref", "--short", "-q", "HEAD")
+	if err != nil {
+		return "", err
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
+	err = cmd.Run()
 	if err == nil {
 		return strings.TrimSpace(out.String()), nil
 	}
@@ -336,4 +379,136 @@ func (r Repo) ShallowCommits() ([]string, error) {
 		return nil, err
 	}
 	return strings.Fields(string(b)), nil
+}
+
+func EmptyTree(format string) (string, error) {
+	switch format {
+	case "sha1":
+		return "4b825dc642cb6eb9a060e54bf8d69288fbee4904", nil
+	case "sha256":
+		return "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321", nil
+	}
+	return "", fmt.Errorf("object format %s is neither sha1 nor sha256", format)
+}
+
+func (r Repo) ObjectFormat() (string, error) {
+	out, err := r.git("rev-parse", "--show-object-format")
+	if err != nil {
+		return "", err
+	}
+	f := strings.TrimSpace(out)
+	if f == "" {
+		return "", errors.New("git rev-parse --show-object-format: empty output")
+	}
+	return f, nil
+}
+
+type Version struct {
+	Major, Minor, Patch int
+	Raw                 string
+}
+
+func (v Version) AtLeast(major, minor int) bool {
+	if v.Major != major {
+		return v.Major > major
+	}
+	return v.Minor >= minor
+}
+
+func ParseVersion(out string) (Version, error) {
+	bad := fmt.Errorf("unreadable git version %q", out)
+	rest, ok := strings.CutPrefix(strings.TrimSpace(out), "git version ")
+	fields := strings.Fields(rest)
+	if !ok || len(fields) == 0 {
+		return Version{}, bad
+	}
+	v := Version{Raw: fields[0]}
+	parts := strings.Split(v.Raw, ".")
+	for i, dst := range []*int{&v.Major, &v.Minor, &v.Patch} {
+		if i >= len(parts) || !allDigits(parts[i]) {
+			if i < 2 {
+				return Version{}, bad
+			}
+			break
+		}
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return Version{}, bad
+		}
+		*dst = n
+	}
+	return v, nil
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+var (
+	versionMu    sync.Mutex
+	versionCache = map[string]Version{}
+)
+
+func (r Repo) Version() (Version, error) {
+	bin, err := exec.LookPath("git")
+	if err != nil {
+		return Version{}, err
+	}
+	versionMu.Lock()
+	v, ok := versionCache[bin]
+	versionMu.Unlock()
+	if ok {
+		return v, nil
+	}
+	out, err := r.git("version")
+	if err != nil {
+		return Version{}, err
+	}
+	if v, err = ParseVersion(out); err != nil {
+		return Version{}, err
+	}
+	versionMu.Lock()
+	versionCache[bin] = v
+	versionMu.Unlock()
+	return v, nil
+}
+
+func (r Repo) PartialClone() (bool, error) {
+	out, err := r.git("config", "--includes", "--null", "--get-regexp", `^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$`)
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		if rec == "" {
+			continue
+		}
+		key, val, hasVal := strings.Cut(rec, "\n")
+		switch {
+		case key == "extensions.partialclone", strings.HasSuffix(key, ".partialclonefilter"):
+			return true, nil
+		case strings.HasSuffix(key, ".promisor") && (!hasVal || !gitFalse(val)):
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func gitFalse(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "false", "no", "off", "0", "":
+		return true
+	}
+	return false
 }

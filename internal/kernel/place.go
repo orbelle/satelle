@@ -13,6 +13,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -126,7 +127,11 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	if err != nil {
 		return Collected{}, err
 	}
-	bg, ok := k.Git.(BranchGit)
+	wt, err := k.worktreeOf(it, events)
+	if err != nil {
+		return Collected{}, err
+	}
+	bg, ok := wt.git.(BranchGit)
 	if !ok {
 		return Collected{}, errors.New("collect needs a git work tree")
 	}
@@ -140,7 +145,7 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	ref, tip := baseRef, ""
 	switch {
 	case baseRef != "":
-		if tip, err = k.resolveBase(baseRef); err != nil {
+		if tip, err = k.resolveBase(wt, baseRef); err != nil {
 			return Collected{}, err
 		}
 	default:
@@ -179,46 +184,49 @@ func collected(events []ledger.Event) (Collected, bool) {
 	return Collected{}, false
 }
 
-type span struct{ base, head string }
+type span struct {
+	base, head string
+	git        Git
+}
 
-func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
+func (k *Kernel) spanOf(wt worktree, it item.Item, events []ledger.Event) span {
 	if c, ok := collected(events); ok {
-		if _, branchy := k.Git.(BranchGit); branchy {
-			return span{base: c.Base, head: c.Commit}
+		if _, branchy := wt.git.(BranchGit); branchy {
+			return span{base: c.Base, head: c.Commit, git: wt.git}
 		}
 	}
-	return span{base: k.judgedBase(it, events)}
+	return span{base: k.judgedBase(wt.git, it, events), git: wt.git}
 }
 
 func (k *Kernel) changed(s span) ([]string, error) {
 	if s.head != "" {
-		return k.Git.(BranchGit).ChangedBetween(s.base, s.head)
+		return s.git.(BranchGit).ChangedBetween(s.base, s.head)
 	}
-	return k.Git.ChangedPaths(s.base)
+	return s.git.ChangedPaths(s.base)
 }
 
 func (k *Kernel) stat(s span) ([]gitfacts.FileStat, error) {
 	if s.head != "" {
-		return k.Git.(BranchGit).StatBetween(s.base, s.head)
+		return s.git.(BranchGit).StatBetween(s.base, s.head)
 	}
-	return k.Git.StatPaths(s.base)
+	return s.git.StatPaths(s.base)
 }
 
 func (k *Kernel) untracked(s span) ([]string, error) {
 	if s.head != "" {
 		return nil, nil
 	}
-	return k.Git.Untracked()
+	return s.git.Untracked()
 }
 
 func (k *Kernel) diffSpan(s span, paths []string) (string, error) {
-	if k.Git == nil || s.base == "" {
+	if s.git == nil || s.base == "" {
 		return "", nil
 	}
 	if s.head != "" {
-		return k.Git.(BranchGit).DiffBetween(s.base, s.head, paths)
+		return s.git.(BranchGit).DiffBetween(s.base, s.head, paths)
 	}
-	return k.Git.Diff(s.base, paths)
+	return s.git.Diff(s.base, paths)
 }
 
 func remotePlaced(w *workflow.Workflow, tr *workflow.Transition) bool {
@@ -232,8 +240,11 @@ func remotePlaced(w *workflow.Workflow, tr *workflow.Transition) bool {
 	return false
 }
 
-func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
-	bg, ok := k.Git.(BranchGit)
+func (k *Kernel) pushedHead(wt worktree, it item.Item, events []ledger.Event, sp span) (gate.Head, error) {
+	if wt.target != "" && wt.target != reporeg.Self {
+		return gate.Head{}, errors.New("remote gate checks test the control repository's pushed head; item " + it.ID + " targets repo " + reporeg.Literal(wt.target) + ", so place this gate locally")
+	}
+	bg, ok := sp.git.(BranchGit)
 	if !ok {
 		return gate.Head{}, errors.New("no git work tree here: a remote check needs a pushed head")
 	}
@@ -241,7 +252,7 @@ func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
 	if c, ok := collected(events); ok && sp.head != "" {
 		commit, branch = sp.head, c.Branch
 	} else {
-		if d, ok := k.Git.(interface{ Dirty() (bool, error) }); ok {
+		if d, ok := sp.git.(interface{ Dirty() (bool, error) }); ok {
 			dirty, err := d.Dirty()
 			if err != nil {
 				return gate.Head{}, err
@@ -251,7 +262,7 @@ func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
 			}
 		}
 		var err error
-		if commit, err = k.Git.Head(); err != nil {
+		if commit, err = sp.git.Head(); err != nil {
 			return gate.Head{}, err
 		}
 		if branch, err = bg.Branch(); err != nil {

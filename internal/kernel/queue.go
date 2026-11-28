@@ -13,6 +13,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -209,13 +210,17 @@ func (k *Kernel) checkTrigger(kind string, t *item.Trigger) error {
 		if task.Kind != "task" {
 			return fmt.Errorf("trigger task %s is a %s, not a task", t.Task, task.Kind)
 		}
-		if w := k.Workflows[task.Workflow]; w != nil && w.IsTerminal(task.Status) {
+		if w := k.servedWorkflow(task); w != nil && w.IsTerminal(task.Status) {
 			return fmt.Errorf("trigger task %s is %s, a terminal state", t.Task, task.Status)
 		}
 	}
 	if t.Workflow != "" {
-		if _, ok := k.Workflows[t.Workflow]; !ok {
+		w, ok := k.Workflows[t.Workflow]
+		if !ok {
 			return fmt.Errorf("trigger workflow %q does not exist", t.Workflow)
+		}
+		if w.Part != "" {
+			return fmt.Errorf("trigger workflow %s is repository %s's workflow; a queue's run targets the control repository", reporeg.Literal(t.Workflow), reporeg.Literal(w.Part))
 		}
 	}
 	return nil
@@ -232,7 +237,7 @@ func (k *Kernel) openQueue(id string) (item.Item, error) {
 	if q.Kind != item.QueueKind {
 		return q, fmt.Errorf("%s is a %s, not a %s", id, q.Kind, item.QueueKind)
 	}
-	if w := k.Workflows[q.Workflow]; w != nil && w.IsTerminal(q.Status) {
+	if w := k.servedWorkflow(q); w != nil && w.IsTerminal(q.Status) {
 		return q, fmt.Errorf("queue %s is %s, a terminal state", id, q.Status)
 	}
 	return q, nil
@@ -243,7 +248,7 @@ func (k *Kernel) memberStatus(id string) (string, bool, bool) {
 	if err != nil {
 		return "", false, false
 	}
-	w := k.Workflows[it.Workflow]
+	w := k.servedWorkflow(it)
 	return it.Status, w != nil && w.IsTerminal(it.Status), true
 }
 
@@ -320,7 +325,7 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 			out.Already = append(out.Already, id)
 			continue
 		}
-		if w := k.Workflows[it.Workflow]; !stateCause && w != nil && w.IsTerminal(it.Status) {
+		if w := k.servedWorkflow(it); !stateCause && w != nil && w.IsTerminal(it.Status) {
 			return out, fmt.Errorf("%s is %s, a terminal state; a queue does not hold it", id, it.Status)
 		}
 		if _, err := k.append(queueID, item.KindQueueAdded, actor, item.QueueEntry{Item: id, Cause: cause}); err != nil {
@@ -398,7 +403,7 @@ type fireReadiness struct {
 }
 
 func (k *Kernel) runOpen(run item.Item) bool {
-	w := k.Workflows[run.Workflow]
+	w := k.servedWorkflow(run)
 	return w == nil || !w.IsTerminal(run.Status)
 }
 
@@ -512,7 +517,7 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	}
 	r.baseRef = baseRef
 	if baseRef != "" {
-		if _, err := k.resolveBase(baseRef); err != nil {
+		if _, err := k.resolveBase(k.self(), baseRef); err != nil {
 			return r, err
 		}
 	}

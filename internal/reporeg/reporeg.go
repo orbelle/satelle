@@ -66,6 +66,22 @@ func unsafeRune(r rune) bool {
 
 func HasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
 
+func ShellSafePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '/', c == '+', c == '@', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func CheckName(name string) error {
 	switch {
 	case name == Self:
@@ -220,7 +236,7 @@ func LoadLocalQuiet(dataDir string) (map[string]string, bool) {
 }
 
 func decode(dataDir, file string, v any) (bool, error) {
-	data, err := readRegular(filepath.Join(dataDir, file))
+	data, err := ReadRegular(filepath.Join(dataDir, file))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -249,7 +265,7 @@ func decode(dataDir, file string, v any) (bool, error) {
 	return true, nil
 }
 
-func readRegular(path string) ([]byte, error) {
+func ReadRegular(path string) ([]byte, error) {
 	linfo, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

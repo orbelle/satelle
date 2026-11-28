@@ -122,6 +122,34 @@ nothing is fired. A run a session fired is taken as before.
 shows its members and last fire. A fire refused because the last run is still
 open exits 2 naming that run: finish or cancel it first.
 
+### One repository's queue at a time
+
+A repository with no `.satelle/repos.toml`, such as this one, releases itself
+from its one queue, `release`, whose `[filter]` names no repo: step 0 runs as
+written, with `que=release`.
+
+A control repository whose `.satelle/repos.toml` registers several
+repositories ([[satelle-control-plane-architecture]]) never mixes their pull
+requests in one run:
+
+- **One queue per repository.** Each registered repository has its own release
+  queue, `.satelle/queues/release-<repo>.toml`, the same as `release.toml` but
+  with a title naming the repository, no `id` of its own (its chain is
+  `que_release-<repo>`), and `repo = "<repo>"` in its `[filter]`. Its trigger
+  is the release task, as here. `satelle validate --session <session>` refuses
+  a queue whose repo the registry does not name.
+- **The workflows enqueue into every one.** The `approved` state of the
+  delivery and chore workflows lists every per-repository queue in its
+  `enqueue`. A queue with a repo filter refuses an item that targets another
+  repository (`satelle help queues --session <session>`, `repo` in
+  `[filter]`), so an approved story joins only its own repository's queue.
+- **The session fires one queue at a time.** It runs step 0 with the `que=`
+  line set to that repository's queue, `que=release-<repo>`, and drives that
+  run through step 11 or cancels it before it fires another repository's
+  queue. Which repository goes first is the firing session's call. The run
+  takes only that repository's items, so its candidate, suite and landing are
+  that repository's alone.
+
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).
 Record `<id> PR #<n> head <sha>`. An item with no open pull request goes on the

@@ -27,6 +27,21 @@ for that evidence exits 2; any other refusal exits 1; neither writes anything.
 `satelle workflow select --kind <k> [--tag <t>]... [--category <c>] --session <session>` prints the
 workflow and start state the rules choose for those fields.
 
+A story whose repo is a repository `X` that `.satelle/repos.toml` registers is
+placed first by the `[[workflows.rule]]` and `[workflows] default` of
+`.satelle/repos/X/satelle.toml`, on the workflows under
+`.satelle/repos/X/workflows/`; it falls to the shared rules when none of them
+applies. Such a workflow is recorded and shown as `X/<name>` and serves only
+`X`'s items: an item on it that targets another repository gets no gate, edit,
+push or terminal release, and its repo cannot change. A `.satelle/repos/<name>/`
+that repos.toml does not register is not loaded, and
+`satelle validate --session <session>` and `satelle doctor --session <session>`
+list it. A registered part whose rules or workflows cannot be
+read, or name a skill, agent, queue or workflow it cannot resolve, is listed
+under that part, and that repository's stories are refused until it resolves;
+the shared configuration stays valid. Without `.satelle/repos/` every story is
+placed by the shared rules.
+
 A workflow may name a panel, `panel = "<name>"` at the top of its file: satelled
 lists its stories on a tab of that name instead of Stories (they leave the
 Stories count, its backlog badge and the projects list's count), and the tab
@@ -122,6 +137,21 @@ the node's gate input and never read from the checked-out head: the target repo
 needs no `.satelle/skills`, and a commit cannot change the check that judges
 it. A remote gate refuses a skill that holds a symlink or special file, and
 `*.local.*` files in the skill are not shipped.
+
+When the item targets a repository registered in `.satelle/repos.toml`, every
+check also gets `SATELLE_WORKTREE`, and `worktree` is added to the stdin JSON
+object: the top level of that repository's checkout, mapped in
+`.satelle/repos.local.toml` and the one the item was seated at. satelle
+guarantees the value holds only the characters `A-Z a-z 0-9 . _ / + @ -`
+(`[A-Za-z0-9._/+@-]`); a checkout at any other path is refused before a check
+runs. satelle reads a target checkout only with git 2.44 or later and only when
+it is a complete clone, not a partial one (`git clone --filter=…`); otherwise
+the item is refused a seat and a gated move, naming the git version or the
+partial clone. `SATELLE_BASE` is then a commit of that repository. The script
+still runs in the control repository's work tree, so a check that reads the
+item's change runs `git -C "$SATELLE_WORKTREE" …`. For a self item neither is
+set (a `SATELLE_WORKTREE` in satelle's own environment is not passed on), and
+the working directory is the item's work tree.
 
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:

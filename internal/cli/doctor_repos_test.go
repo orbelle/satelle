@@ -291,3 +291,34 @@ func TestDoctorReposSilentWithoutRegistry(t *testing.T) {
 		t.Errorf("hook context names repos:\n%s", out)
 	}
 }
+
+func TestDoctorReposUnsafeCheckoutPath(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeRepos(t, dir, "space", "dollar")
+	parent := canonical(t.TempDir())
+	paths := map[string]string{"space": filepath.Join(parent, "a b"), "dollar": filepath.Join(parent, "d$(id)")}
+	var local strings.Builder
+	for name, p := range paths {
+		if err := os.Mkdir(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		local.WriteString("[repos." + name + "]\npath = \"" + strings.ReplaceAll(p, `\`, `\\`) + "\"\n")
+	}
+	writeFile(t, filepath.Join(dir, ".satelle", "repos.local.toml"), local.String())
+	repos, _, _, _ := doctorRepos(t)
+	for name, p := range paths {
+		found := 0
+		for _, is := range repos {
+			if strings.Contains(is.Problem, name+":") && strings.Contains(is.Problem, "is not a valid mapping") && strings.Contains(is.Problem, "A-Z a-z 0-9 . _ / + @ -") && strings.Contains(is.Problem, "'"+p+"'") {
+				found++
+			}
+		}
+		if found != 1 {
+			t.Errorf("%s: %d unsafe-path issues in %+v", name, found, repos)
+		}
+		if _, err := os.Stat(filepath.Join(p, ".git")); err == nil {
+			t.Errorf("doctor wrote into %s", p)
+		}
+	}
+}

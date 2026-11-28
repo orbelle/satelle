@@ -95,6 +95,7 @@ type Doc struct {
 
 type Workflow struct {
 	Name        string               `json:"name"`
+	Part        string               `json:"part,omitempty"`
 	Panel       string               `json:"panel,omitempty"`
 	States      []WorkflowState      `json:"states"`
 	Gates       []WorkflowGate       `json:"gates,omitempty"`

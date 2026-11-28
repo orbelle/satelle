@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -85,6 +86,21 @@ func stateClass(w *mirror.Workflow, status string) string {
 		return "start"
 	}
 	return "active"
+}
+
+func itemWorkflow(ws map[string]*mirror.Workflow, it Item) *mirror.Workflow {
+	w := ws[it.Workflow]
+	if w == nil || w.Part == "" {
+		return w
+	}
+	target := it.Repo
+	if target == "" {
+		target = reporeg.Self
+	}
+	if w.Part != target {
+		return nil
+	}
+	return w
 }
 
 func workflowState(w *mirror.Workflow, status string) (mirror.WorkflowState, bool) {

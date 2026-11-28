@@ -81,7 +81,9 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
    operator decides to: after one
    child, or once several are approved, by their number and the impact of
    shipping them. Follow `.satelle/skills/release/SKILL.md` from step 0 (it fires the
-   `release` queue) through step 11 (the drift review). The run takes every
+   `release` queue, or in a control repository one repository's queue at a
+   time, as its *One repository's queue at a time* says) through step 11 (the
+   drift review). The run takes every
    approved story in the queue, the epic's children among them. An epic may
    have one release or several.
 3. When the epic's work is done, run the block below with `EPIC_ID` replaced

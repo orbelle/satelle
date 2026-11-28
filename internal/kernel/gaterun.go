@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -21,8 +22,15 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 			return gate.Run{}, sp, done, err
 		}
 	}
-	if k.Git != nil {
-		sp = k.spanOf(it, events)
+	wt, err := k.worktreeOf(it, events)
+	if err != nil {
+		if len(tr.Groups) > 0 {
+			return gate.Run{}, sp, done, err
+		}
+		wt = worktree{}
+	}
+	if wt.git != nil {
+		sp = k.spanOf(wt, it, events)
 	}
 	if len(tr.Groups) > 0 {
 		if stale := k.staleBase(it, sp); stale != nil {
@@ -31,8 +39,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	}
 	base := sp.base
 	var changed, untracked []string
-	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
-		var err error
+	if sp.git != nil && base != "" && len(tr.Groups) > 0 {
 		if changed, err = k.changed(sp); err != nil {
 			return gate.Run{}, sp, done, err
 		}
@@ -55,11 +62,14 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		Guard:        k.Guard,
 		Staged:       k.Staged,
 	}
-	if k.Git != nil {
+	if wt.target != "" && wt.target != reporeg.Self {
+		run.Worktree = wt.dir
+	}
+	if sp.git != nil {
 		run.Span = k.runSpan(events, sp)
 	}
 	if remotePlaced(w, tr) {
-		run.Head, run.HeadErr = k.pushedHead(events, sp)
+		run.Head, run.HeadErr = k.pushedHead(wt, it, events, sp)
 	}
 	if k.judged(w, tr) {
 		rec, err := k.record(it, events, recordPointers)
@@ -206,6 +216,9 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 	w, ok := k.Workflows[req.Workflow]
 	if !ok {
 		return out, fmt.Errorf("no workflow %q; configured: %s", req.Workflow, strings.Join(sortedKeys(k.Workflows), ", "))
+	}
+	if err := k.Resolver().Serves(w, it); err != nil {
+		return out, err
 	}
 	if _, ok := w.Gates[req.Gate]; !ok {
 		return out, fmt.Errorf("workflow %s has no gate %q; configured: %s", w.Name, req.Gate, strings.Join(sortedKeys(w.Gates), ", "))

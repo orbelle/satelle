@@ -27,6 +27,15 @@ func (k *Kernel) checkRepo(name string) error {
 }
 
 func (k *Kernel) checkRepoChange(it item.Item, events []ledger.Event, name string) error {
+	moved := it
+	moved.Repo = name
+	if err := k.Resolver().Refusal(moved); err != nil {
+		return err
+	}
+	if w, ok := k.Workflows[it.Workflow]; ok && w.Part != "" && name != it.Target() {
+		return fmt.Errorf("item %s is on workflow %s of repository %s; its repo cannot change to %s: create the item again with --repo %s",
+			it.ID, reporeg.Literal(w.Name), reporeg.Literal(w.Part), reporeg.Literal(name), reporeg.Literal(name))
+	}
 	if !item.HeldSeat(events) {
 		return k.checkRepo(name)
 	}
@@ -38,7 +47,7 @@ func (k *Kernel) checkRepoChange(it item.Item, events []ledger.Event, name strin
 
 func (k *Kernel) CheckTarget(it item.Item) error {
 	if k.RepoRegistered(it.Target()) {
-		return nil
+		return k.Resolver().Refusal(it)
 	}
 	return fmt.Errorf("item %s targets repo %s, which .satelle/%s does not register (registered: %s); register it with satelle repo add before working on it",
 		it.ID, reporeg.Literal(it.Target()), reporeg.TrackedFile, k.registeredRepos())

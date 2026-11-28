@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 
@@ -21,12 +20,13 @@ func showOrigin(v string) string { return quoteControl(reporeg.DisplayOrigin(v))
 func show(v string) string { return quoteControl(v) }
 
 const (
-	repoOK         = "ok"
-	repoUnmapped   = "unmapped"
-	repoMissing    = "missing"
-	repoMismatch   = "mismatch"
-	repoUnreadable = "unreadable"
-	repoInvalid    = "invalid"
+	repoOK         = reporeg.CheckoutOK
+	repoUnmapped   = reporeg.CheckoutUnmapped
+	repoMissing    = reporeg.CheckoutMissing
+	repoMismatch   = reporeg.CheckoutMismatch
+	repoUnreadable = reporeg.CheckoutUnreadable
+	repoInvalid    = reporeg.CheckoutInvalid
+	repoUnsafe     = reporeg.CheckoutUnsafe
 )
 
 type checkout struct {
@@ -37,31 +37,8 @@ type checkout struct {
 }
 
 func checkoutOf(reg reporeg.Registry, name string, env []string) checkout {
-	if !reg.EntryOK(name) {
-		return checkout{state: repoInvalid}
-	}
-	path, mapped, ok := reg.LocalPath(name)
-	switch {
-	case !mapped:
-		return checkout{state: repoUnmapped}
-	case !ok:
-		return checkout{state: repoInvalid}
-	}
-	if _, err := os.Stat(path); err != nil {
-		return checkout{state: repoMissing, path: path}
-	}
-	actual, err := gitfacts.Repo{Dir: path, Env: env}.RemoteURL("origin")
-	if err != nil {
-		return checkout{state: repoUnreadable, path: path}
-	}
-	got, err := reporeg.NormaliseOrigin(actual)
-	if err != nil {
-		return checkout{state: repoUnreadable, path: path, remote: true}
-	}
-	if want, _ := reporeg.NormaliseOrigin(reg.Tracked[name].URL); got != want {
-		return checkout{state: repoMismatch, path: path, actual: actual, remote: true}
-	}
-	return checkout{state: repoOK, path: path, actual: actual, remote: true}
+	c := reg.CheckoutOf(name, env)
+	return checkout{state: c.State, path: c.Path, actual: c.Actual, remote: c.Remote}
 }
 
 func checkoutProblem(reg reporeg.Registry, name string, co checkout) string {
@@ -77,6 +54,8 @@ func checkoutProblem(reg reporeg.Registry, name string, co checkout) string {
 		return show(co.path) + " has no origin remote"
 	case repoMismatch:
 		return show(co.path) + " has origin " + showOrigin(co.actual) + " but .satelle/" + kernel.ReposFile + " registers " + showOrigin(reg.Tracked[name].URL)
+	case repoUnsafe:
+		return "local checkout " + reporeg.PathLiteral(co.path) + " is not a valid mapping: a checkout path may hold only the characters A-Z a-z 0-9 . _ / + @ -"
 	case repoInvalid:
 		return "its entry in .satelle/" + kernel.ReposFile + " or " + kernel.ReposLocalFile + " is not valid (satelle validate lists the problem)"
 	}
@@ -94,7 +73,7 @@ func unregisteredTargets(in *doctorInput) []doctorIssue {
 	registered := reporeg.Literals(targets)
 	var out []doctorIssue
 	for _, ri := range items {
-		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+		if itemTerminal(ri.it, in.cfg.Resolver()) {
 			continue
 		}
 		target := ri.it.Target()
@@ -113,11 +92,33 @@ func unregisteredTargets(in *doctorInput) []doctorIssue {
 	return out
 }
 
+func partIssues(in *doctorInput) []doctorIssue {
+	var out []doctorIssue
+	for _, w := range in.cfg.PartWarnings {
+		dir := kernel.PartsDir + "/" + reporeg.Literal(w.Dir)
+		fix := "remove .satelle/" + dir + "/"
+		if reporeg.ValidName(w.Dir) && !reporeg.HasUnsafe(w.Dir) && w.Dir != reporeg.Self {
+			fix = "register it with satelle repo add " + w.Dir + " --origin <url> --path <dir>, or " + fix
+		}
+		out = append(out, doctorIssue{Check: checkReposName, Problem: w.String(), Fix: fix})
+	}
+	unresolved := in.cfg.Unresolved()
+	for _, x := range slices.Sorted(maps.Keys(unresolved)) {
+		for _, e := range unresolved[x] {
+			out = append(out, doctorIssue{Check: checkReposName,
+				Problem: kernel.PartsDir + "/" + reporeg.Literal(x) + ": " + e.Error() + "; its stories are refused until it resolves",
+				Fix:     "satelle validate"})
+		}
+	}
+	return out
+}
+
 func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if in.cfg == nil {
 		return nil, nil
 	}
 	out := unregisteredTargets(in)
+	out = append(out, partIssues(in)...)
 	if !reporeg.Exists(in.r.DataDir) {
 		return out, nil
 	}
@@ -140,6 +141,10 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				Fix:     "clone " + tracked + " to " + show(co.path) + " with your own git credentials, or " + remap(name) + " to map another checkout"})
 		case repoUnreadable, repoMismatch:
 			out = append(out, doctorIssue{Check: checkReposName, Problem: prefix + checkoutProblem(reg, name, co), Fix: repointFix})
+		case repoUnsafe:
+			out = append(out, doctorIssue{Check: checkReposName,
+				Problem: prefix + checkoutProblem(reg, name, co),
+				Fix:     "move or clone the checkout to a path of those characters, then " + remap(name)})
 		}
 	}
 	dup, notes := onboardingIssues(in, reg)

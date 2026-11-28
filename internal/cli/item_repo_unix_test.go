@@ -65,6 +65,7 @@ func TestPulledItemWithUnknownRepo(t *testing.T) {
 		t.Fatal("a refused seat changed the chain")
 	}
 	writeRepos(t, b.dir, "web")
+	mapRepos(t, b.dir, "web")
 	must(t, "story", "seat", id, "--session", "s-1")
 	repos, _, _, _ = doctorRepos(t)
 	for _, is := range repos {

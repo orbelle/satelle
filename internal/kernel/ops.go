@@ -15,6 +15,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -47,11 +48,7 @@ func (k *Kernel) appendAfter(id, kind, actor, prev string, payload any) (ledger.
 }
 
 func (k *Kernel) workflowOf(it item.Item) (*workflow.Workflow, error) {
-	w, ok := k.Workflows[it.Workflow]
-	if !ok {
-		return nil, fmt.Errorf("item %s names workflow %q, which does not exist", it.ID, it.Workflow)
-	}
-	return w, nil
+	return k.ItemWorkflow(it)
 }
 
 func (k *Kernel) Get(id string) (item.Item, error) {
@@ -92,13 +89,22 @@ func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 }
 
 func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
+	if err := k.Resolver().Refusal(it); err != nil {
+		return "", "", err
+	}
 	name := it.Workflow
+	if name == "" {
+		name = k.partName(it)
+	}
 	if name == "" {
 		name = k.Rules.Select(it)
 	}
 	w, ok := k.Workflows[name]
 	if !ok {
 		return "", "", fmt.Errorf("workflow %q does not exist", name)
+	}
+	if err := k.Resolver().Serves(w, it); err != nil {
+		return "", "", err
 	}
 	return name, w.StartState(), nil
 }
@@ -134,9 +140,15 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 		return draft, err
 	}
 	f.Workflow, f.Status = &name, &start
-	if k.Git != nil && f.Base == nil {
-		if head, err := k.Git.Head(); err == nil {
-			f.Base = &head
+	if f.Base == nil {
+		target := reporeg.Self
+		if f.Repo != nil && *f.Repo != "" {
+			target = *f.Repo
+		}
+		if wt, err := k.worktreeNamed(target); err == nil && wt.git != nil {
+			if head, err := wt.git.Head(); err == nil {
+				f.Base = &head
+			}
 		}
 	}
 	prefix := k.Settings.Prefix(draft.Kind)
@@ -245,6 +257,12 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 		}
 		if item.HeldSeat(events) {
 			f.Repo = nil
+		} else if *f.Repo != it.Target() && f.Base == nil {
+			base := ""
+			if wt, err := k.worktreeNamed(*f.Repo); err == nil && wt.git != nil {
+				base, _ = wt.git.Head()
+			}
+			f.Base = &base
 		}
 		if f == (item.Fields{}) {
 			return it, nil
@@ -335,7 +353,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		return k.holdIfCapped(ctx, res, w, actor)
 	}
 	var frozen *item.Span
-	if w.States[to].Terminal && k.Git != nil {
+	if w.States[to].Terminal && sp.git != nil {
 		if frozen, err = k.frozenSpan(it, w, sp, append(run.Prior, results...)); err != nil {
 			return res, err
 		}
@@ -433,14 +451,28 @@ func (k *Kernel) attach(id string, a item.Attachment, data []byte, actor string)
 
 func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, error) {
 	s := item.Seat{Session: session, Location: location}
+	it, err := k.Get(id)
+	if err != nil {
+		return item.Seat{}, err
+	}
+	if err := k.CheckTarget(it); err != nil {
+		return item.Seat{}, err
+	}
+	wt, err := k.worktreeFor(it)
+	if err != nil {
+		return item.Seat{}, err
+	}
 	if baseRef != "" {
-		base, err := k.seatBase(baseRef)
+		base, err := k.seatBase(wt, baseRef)
 		if err != nil {
 			return item.Seat{}, err
 		}
 		s.Base, s.BaseRef = base, baseRef
-	} else if k.Git != nil {
-		s.Base, _ = k.Git.Head()
+	} else if wt.git != nil {
+		s.Base, _ = wt.git.Head()
+	}
+	if wt.target != reporeg.Self {
+		s.Checkout = wt.dir
 	}
 	return k.bindSeat(id, s, actor)
 }
@@ -735,7 +767,7 @@ func (k *Kernel) selectInputs(sel item.Selection) ([]item.Item, error) {
 
 func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunRecord, actor string) (item.Item, TaskRunRecord, error) {
 	if baseRef != "" {
-		commit, err := k.resolveBase(baseRef)
+		commit, err := k.resolveBase(k.self(), baseRef)
 		if err != nil {
 			return item.Item{}, rec, err
 		}
