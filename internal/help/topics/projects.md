@@ -15,15 +15,17 @@ A **workspace** is a collection of projects on satelle.dev, personal or team.
 `satelle workspace list --session <session>` lists yours; `satelle project create --workspace <id> --session <session>`
 creates a project in one.
 
-A satelle.dev project can be bound to a GitHub repository by installing the
-satelle GitHub app on it (on satelle.dev). `satelle github review --pr N --sha
-S --event E [--body-file F|-] --session <session>` then publishes a pull-request review on that
-repository as the app: the repository comes from the binding, and the event
-and body are passed through unchanged. `satelle github status --sha S --context C
---state S [--description D] [--target-url U] --session <session>` publishes a commit status on
-that repository as the app, the same way: every value is passed through, and
-a dry run (`satelle gate run --session <session>`) publishes none. A project with no binding is
-refused (FAILED_PRECONDITION).
+A satelle.dev project can be bound to GitHub repositories by installing the
+satelle GitHub app on them (on satelle.dev). `satelle github review --pr N --sha
+S --event E [--body-file F|-] [--item ID] --session <session>` then publishes a pull-request review as
+the app on the repository satelle.dev resolves for the item among the
+project's bound repositories, never one the command names; the event and body
+are passed through unchanged. `satelle github status --sha S --context C
+--state S [--description D] [--target-url U] [--item ID] --session <session>` publishes a commit status
+as the app, the same way: every value is passed through, and a dry run
+(`satelle gate run --session <session>`) publishes none. The item defaults to `SATELLE_ITEM`,
+which a gate sets for every check; with neither the command refuses. A project
+with no binding is refused (FAILED_PRECONDITION).
 
 The app that reviews this repo's pull requests is the satelle GitHub app (app
 5379260, satelle[bot]). The approval check matches that account, satelle[bot]

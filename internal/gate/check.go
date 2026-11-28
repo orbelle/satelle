@@ -52,8 +52,11 @@ func (e CheckEnv) Payload() []byte {
 	return b
 }
 
+// ItemEnv is the variable a check gets its item id from.
+const ItemEnv = "SATELLE_ITEM"
+
 func (e CheckEnv) Vars() []string {
-	v := []string{"SATELLE_ITEM=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
+	v := []string{ItemEnv + "=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
 	if e.Gate != "" {
 		v = append(v, "SATELLE_GATE="+e.Gate, "SATELLE_GATE_RESULT="+e.Result, "SATELLE_GATE_BINDING="+e.Binding)
 	}
