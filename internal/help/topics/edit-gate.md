@@ -117,6 +117,11 @@ Always and never:
 A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to
 the working directory of any interpreter running inline program text.
+Every path, from a shell command or a file tool, is judged as written, as the
+entry it names, and where it lands: symlinks in it are resolved the way the
+kernel resolves them, `..` after a link included and a dangling link to the
+path it would create, and a refusal names the path the link resolves to. A file
+tool's path is taken literally, with no shell expansion.
 
 A git command that is not read-only, run after a `cd` to one literal path on
 the same line, is judged at every directory the line could be in; `-C` values,

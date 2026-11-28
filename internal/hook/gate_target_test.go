@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,6 +114,142 @@ func TestEditGateSeatedTarget(t *testing.T) {
 			expect(t, g.Bash(cmd, root), false, "repo a at "+a)
 		}
 		expect(t, g.Bash(`git -C "$B" commit -m x`, root), false, "fail-closed rule")
+	})
+
+	link := func(t *testing.T, target, at string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, at); err != nil && !os.IsExist(err) {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	links := func(t *testing.T) {
+		link(t, root, filepath.Join(a, "toroot"))
+		link(t, b, filepath.Join(a, "tob"))
+		link(t, filepath.Join(root, "main.go"), filepath.Join(a, "mainlink"))
+		link(t, filepath.Join(root, "new.go"), filepath.Join(a, "dangling"))
+		link(t, filepath.Join(root, "sub"), filepath.Join(a, "sublink"))
+		link(t, filepath.Join(root, "sub"), filepath.Join(a, "dirlink"))
+		link(t, "../new2.go", filepath.Join(root, "sub", "dl"))
+		link(t, filepath.Join(a, "sub"), filepath.Join(a, "inner"))
+		link(t, "sub", filepath.Join(a, "rel"))
+		link(t, filepath.Join(a, "sub", "d2"), filepath.Join(a, "deep"))
+		link(t, filepath.Join(a, "x.go"), filepath.Join(root, "rl"))
+		link(t, filepath.Join(a, "x.go"), filepath.Join(root, "locked", "ll"))
+		link(t, filepath.Join(a, "x.go"), filepath.Join(a, "locked", "al"))
+	}
+	mkdir := func(t *testing.T, d string) {
+		t.Helper()
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mkdir(t, filepath.Join(root, "sub"))
+	mkdir(t, filepath.Join(a, "sub", "d2"))
+	const note = "resolves through a symlink to"
+
+	t.Run("AC8 shell writes through a symlink are judged where they land", func(t *testing.T) {
+		self, targets = Grant{}, []Target{treeA}
+		links(t)
+		for _, r := range []struct{ cmd, lands string }{
+			{"echo x > " + a + "/toroot/f", filepath.Join(root, "f")},
+			{"echo x >> " + a + "/mainlink", filepath.Join(root, "main.go")},
+			{"cp main.go " + a + "/toroot/f", filepath.Join(root, "f")},
+			{"cp main.go " + a + "/tob/f", filepath.Join(b, "f")},
+			{"touch " + a + "/dangling", filepath.Join(root, "new.go")},
+			{"echo x > " + a + "/dangling", filepath.Join(root, "new.go")},
+			{"cd " + a + "/toroot && touch f", filepath.Join(root, "f")},
+			{"touch " + a + "/dirlink/dl", root + string(filepath.Separator)},
+			{"echo x > " + a + "/sublink/../main.go", filepath.Join(root, "main.go")},
+			{"cd " + a + "/sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
+			{"git -C " + a + "/sublink -C .. commit -m x", root},
+			{"echo x > " + a + "/missing/../mainlink", filepath.Join(root, "main.go")},
+			{"mkdir -p " + a + "/missing/../sublink/d", filepath.Join(root, "sub", "d")},
+		} {
+			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, root), false, note, r.lands) })
+		}
+		for _, r := range []struct{ cmd, lands string }{
+			{"cd missing ; cd ../sublink ; cd sublink && git commit -m x", root},
+			{"cd deep ; cd ../sublink ; cd sublink && git commit -m x", root},
+			{"cd deep ; cd ../sublink && git commit -m x", filepath.Join(root, "sub")},
+			{"cd deep/../sublink && echo x > f", filepath.Join(root, "sub", "f")},
+			{"cd deep && cd .. && echo x > mainlink", filepath.Join(root, "main.go")},
+			{"cd deep && cd ../sublink && echo x > f", filepath.Join(root, "sub", "f")},
+			{"cd deep && cd ../sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
+			{"cd deep && cd ../sublink && git -C .. commit -m x", root},
+			{"cd -P deep && cd ../../sublink && touch f", filepath.Join(root, "sub", "f")},
+		} {
+			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, a), false, note, r.lands) })
+		}
+		for _, cmd := range []string{
+			"cd deep ; cd ../sub && touch g",
+			"cd inner && touch h",
+			"cd -P deep && cd .. && touch g",
+		} {
+			expect(t, g.Bash(cmd, a), true)
+		}
+		ga := g
+		ga.Root = a
+		expect(t, ga.Edit("deep/../mainlink"), false, note, filepath.Join(root, "main.go"))
+		expect(t, g.Edit(filepath.Join(a, "dirlink", "dl")), false, note)
+		if got := CanonicalPath(filepath.Join(a, "dirlink", "dl")); got != filepath.Join(root, "new2.go") {
+			t.Errorf("dirlink/dl lands at %s", got)
+		}
+		for _, r := range []struct{ p, lands string }{
+			{filepath.Join(a, "mainlink"), filepath.Join(root, "main.go")},
+			{filepath.Join(a, "dangling"), filepath.Join(root, "new.go")},
+			{a + "/sublink/../main.go", filepath.Join(root, "main.go")},
+			{a + "/missing/../mainlink", filepath.Join(root, "main.go")},
+		} {
+			expect(t, g.Edit(r.p), false, note, r.lands)
+		}
+		for _, cmd := range []string{
+			"echo x > " + a + "/inner/f",
+			"cp main.go " + a + "/inner/f",
+			"touch " + a + "/rel/g",
+			"cd " + a + "/inner && touch h",
+			"echo x > " + a + "/inner/../y",
+			"rm " + a + "/rel",
+		} {
+			expect(t, g.Bash(cmd, root), true)
+		}
+		expect(t, g.Edit(filepath.Join(a, "inner", "f")), true)
+	})
+
+	t.Run("AC8 commands on the link entry keep today's refusals", func(t *testing.T) {
+		self, targets = Grant{}, []Target{treeA}
+		links(t)
+		for _, cmd := range []string{
+			"rm " + root + "/rl",
+			"mv " + a + "/x.go " + root + "/rl",
+			"ln -sf " + a + "/y " + root + "/rl",
+			"rm " + root + "/locked/ll",
+			"rm " + a + "/locked/al",
+			"ln -sf " + a + "/y " + a + "/locked/al",
+		} {
+			expect(t, g.Bash(cmd, root), false)
+		}
+		expect(t, g.Bash("rm "+a+"/sublink/../main.go", root), false, note, filepath.Join(root, "main.go"))
+	})
+
+	t.Run("AC8 file-tool paths are joined literally", func(t *testing.T) {
+		self, targets = Grant{}, []Target{treeA}
+		t.Setenv("TMPDIR", temp)
+		t.Setenv("HOME", t.TempDir())
+		links(t)
+		for _, p := range []string{"$TMPDIR/x", "~/x", "   "} {
+			expect(t, g.Edit(p), false, "edits land in "+a)
+		}
+		self = Grant{Tree: true}
+		ga := g
+		ga.Root = a
+		expect(t, ga.Edit("x.go"), true)
+		expect(t, ga.Edit("sublink/../main.go"), false, note, filepath.Join(root, "main.go"))
 	})
 
 	t.Run("AC7 a registry problem refuses every path", func(t *testing.T) {
