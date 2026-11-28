@@ -35,7 +35,7 @@ timeout = "40m"
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-panel = ["reviewer-gemini-4-neon-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]

@@ -16,7 +16,7 @@ import (
 
 var (
 	lowTier  = []string{"reviewer-gemini-4-hydrogen-high"}
-	highTier = []string{"reviewer-gemini-4-neon-high", "reviewer-grok-4.7"}
+	highTier = []string{"reviewer-gemini-4-hydrogen-high", "reviewer-grok-4.7"}
 )
 
 func TestAnUntieredItemIsJudgedByTheHighTierPanel(t *testing.T) {
