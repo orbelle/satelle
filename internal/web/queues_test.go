@@ -143,3 +143,21 @@ func TestPanelsReachClient(t *testing.T) {
 		t.Fatalf("queues: tabs %v live %v", tabs, live)
 	}
 }
+
+func TestQueueRowsRepoFilter(t *testing.T) {
+	q := Item{ID: "que_r", Kind: "queue", Status: "alpha", Workflow: "flow", Inputs: &item.Selection{Kind: "story", Repo: "satelle-server"}}
+	all := []Item{
+		{ID: "sto_srv", Kind: "story", Status: "alpha", Workflow: "flow", Repo: "satelle-server"},
+		{ID: "sto_sat", Kind: "story", Status: "alpha", Workflow: "flow", Repo: "satelle"},
+		{ID: "sto_self", Kind: "story", Status: "alpha", Workflow: "flow"},
+		{ID: "sto_add", Kind: "story", Status: "alpha", Workflow: "flow", Repo: "satelle"},
+	}
+	events := []Entry{{ID: "e1", Item: "que_r", Kind: item.KindQueueAdded, At: activityT0, Payload: raw(item.QueueEntry{Item: "sto_add"})}}
+	rows := queueRows([]Item{q}, all, events, nil)
+	if len(rows) != 1 || len(rows[0].Members) != 1 || rows[0].Members[0].ID != "sto_srv" {
+		t.Fatalf("rows %+v", rows)
+	}
+	if rows[0].Filter != "kind:story repo:satelle-server" {
+		t.Fatalf("filter %q", rows[0].Filter)
+	}
+}

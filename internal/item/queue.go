@@ -157,7 +157,16 @@ func lapsed(id, cause string, status MemberStatus) (string, bool) {
 	return s, terminal
 }
 
-func Members(q Item, st QueueState, candidates []Item, status MemberStatus) Membership {
+type MemberTarget func(id string) (string, bool)
+
+func Members(q Item, st QueueState, candidates []Item, status MemberStatus, target MemberTarget) Membership {
+	outside := func(id string) bool {
+		if q.Inputs == nil || q.Inputs.Repo == "" || target == nil {
+			return false
+		}
+		t, ok := target(id)
+		return ok && t != q.Inputs.Repo
+	}
 	excluded := func(id, parent string) bool {
 		if id == q.ID || parent == q.ID {
 			return true
@@ -170,7 +179,7 @@ func Members(q Item, st QueueState, candidates []Item, status MemberStatus) Memb
 	out := Membership{Members: []string{}, Lapsed: []Lapse{}}
 	var gone []Lapse
 	for _, id := range st.Explicit {
-		if id == q.ID || slices.Contains(out.Members, id) {
+		if id == q.ID || slices.Contains(out.Members, id) || outside(id) {
 			continue
 		}
 		if s, ok := lapsed(id, st.Causes[id], status); ok {
