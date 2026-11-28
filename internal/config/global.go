@@ -40,6 +40,8 @@ type GlobalConfig struct {
 	Capacity CapacityConfig     `toml:"capacity"`
 }
 
+// CapacityConfig is the [capacity] table. Workers is 0 only when the key is
+// absent (no ceiling); loadGlobalAt refuses a written value below 1.
 type CapacityConfig struct {
 	Workers int `toml:"workers"`
 }
@@ -263,6 +265,9 @@ func loadGlobalAt(path string) (GlobalConfig, error) {
 	}
 	if md.IsDefined("workspace") {
 		return GlobalConfig{}, fmt.Errorf("config: %s has a [workspace] table, which satelle no longer reads: list this machine's projects as [projects] paths = [\"/path/to/repo\", ...] and delete [workspace]", path)
+	}
+	if md.IsDefined("capacity", "workers") && gc.Capacity.Workers < 1 {
+		return GlobalConfig{}, fmt.Errorf("config: %s has [capacity] workers = %d: set a whole number of 1 or more, or delete the line for no ceiling", path, gc.Capacity.Workers)
 	}
 	return gc, nil
 }

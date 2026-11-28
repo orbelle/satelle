@@ -152,8 +152,13 @@ func TestSaveGlobalKeepsCapacity(t *testing.T) {
 	if n, ok := gc.Capacity.Ceiling(); !ok || n != 3 {
 		t.Fatalf("after load and save, ceiling %d %t, want 3", n, ok)
 	}
-	if n, ok := (CapacityConfig{Workers: -2}).Ceiling(); ok {
-		t.Fatalf("a negative workers value reads as ceiling %d", n)
+	for _, bad := range []string{"-2", "0"} {
+		if err := os.WriteFile(filepath.Join(home, GlobalConfigName), []byte("[capacity]\nworkers = "+bad+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadGlobal(); err == nil || !strings.Contains(err.Error(), "workers = "+bad) {
+			t.Fatalf("[capacity] workers = %s loaded without an error naming it: %v", bad, err)
+		}
 	}
 }
 
