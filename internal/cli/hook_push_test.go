@@ -68,7 +68,6 @@ func TestEditGateAllowsPushToOwnItemsBranch(t *testing.T) {
 		"git push origin HEAD:" + a,
 		"git push origin --delete " + a,
 		"git status && git push origin HEAD:refs/heads/" + a,
-		"cd " + dir + " && git push origin HEAD:" + a,
 		"git -C " + dir + " push origin HEAD:refs/heads/" + a,
 		"git --no-pager push origin HEAD:" + a,
 		`"git" push origin HEAD:` + a,
@@ -76,6 +75,9 @@ func TestEditGateAllowsPushToOwnItemsBranch(t *testing.T) {
 		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); deny {
 			t.Errorf("%q: refused: %s", c, why)
 		}
+	}
+	if deny, why := hookGate(t, dir, "s-1", "Bash", "", "cd "+dir+" && git push origin HEAD:"+a); !deny || !strings.Contains(why, "cd rule") {
+		t.Errorf("a push after cd: deny %v (%s), want refused under the cd rule", deny, why)
 	}
 	for _, c := range []string{"go test ./...", "ls", "go test ./... 2>&1 | tail -5", "time go test ./..."} {
 		if deny, why := hookGate(t, dir, "s-1", "Bash", "", c); deny {

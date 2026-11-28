@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/gate"
@@ -49,16 +50,46 @@ var allow = Verdict{Allow: true}
 const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
 	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
+const CdWriteDenied = "satelle: refused under the edit gate's cd rule: this line holds cd, pushd or popd together with a write " +
+	"(a redirect, a path a command writes, a -C directory, an inline program, or a git command that is not read-only), " +
+	"and the gate does not follow a change of directory for writes. Use an absolute path or git -C <dir> instead. " +
+	"See `satelle help edit-gate --session <session>`."
+
 func unreadReason(what string) string {
 	return "satelle: refused under the edit gate's fail-closed rule: the gate reads a shell line only when every token is a plain literal word or one of &&, ||, ; and |, " +
 		"with git as a command word after an optional cd to one literal path; this line holds " + what + " and names git, " +
 		"so the gate cannot tell which tree it changes or whether it only reads. " +
-		"Rewrite it in plain form: git -C <dir> or cd <dir> with a literal path, a commit message with -m '<text>' or -F <file>, " +
+		"Rewrite it in plain form: git -C <dir> with a literal path, a commit message with -m '<text>' or -F <file>, " +
 		"no redirections, no other builtins, or separate commands. See `satelle help edit-gate --session <session>`."
 }
 
 func (g Gate) Edit(target string) Verdict {
-	return g.judge(native(resolvePath(g.Root, target)), false)
+	return g.judgePath(JoinLiteral(g.Root, target), false)
+}
+
+func (g Gate) judgePath(raw string, inline bool) Verdict {
+	lex := filepath.Clean(raw)
+	forms := []string{lex}
+	for _, p := range []string{EntryPath(raw), CanonicalPath(raw), EntryPath(lex), CanonicalPath(lex)} {
+		if !slices.Contains(forms, p) {
+			forms = append(forms, p)
+		}
+	}
+	for i, p := range forms {
+		v := g.judge(p, inline)
+		if v.Allow {
+			continue
+		}
+		if len(forms) > 1 {
+			named := p
+			if i == 0 {
+				named = forms[len(forms)-1]
+			}
+			v.Reason = "satelle: " + raw + " resolves through a symlink to " + named + ". " + v.Reason
+		}
+		return v
+	}
+	return allow
 }
 
 func nativePath(p string, windows bool) string {
@@ -91,14 +122,17 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	if t.Unreadable != "" {
 		return Verdict{Reason: unreadReason(t.Unreadable)}
 	}
-	for _, p := range t.Paths {
-		if v := g.judge(native(p), false); !v.Allow {
+	if t.CdWrite {
+		return Verdict{Reason: CdWriteDenied}
+	}
+	for _, p := range t.Raw {
+		if v := g.judgePath(native(p), false); !v.Allow {
 			return v
 		}
 	}
-	for _, d := range t.Inline {
+	for _, d := range t.InlineRaw {
 		d = native(d)
-		if v := g.judge(d, true); !v.Allow {
+		if v := g.judgePath(d, true); !v.Allow {
 			v.Reason = "an inline program would run in " + d + ", which it may write anywhere under. " + v.Reason
 			return v
 		}
@@ -123,6 +157,7 @@ const pushUnread = "satelle: git push blocked: %s, so the gate cannot tell which
 
 func (g Gate) judge(abs string, inline bool) Verdict {
 	root := filepath.Clean(g.Root)
+	abs = canonicalTreePrefix(abs)
 	if !within(root, abs) && g.underTemp(abs) {
 		return allow
 	}
@@ -340,6 +375,22 @@ func relSlash(root, abs string) string {
 }
 
 func Within(root, target string) bool { return within(root, target) }
+
+func canonicalTreePrefix(abs string) string {
+	tree := gitRootOf(abs)
+	if tree == "" {
+		return abs
+	}
+	c := CanonicalPath(tree)
+	if c == tree {
+		return abs
+	}
+	rel, err := filepath.Rel(tree, abs)
+	if err != nil {
+		return abs
+	}
+	return filepath.Join(c, rel)
+}
 
 func within(root, target string) bool {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(target) == "" {

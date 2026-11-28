@@ -3,6 +3,7 @@ package hook
 import (
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -14,15 +15,16 @@ import (
 func TestScanBashTargets(t *testing.T) {
 	noFile := func(string) bool { return false }
 	for _, c := range []struct {
-		cmd    string
-		paths  []string
-		inline []string
+		cmd     string
+		paths   []string
+		inline  []string
+		cdWrite bool
 	}{
 		{cmd: "ls -la; cat a | grep b"},
 		{cmd: "echo x > a.txt", paths: []string{"/w/a.txt"}},
 		{cmd: "echo x 2>&1 | tee -a log", paths: []string{"/w/log"}},
 		{cmd: `git commit -m "rm -rf /etc > /x"`},
-		{cmd: "cd sub && touch f", paths: []string{"/w/sub/f"}},
+		{cmd: "cd sub && touch f", paths: []string{"/w/f"}, cdWrite: true},
 		{cmd: "cp a b c /dst/", paths: []string{"/dst"}},
 		{cmd: "mv -t /dst a b", paths: []string{"/dst"}},
 		{cmd: "sed -i 's/a/b/' x y", paths: []string{"/w/x", "/w/y"}},
@@ -45,7 +47,7 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: `tar -C "/dst" -xf a.tar`, paths: []string{"/dst"}},
 		{cmd: `bash -c 'rm -f q'`, paths: []string{"/w/q"}},
 		{cmd: `python3 -c 'print(1)'`, inline: []string{"/w"}},
-		{cmd: `cd /o && python3 -c 'print(1)' && git merge x`, paths: []string{"/o"}, inline: []string{"/o"}},
+		{cmd: `cd /o && python3 -c 'print(1)' && git merge x`, inline: []string{"/w"}, cdWrite: true},
 		{cmd: "python3 script.py"},
 		{cmd: "cat <<'EOF' | python3 -\nprint(1)\nEOF", inline: []string{"/w"}},
 		{cmd: "chmod +x /tmp/x.sh", paths: []string{"/tmp/x.sh"}},
@@ -68,13 +70,13 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: "chmod -w +x", paths: []string{"/w/+x"}},
 		{cmd: "chmod --reference=ref +x", paths: []string{"/w/+x"}},
 		{cmd: "echo x \\\n  > a.txt", paths: []string{"/w/a.txt"}},
-		{cmd: "cd sub \\\n  && touch f", paths: []string{"/w/sub/f"}},
+		{cmd: "cd sub \\\n  && touch f", paths: []string{"/w/f"}, cdWrite: true},
 		{cmd: "bash -c 'X+=1 command true; rm /o/f'", paths: []string{"/o/f"}},
 		{cmd: "bash -c 'X+=1 >/dev/null true; echo x > /o/f'", paths: []string{"/dev/null", "/o/f"}},
 	} {
 		got := ScanBash(c.cmd, "/w", "", noFile)
-		if !slices.Equal(got.Paths, c.paths) || !slices.Equal(got.Inline, c.inline) {
-			t.Errorf("%q: paths %v inline %v, want %v %v", c.cmd, got.Paths, got.Inline, c.paths, c.inline)
+		if !slices.Equal(got.Paths, c.paths) || !slices.Equal(got.Inline, c.inline) || got.CdWrite != c.cdWrite {
+			t.Errorf("%q: paths %v inline %v cdWrite %v, want %v %v %v", c.cmd, got.Paths, got.Inline, got.CdWrite, c.paths, c.inline, c.cdWrite)
 		}
 	}
 }
@@ -266,7 +268,7 @@ func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
 	}
 }
 
-func TestResolvePathForms(t *testing.T) {
+func TestJoinRawCleanForms(t *testing.T) {
 	rows := []struct{ cwd, p, want string }{
 		{"/w", "a.txt", "/w/a.txt"},
 		{"/w", "/tmp/x.sh", "/tmp/x.sh"},
@@ -283,8 +285,12 @@ func TestResolvePathForms(t *testing.T) {
 		)
 	}
 	for _, r := range rows {
-		if got := resolvePath(r.cwd, r.p); got != r.want {
-			t.Errorf("resolvePath(%q, %q) = %q, want %q", r.cwd, r.p, got, r.want)
+		got := JoinRaw(r.cwd, r.p)
+		if got != "" {
+			got = path.Clean(got)
+		}
+		if got != r.want {
+			t.Errorf("path.Clean(JoinRaw(%q, %q)) = %q, want %q", r.cwd, r.p, got, r.want)
 		}
 	}
 }
@@ -395,18 +401,54 @@ done`
 func TestScanBashGitAfterCd(t *testing.T) {
 	noFile := func(string) bool { return false }
 	for _, c := range []struct {
-		cmd   string
-		paths []string
+		cmd     string
+		paths   []string
+		cdWrite bool
 	}{
-		{"cd /o && git merge x", []string{"/o"}},
-		{"cd /o; cd sub && git merge x", []string{"/o", "/w/sub", "/o/sub"}},
-		{"cd /o && git -C a merge x", []string{"/o/a", "/w/a"}},
-		{"git -C/o merge x", []string{"/o"}},
-		{"cd /o && git status", nil},
+		{"cd /o && git merge x", nil, true},
+		{"cd /o; cd sub && git merge x", nil, true},
+		{"cd /o && git -C a merge x", []string{"/w/a"}, true},
+		{"git -C/o merge x", []string{"/o"}, false},
+		{"cd /o && git status", nil, false},
 	} {
 		got := ScanBash(c.cmd, "/w", "", noFile)
-		if !slices.Equal(got.Paths, c.paths) || got.Unreadable != "" {
-			t.Errorf("%q: paths %v unreadable %q, want %v and a plain line", c.cmd, got.Paths, got.Unreadable, c.paths)
+		if !slices.Equal(got.Paths, c.paths) || got.CdWrite != c.cdWrite || got.Unreadable != "" {
+			t.Errorf("%q: paths %v cdWrite %v unreadable %q, want %v %v and a plain line", c.cmd, got.Paths, got.CdWrite, got.Unreadable, c.paths, c.cdWrite)
+		}
+	}
+}
+
+func TestScanBashCdWrite(t *testing.T) {
+	noFile := func(string) bool { return false }
+	for _, c := range []struct {
+		cmd  string
+		want bool
+	}{
+		{"cd x && touch f", true},
+		{"'cd' x ; echo y > f", true},
+		{"$'cd' x ; touch f", true},
+		{`"cd" x && touch f`, true},
+		{"c'd' x && touch f", true},
+		{"pushd x && cp a b", true},
+		{"popd ; touch f", true},
+		{"(cd x && touch h)", true},
+		{"! cd x && touch f", true},
+		{"cd x && git commit -m y", true},
+		{"cd x && 'git' 'commit'", true},
+		{"cd x && python3 -c 'print(1)'", true},
+		{"bash -c 'cd x; rm f'", true},
+		{"echo cd > f", true},
+		{"cd x 2>/dev/null && ls", true},
+		{"cd x && ls", false},
+		{"cd x && git status", false},
+		{"cd x && go test ./...", false},
+		{`git commit -m "cd fix"`, false},
+		{"touch a/cd", false},
+		{"touch f", false},
+		{"echo done", false},
+	} {
+		if got := ScanBash(c.cmd, "/w", "", noFile).CdWrite; got != c.want {
+			t.Errorf("%q: CdWrite %v, want %v", c.cmd, got, c.want)
 		}
 	}
 }
@@ -472,11 +514,11 @@ printf '%s\t%s\n' "$(pwd -P)" "$1" >> "$GITLOG"
 		}
 		for _, row := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			ran, sub, _ := strings.Cut(row, "\t")
-			if ran == b || gitReadOnlySubcommands[sub] {
+			if gitReadOnlySubcommands[sub] {
 				continue
 			}
-			if got.Unreadable == "" && !slices.Contains(got.Paths, filepath.ToSlash(ran)) {
-				t.Errorf("%q: bash runs git %s in %s, the scan reads %v", line, sub, ran, got.Paths)
+			if got.Unreadable == "" && !got.CdWrite && !slices.Contains(got.Paths, filepath.ToSlash(ran)) {
+				t.Errorf("%q: bash runs git %s in %s, the scan neither refuses nor reads it: %v", line, sub, ran, got.Paths)
 			}
 		}
 	}
