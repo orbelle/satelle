@@ -59,6 +59,13 @@ func TestTargetAgentEnv(t *testing.T) {
 	if len(env) != 0 {
 		t.Errorf("a withheld auth name is kept: %q", env)
 	}
+	keyring := []string{"PATH=/bin", "DISPLAY=:0", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"}
+	if env, _ := TargetAgentEnv(keyring, nil, nil); !slices.Equal(env, []string{"PATH=/bin"}) {
+		t.Errorf("the base allowlist keeps a keyring variable: %q", env)
+	}
+	if env, _ := TargetAgentEnv(keyring, []string{"DISPLAY", "DBUS_SESSION_BUS_ADDRESS"}, nil); !slices.Equal(env, keyring) {
+		t.Errorf("keyring variables as auth names = %q, want %q", env, keyring)
+	}
 }
 
 func TestTargetAgentEnvProxy(t *testing.T) {
