@@ -25,18 +25,27 @@ func TestGitHubService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = c.GitHub.PublishReview(ctx, &satellepb.PublishReviewRequest{Project: p.GetId(), PullNumber: 1})
+	_, err = c.GitHub.PublishReview(ctx, &satellepb.PublishReviewRequest{Project: p.GetId(), ItemId: "sto_1", PullNumber: 1})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("unbound project: %v", err)
 	}
-	_, err = c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "prj_other"})
+	_, err = c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "prj_other", ItemId: "sto_1"})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("another's project: %v", err)
 	}
 
 	srv.BindGitHub("acme", "orbelle/acme")
+	if _, err := c.GitHub.PublishReview(ctx, &satellepb.PublishReviewRequest{Project: "acme", PullNumber: 7, CommitSha: "abc123", Event: "APPROVE"}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("review with no item_id: %v", err)
+	}
+	if _, err := c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", ItemId: " ", CommitSha: "abc123", State: "success", Context: "ci/x"}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("status with no item_id: %v", err)
+	}
+	if len(srv.PublishedReviews("acme")) != 0 || len(srv.PublishedStatuses("acme")) != 0 {
+		t.Fatal("a request with no item_id was recorded")
+	}
 	rev, err := c.GitHub.PublishReview(ctx, &satellepb.PublishReviewRequest{
-		Project: "acme", PullNumber: 7, CommitSha: "abc123", Event: "REQUEST_CHANGES", Body: "team acme, gate code-ac: criterion 2 is not met",
+		Project: "acme", ItemId: "sto_1", PullNumber: 7, CommitSha: "abc123", Event: "REQUEST_CHANGES", Body: "team acme, gate code-ac: criterion 2 is not met",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +54,7 @@ func TestGitHubService(t *testing.T) {
 		t.Errorf("review response %+v", rev)
 	}
 	st, err := c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{
-		Project: "acme", CommitSha: "abc123", State: "success", Context: "satelle/code-ac", Description: "accept", TargetUrl: "https://example.com",
+		Project: "acme", ItemId: "sto_1", CommitSha: "abc123", State: "success", Context: "satelle/code-ac", Description: "accept", TargetUrl: "https://example.com",
 	})
 	if err != nil || st.GetStatusId() != 1 || st.GetRepository() != "orbelle/acme" {
 		t.Fatalf("status %+v %v", st, err)
@@ -58,7 +67,7 @@ func TestGitHubService(t *testing.T) {
 	}
 
 	srv.RefuseStatuses("acme", "the app's installation lacks statuses: write")
-	_, err = c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", CommitSha: "abc123", State: "success", Context: "ci/x"})
+	_, err = c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", ItemId: "sto_1", CommitSha: "abc123", State: "success", Context: "ci/x"})
 	if status.Code(err) != codes.FailedPrecondition || status.Convert(err).Message() != "the app's installation lacks statuses: write" {
 		t.Fatalf("refused status: %v", err)
 	}
@@ -66,7 +75,7 @@ func TestGitHubService(t *testing.T) {
 		t.Errorf("a refused status was recorded: %+v", got)
 	}
 	srv.RefuseStatuses("acme", "")
-	if _, err := c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", CommitSha: "abc123", State: "success", Context: "ci/x"}); err != nil {
+	if _, err := c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", ItemId: "sto_1", CommitSha: "abc123", State: "success", Context: "ci/x"}); err != nil {
 		t.Fatalf("lifted refusal: %v", err)
 	}
 	if got := srv.PublishedStatuses("acme"); len(got) != 2 {

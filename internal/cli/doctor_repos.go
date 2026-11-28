@@ -64,6 +64,25 @@ func checkoutOf(reg reporeg.Registry, name string, env []string) checkout {
 	return checkout{state: repoOK, path: path, actual: actual, remote: true}
 }
 
+func checkoutProblem(reg reporeg.Registry, name string, co checkout) string {
+	switch co.state {
+	case repoUnmapped:
+		return "no local checkout mapped in .satelle/" + kernel.ReposLocalFile
+	case repoMissing:
+		return "local checkout " + show(co.path) + " does not exist"
+	case repoUnreadable:
+		if co.remote {
+			return show(co.path) + " has an origin that is not a plain repository URL"
+		}
+		return show(co.path) + " has no origin remote"
+	case repoMismatch:
+		return show(co.path) + " has origin " + showOrigin(co.actual) + " but .satelle/" + kernel.ReposFile + " registers " + showOrigin(reg.Tracked[name].URL)
+	case repoInvalid:
+		return "its entry in .satelle/" + kernel.ReposFile + " or " + kernel.ReposLocalFile + " is not valid (satelle validate lists the problem)"
+	}
+	return ""
+}
+
 func declaredNames(reg reporeg.Registry) []string { return reg.Targets()[1:] }
 
 func unregisteredTargets(in *doctorInput) []doctorIssue {
@@ -113,22 +132,14 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 		switch co.state {
 		case repoUnmapped:
 			out = append(out, doctorIssue{Check: checkReposName,
-				Problem: prefix + "no local checkout mapped in .satelle/" + kernel.ReposLocalFile,
+				Problem: prefix + checkoutProblem(reg, name, co),
 				Fix:     "clone " + tracked + " on this machine, then " + remap(name)})
 		case repoMissing:
 			out = append(out, doctorIssue{Check: checkReposName,
-				Problem: prefix + "local checkout " + show(co.path) + " does not exist",
+				Problem: prefix + checkoutProblem(reg, name, co),
 				Fix:     "clone " + tracked + " to " + show(co.path) + " with your own git credentials, or " + remap(name) + " to map another checkout"})
-		case repoUnreadable:
-			what := " has no origin remote"
-			if co.remote {
-				what = " has an origin that is not a plain repository URL"
-			}
-			out = append(out, doctorIssue{Check: checkReposName, Problem: prefix + show(co.path) + what, Fix: repointFix})
-		case repoMismatch:
-			out = append(out, doctorIssue{Check: checkReposName,
-				Problem: prefix + show(co.path) + " has origin " + showOrigin(co.actual) + " but .satelle/" + kernel.ReposFile + " registers " + tracked,
-				Fix:     repointFix})
+		case repoUnreadable, repoMismatch:
+			out = append(out, doctorIssue{Check: checkReposName, Problem: prefix + checkoutProblem(reg, name, co), Fix: repointFix})
 		}
 	}
 	dup, notes := onboardingIssues(in, reg)

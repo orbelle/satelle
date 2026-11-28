@@ -289,13 +289,15 @@ message RelayFrame {
 
 // GitHubService publishes a client's own review and status on its project's
 // repository, and lists the pull-request events the app received for it. The
-// server derives the installation and repository from the project's binding
-// (a caller publishes only on its own project's repository), mints a token per
-// call and never returns it, and decides nothing: event, state, context and
-// body are the client's, passed to GitHub unchanged. The server never appends
-// to an item's chain; the client records what it published. Errors:
-// FAILED_PRECONDITION when the project has no GitHub binding or the app is not
-// configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
+// server derives the installation and repository from the project's bindings
+// and the request's item (a caller publishes only on its own project's
+// repositories, and never names a repository), mints a token per call and
+// never returns it, and decides nothing: event, state, context and body are
+// the client's, passed to GitHub unchanged. The server never appends to an
+// item's chain; the client records what it published. Errors:
+// INVALID_ARGUMENT when a PublishReview or PublishStatus request has no
+// item_id; FAILED_PRECONDITION when the project has no GitHub binding or the
+// app is not configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
 service GitHubService {
   rpc PublishReview(PublishReviewRequest) returns (PublishReviewResponse);
   rpc PublishStatus(PublishStatusRequest) returns (PublishStatusResponse);
@@ -311,6 +313,7 @@ message PublishReviewRequest {
   string commit_sha = 3;
   string event = 4; // APPROVE | REQUEST_CHANGES | COMMENT, passed through
   string body = 5;  // names the team and the gate
+  string item_id = 6; // the item published for; the server resolves its repository among the project's bindings
 }
 message PublishReviewResponse {
   int64 review_id = 1;
@@ -325,6 +328,7 @@ message PublishStatusRequest {
   string context = 4;
   string description = 5;
   string target_url = 6;
+  string item_id = 7; // the item published for; the server resolves its repository among the project's bindings
 }
 message PublishStatusResponse {
   int64 status_id = 1;

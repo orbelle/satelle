@@ -415,6 +415,15 @@ func (p *prSandbox) statusesSince(n int) []string {
 	return out
 }
 
+func (p *prSandbox) statusItemsAre(n int, item string) {
+	p.t.Helper()
+	for _, s := range p.srv.PublishedStatuses("acme")[n:] {
+		if s.GetItemId() != item {
+			p.t.Errorf("%s %s published for item %q, want %q", s.GetContext(), s.GetState(), s.GetItemId(), item)
+		}
+	}
+}
+
 func (p *prSandbox) statusCount() int { return len(p.srv.PublishedStatuses("acme")) }
 
 func (p *prSandbox) claudeCalls() int {
@@ -818,12 +827,13 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	if got := p.statusesSince(n0); !slices.Equal(got, []string{"satelle/pr-approval pending", "satelle/pr-ready pending", "satelle/pr-review pending", "satelle/pr-review success"}) {
 		t.Fatalf("integration -> in_review statuses %v", got)
 	}
+	p.statusItemsAre(n0, approved)
 	revs := p.srv.PublishedReviews("acme")
 	if len(revs) != 1 {
 		t.Fatalf("published %d reviews", len(revs))
 	}
 	rv := revs[0]
-	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 21 {
+	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 21 || rv.GetItemId() != approved {
 		t.Fatalf("published %v", rv)
 	}
 	first, rest, _ := strings.Cut(rv.GetBody(), "\n")
@@ -855,6 +865,7 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	if got := p.statusesSince(n0); !slices.Equal(got, []string{"satelle/pr-approval success"}) {
 		t.Fatalf("approval statuses %v", got)
 	}
+	p.statusItemsAre(n0, approved)
 	if d := p.srv.PublishedStatuses("acme")[n0].GetDescription(); !strings.HasPrefix(d, "accept (in_review->approved): ") {
 		t.Errorf("pr-approval description %q", d)
 	}
@@ -901,6 +912,9 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	revs = p.srv.PublishedReviews("acme")
 	if len(revs) != 2 {
 		t.Fatalf("carried published %d reviews, want 2", len(revs))
+	}
+	if got := revs[1].GetItemId(); got != carried {
+		t.Errorf("carried review published for item %q, want %q", got, carried)
 	}
 	first, rest, _ = strings.Cut(revs[1].GetBody(), "\n")
 	if want := "satelle · project acme · gate code-ac (" + p.reviewer + ") on " + carried + " head " + short + ": approve"; first != want {
@@ -1113,7 +1127,7 @@ func TestPRApproveFromReviewReadsTheNamedVerdict(t *testing.T) {
 		t.Fatalf("published %d reviews, want 1", len(revs))
 	}
 	rv := revs[0]
-	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 31 {
+	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 31 || rv.GetItemId() != id {
 		t.Fatalf("published %v", rv)
 	}
 	first, rest, _ := strings.Cut(rv.GetBody(), "\n")
@@ -1198,7 +1212,7 @@ func TestPRApproveFromReviewTakesTheRouteValues(t *testing.T) {
 		}
 		revs := p.srv.PublishedReviews("acme")
 		rv := revs[len(revs)-1]
-		if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != int64(pr) {
+		if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != int64(pr) || rv.GetItemId() != id {
 			t.Fatalf("%s: published %v", id, rv)
 		}
 		first, rest, _ := strings.Cut(rv.GetBody(), "\n")
@@ -1638,6 +1652,7 @@ after = ["`+statusSkill+`"]
 			t.Errorf("%s: gate.run %s %q, want %s with %q", c.name, run.Result, run.Notes, c.result, c.notesHas)
 		}
 		got := p.srv.PublishedStatuses("acme")[n0:]
+		p.statusItemsAre(n0, id)
 		var last string
 		for _, s := range got {
 			if s.GetContext() == "satelle/"+c.gate {
@@ -1678,6 +1693,7 @@ after = ["`+statusSkill+`"]
 		in, _ := json.Marshal(map[string]string{"result": c.result, "notes": "first\nsecond"})
 		r := p.exec("bash", string(in), "-c", block)
 		got := p.statusesSince(n0)
+		p.statusItemsAre(n0, "sto_x")
 		if r.code != 0 || !slices.Equal(got, []string{"satelle/" + c.gate + " " + c.state}) {
 			t.Errorf("%s: exit %d %v\n%s%s", c.result, r.code, got, r.out, r.err)
 		}
@@ -1687,6 +1703,7 @@ after = ["`+statusSkill+`"]
 	if r := p.exec("bash", "", "-c", block); r.code != 0 || !slices.Equal(p.statusesSince(n0), []string{"satelle/pr-ready pending", "satelle/pr-review pending"}) {
 		t.Errorf("pending mode: exit %d, statuses %v, want the gates whose after names the skill\n%s%s", r.code, p.statusesSince(n0), r.out, r.err)
 	}
+	p.statusItemsAre(n0, "sto_x")
 	p.env["SATELLE_GATE"] = "pr-review"
 	p.serveStatuses("by-other")
 	r := p.exec("bash", `{"result":"accept","notes":"fine"}`, "-c", block)
