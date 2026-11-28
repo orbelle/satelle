@@ -108,6 +108,28 @@ sdir=""
 if [ -d "$root/workflows" ]; then
   sdir=$(cd "$root/workflows" 2>/dev/null && pwd -P) || { echo "$root/workflows could not be resolved"; exit 2; }
 fi
+if [ -L "$root/workflows" ]; then
+  echo "$root/workflows is a symbolic link; a shared workflow cannot be told from a part's"
+  exit 2
+fi
+if [ -n "$sdir" ] && { [ "$sdir" = "$rdir/repos" ] || [ "${sdir#"$rdir/repos/"}" != "$sdir" ]; }; then
+  echo "$root/workflows resolves to $sdir, under $root/repos/; a shared workflow cannot be told from a part's"
+  exit 2
+fi
+if [ -L "$root/repos" ]; then
+  echo "$root/repos is a symbolic link; a shared workflow cannot be told from a part's"
+  exit 2
+fi
+if [ -d "$root/repos" ]; then
+  for d in "$root/repos"/*; do
+    for l in "$d" "$d/workflows"; do
+      if [ -L "$l" ]; then
+        echo "$l is a symbolic link; a shared workflow cannot be told from a part's"
+        exit 2
+      fi
+    done
+  done
+fi
 
 wnames=()
 wshows=()

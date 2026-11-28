@@ -93,6 +93,18 @@ func judgeFlow(file string) string {
 }`
 }
 
+func link(t *testing.T, target, at string) {
+	t.Helper()
+	for _, d := range []string{target, filepath.Dir(at)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(target, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestJudgeDiffersReadsPartBindings(t *testing.T) {
 	for _, tool := range []string{"bash", "jq", "awk"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -132,6 +144,7 @@ esac
 		shared    string
 		files     map[string]string
 		link      bool
+		setup     func(t *testing.T, fixture string)
 		code      int
 		want      []string
 		not       []string
@@ -141,6 +154,9 @@ esac
 		t.Helper()
 		fixture := t.TempDir()
 		t.Setenv("FIXTURE_ROOT", fixture)
+		if c.setup != nil {
+			c.setup(t, fixture)
+		}
 		wfs := c.workflows
 		if wfs == nil {
 			wfs = two
@@ -232,6 +248,18 @@ esac
 			want: []string{"workflow x/flow", "in neither"}},
 		{name: "n no file", wfiles: map[string]string{"x/flow": ""}, code: 2,
 			want: []string{"workflow x/flow", ".file string"}},
+		{name: "o shared workflows links into a part", workflows: []string{"flow"},
+			setup: func(t *testing.T, fixture string) {
+				link(t, filepath.Join(fixture, PartsDir, "x", WorkflowsDir), filepath.Join(fixture, WorkflowsDir))
+			},
+			files: map[string]string{"repos/x/agents.toml": partJudge("claude-z", "")}, code: 2,
+			want: []string{WorkflowsDir + " is a symbolic link"}},
+		{name: "p part workflows links to the shared directory",
+			setup: func(t *testing.T, fixture string) {
+				link(t, filepath.Join(fixture, WorkflowsDir), filepath.Join(fixture, PartsDir, "x", WorkflowsDir))
+			},
+			files: map[string]string{"repos/x/agents.toml": partJudge("claude-z", "")}, code: 2,
+			want: []string{PartsDir + "/x/" + WorkflowsDir + " is a symbolic link"}},
 	} {
 		t.Run(c.name, func(t *testing.T) { run(t, c) })
 	}
