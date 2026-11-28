@@ -139,9 +139,18 @@ func TestSessionPerformerRunRecordsModelAndOrder(t *testing.T) {
 	if runs[0] != want {
 		t.Fatalf("performer.run = %+v, want %+v", runs[0], want)
 	}
-	if n := len(evs); n < 2 || evs[n-2].Kind != KindPerformerRun || evs[n-2].Actor != "s-cur" || evs[n-1].Kind != item.KindTransitioned {
-		t.Fatalf("expected performer.run immediately before item.transitioned; tail = %s (%s), %s",
-			evs[n-2].Kind, evs[n-2].Actor, evs[n-1].Kind)
+	moved := -1
+	for i, e := range evs {
+		if e.Kind == item.KindTransitioned {
+			moved = i
+		}
+	}
+	if moved < 1 || evs[moved-1].Kind != KindPerformerRun || evs[moved-1].Actor != "s-cur" {
+		t.Fatalf("expected performer.run immediately before the last item.transitioned; events = %+v", evs)
+	}
+	var rel item.SeatRelease
+	if last := evs[len(evs)-1]; last.Kind != item.KindSeatReleased || last.Decode(&rel) != nil || rel.Session != "s-cur" {
+		t.Fatalf("the move into terminal st-done should end the chain in seat.released for s-cur; last = %+v", last)
 	}
 	if err := k.Ledger.Verify(); err != nil {
 		t.Fatalf("ledger verify: %v", err)

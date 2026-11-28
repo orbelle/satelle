@@ -257,13 +257,14 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 }
 
 type TransitionResult struct {
-	Item   item.Item
-	From   string
-	To     string
-	Moved  bool
-	Gates  []gate.Result
-	Queued []QueueOutcome `json:",omitempty"`
-	Held   *item.Hold     `json:",omitempty"`
+	Item     item.Item
+	From     string
+	To       string
+	Moved    bool
+	Gates    []gate.Result
+	Queued   []QueueOutcome `json:",omitempty"`
+	Released []string       `json:",omitempty"`
+	Held     *item.Hold     `json:",omitempty"`
 }
 
 func (r TransitionResult) Rejects() []gate.Result {
@@ -347,22 +348,43 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold, Change: frozen}); err != nil {
 		return res, err
 	}
+	res.Moved = true
+	var releaseErr error
+	if w.States[to].Terminal {
+		if res.Released, releaseErr = k.releaseSeats(id, actor); releaseErr != nil {
+			releaseErr = fmt.Errorf("%s moved to %s, but %w", id, to, releaseErr)
+		}
+	}
 	if k.Progress != nil {
 		k.Progress(id)
 	}
-	res.Moved = true
 	if res.Item, err = k.Get(id); err != nil {
-		return res, err
+		return res, errors.Join(releaseErr, err)
 	}
 	cause := item.StateCause(w.Name, it.Status, to)
 	for _, q := range queues {
 		out, err := k.Enqueue(q, []string{id}, cause, actor)
 		if err != nil {
-			return res, fmt.Errorf("%s moved to %s, but enqueueing it into %s failed (add it with satelle queue add %s %s): %w", id, to, q, q, id, err)
+			return res, errors.Join(releaseErr, fmt.Errorf("%s moved to %s, but enqueueing it into %s failed (add it with satelle queue add %s %s): %w", id, to, q, q, id, err))
 		}
 		res.Queued = append(res.Queued, out)
 	}
-	return res, nil
+	return res, releaseErr
+}
+
+func (k *Kernel) releaseSeats(id, actor string) ([]string, error) {
+	events, err := k.Ledger.Read(id)
+	if err != nil {
+		return nil, fmt.Errorf("reading its seats failed (satelle doctor --resolve releases them): %w", err)
+	}
+	var released []string
+	for _, s := range item.FoldSeats(events) {
+		if err := k.Release(id, s.Session, actor); err != nil {
+			return released, fmt.Errorf("releasing the seat of session %s failed (satelle doctor --resolve releases it): %w", s.Session, err)
+		}
+		released = append(released, s.Session)
+	}
+	return released, nil
 }
 
 func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (coverage, change string, err error) {

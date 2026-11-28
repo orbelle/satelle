@@ -532,7 +532,8 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			return nil
 		}
 		seated = false
-		return k.Release(o.Item, node, o.Actor)
+		_, err := releaseNodeSeat(k, o.Item, node, o.Actor)
+		return err
 	}
 	defer func() { _ = release() }()
 	failAfterStart := func(err error) (*satellepb.ItemRun, error) {

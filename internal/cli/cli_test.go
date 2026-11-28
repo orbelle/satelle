@@ -14,6 +14,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
 func isolate(t *testing.T) string {
@@ -831,4 +832,33 @@ func TestValidateNamesABadReviewTable(t *testing.T) {
 			t.Errorf("validate lacks %q:\n%s\n%v", w, out, err)
 		}
 	}
+}
+
+func staleSeat(t *testing.T, id, session, machine, host string) {
+	t.Helper()
+	r, err := findRepo("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _, err := openKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if _, err := k.Ledger.Append(id, item.KindSeatBound, "test", item.Seat{Session: session, Location: kernel.LocalLocation(r.Tree), Machine: machine, Host: host}); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Cache.SyncItem(k.Ledger, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func thisMachine(t *testing.T) (machine, host string) {
+	t.Helper()
+	machine, err := config.MachineID(config.GlobalDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, _ = os.Hostname()
+	return machine, host
 }
