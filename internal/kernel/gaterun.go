@@ -76,17 +76,23 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		run.Head, run.HeadErr = k.pushedHead(wt, it, events, sp)
 	}
 	if judged(skills, w, tr) {
+		rf, err := k.RuleFilesFor(it)
+		if err != nil {
+			return gate.Run{}, sp, done, err
+		}
+		copies := ruleCopies(rf)
 		var rec Record
 		if run.Worktree != "" {
-			rec, err = k.targetRecord(it, events, recordPointers, wt)
+			rec, err = k.targetRecord(it, events, recordPointers, wt, copies...)
 		} else {
-			rec, err = k.record(it, events, recordPointers)
+			rec, err = k.record(it, events, recordPointers, copies...)
 		}
 		if err != nil {
 			return gate.Run{}, sp, done, err
 		}
 		done = func() { rec.Close() }
 		run.Record = rec.Section
+		run.RuleFiles = ruleSection(it.Target(), rf, rec.Dir)
 		run.RecordDir, run.Scratch = rec.Dir, rec.Scratch
 		if run.Worktree != "" {
 			run.TargetEnv = k.Settings.Dispatch.TargetEnv

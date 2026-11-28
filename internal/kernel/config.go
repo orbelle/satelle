@@ -88,6 +88,7 @@ type Config struct {
 	Settings     Settings
 	Workflows    map[string]*workflow.Workflow
 	Skills       map[string]workflow.Skill
+	RuleFiles    RuleFiles
 	Packs        map[string]workflow.Pack
 	Agents       agent.Catalog
 	Overrides    []agent.Override
@@ -102,6 +103,8 @@ type Config struct {
 	PartAgents   map[string]agent.Catalog
 	PartWarnings []PartWarning
 	UnknownKeys  []workflow.UnknownKey
+
+	head *headTree
 }
 
 type HarnessSettings struct {
@@ -163,25 +166,27 @@ func (o DoctorOpen) Selection() item.Selection {
 }
 
 const (
-	SettingsFile    = "satelle.toml"
-	PacksFile       = "packs.toml"
-	PackMergeDir    = "pack-merge"
-	DoctorFile      = "doctor.toml"
-	VolatileFile    = "volatile.toml"
-	UIFile          = "ui.toml"
-	HarnessFile     = "harness.toml"
-	AgentsFile      = "agents.toml"
-	AgentsLocalFile = "agents.local.toml"
-	ReposFile       = reporeg.TrackedFile
-	ReposLocalFile  = reporeg.LocalFile
-	SessionFile     = "session.md"
-	AutoModeFile    = "auto-mode.md"
-	WorkflowsDir    = "workflows"
-	PartsDir        = "repos"
-	SkillsDir       = "skills"
-	QueuesDir       = "queues"
-	RemotesDir      = "remotes"
-	RemoteFile      = "remote.toml"
+	SettingsFile     = "satelle.toml"
+	PacksFile        = "packs.toml"
+	PackMergeDir     = "pack-merge"
+	DoctorFile       = "doctor.toml"
+	VolatileFile     = "volatile.toml"
+	UIFile           = "ui.toml"
+	HarnessFile      = "harness.toml"
+	AgentsFile       = "agents.toml"
+	AgentsLocalFile  = "agents.local.toml"
+	ReposFile        = reporeg.TrackedFile
+	ReposLocalFile   = reporeg.LocalFile
+	SessionFile      = "session.md"
+	AutoModeFile     = "auto-mode.md"
+	WorkflowsDir     = "workflows"
+	PartsDir         = "repos"
+	SkillsDir        = "skills"
+	PrinciplesDir    = "principles"
+	ConstitutionFile = "constitution.md"
+	QueuesDir        = "queues"
+	RemotesDir       = "remotes"
+	RemoteFile       = "remote.toml"
 )
 
 func LoadAgents(root string) (agent.Catalog, []agent.Override, error) {
@@ -430,6 +435,9 @@ func loadConfig(root, skillsDir string) (*Config, error) {
 	} else {
 		c.Queues = qs
 	}
+	rf, rerrs := c.loadRuleFiles()
+	c.RuleFiles = rf
+	errs = append(errs, rerrs...)
 	if err := c.loadParts(); err != nil {
 		errs = append(errs, err)
 	}

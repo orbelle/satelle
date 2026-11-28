@@ -561,3 +561,69 @@ func TestPartialClone(t *testing.T) {
 		t.Errorf("a promisor in HOME's .gitconfig: PartialClone = %v, %v; want true", got, err)
 	}
 }
+
+func TestHeadTreeBlob(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	if oid, born, err := (Repo{Dir: t.TempDir()}).HeadCommit(); oid != "" || born || err != nil {
+		t.Errorf("no repository: %q %v %v", oid, born, err)
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q", "-b", "main")
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(filepath.Join(sub, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := Repo{Dir: sub}
+	if oid, born, err := r.HeadCommit(); oid != "" || born || err != nil {
+		t.Errorf("fresh init: %q %v %v", oid, born, err)
+	}
+	os.WriteFile(filepath.Join(sub, "a.md"), []byte("V1\n"), 0o644)
+	os.WriteFile(filepath.Join(sub, "d", "b.md"), []byte("B\n"), 0o644)
+	if err := os.Symlink("a.md", filepath.Join(sub, "l.md")); err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "one")
+	oid, born, err := r.HeadCommit()
+	if !born || err != nil || oid != strings.TrimSpace(gittest.Git(t, dir, "rev-parse", "HEAD")) {
+		t.Fatalf("after a commit: %q %v %v", oid, born, err)
+	}
+	entries, err := r.Tree(oid, "a.md", "d", "l.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	var aOID string
+	for _, e := range entries {
+		got[e.Path] = e.Mode + " " + e.Type
+		if e.Path == "a.md" {
+			aOID = e.OID
+		}
+	}
+	want := map[string]string{"./": "040000 tree", "a.md": "100644 blob", "d": "040000 tree", "d/b.md": "100644 blob", "l.md": "120000 blob"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tree %v, want %v", got, want)
+	}
+	os.WriteFile(filepath.Join(sub, "a.md"), []byte("V2\n"), 0o644)
+	blobs, err := r.Blobs(aOID)
+	if err != nil || string(blobs[aOID]) != "V1\n" {
+		t.Errorf("blob %q %v, want the committed V1", blobs[aOID], err)
+	}
+	if _, err := r.Tree("HEAD"); err == nil {
+		t.Error("Tree accepted a rev that is not an object id")
+	}
+	if _, err := r.Blobs("HEAD:a.md"); err == nil {
+		t.Error("Blobs accepted a name that is not an object id")
+	}
+	gittest.Git(t, dir, "checkout", "-q", "--orphan", "o")
+	if _, born, err := r.HeadCommit(); born || err == nil {
+		t.Errorf("orphan checkout: %v %v, want an error", born, err)
+	}
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	gittest.Git(t, dir, "symbolic-ref", "HEAD", "refs/heads/none")
+	if _, born, err := r.HeadCommit(); born || err == nil {
+		t.Errorf("symbolic-ref to a missing branch: %v %v, want an error", born, err)
+	}
+}

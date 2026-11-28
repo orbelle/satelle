@@ -164,6 +164,26 @@ refused until it resolves. Changing a story's repo to or from one with skills
 of its own ends any accept a gate would carry. A control repository with no
 `.satelle/repos/` reads skills as before.
 
+A judge of a story whose repo is X gets, in the prompt's last block ("Rule
+files for this judgement", directly before the answer line), copies in the
+run's read-only record folder of `.satelle/repos/X/constitution.md` and
+`.satelle/repos/X/principles/*.md` as committed at HEAD, each in place of the
+shared file of the same name, and of the shared `.satelle/constitution.md`
+and `.satelle/principles/` otherwise. Only committed files count: a tracked
+file's uncommitted edit or delete does not change the rules, while a new
+uncommitted part rule file, or a committed part removed from the worktree,
+refuses X's stories until it is committed, restored or removed. A
+principle's name is its file stem and must be a valid repository-style name.
+A `principles/` directory holds only regular principle files, `README.md`
+and `.gitkeep`; anything else is a config load error in the shared
+`.satelle/` and a part problem that refuses X's stories. Before the first
+commit the shared files are read from disk and a part with rule files is
+refused; an unborn HEAD beside existing refs is a config load error. These
+checks catch honest mistakes; they are not a defence against someone who
+deliberately rewrites the repository's git state. Changing a story's repo,
+committing a change to its part's rule files, or changing its part's skills
+ends any carried accept.
+
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:
 the absolute directory of the `.satelle` governing the run. A script should

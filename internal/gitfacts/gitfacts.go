@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -345,13 +346,20 @@ func (r Repo) Tracks(path string) (bool, error) {
 	if err == nil {
 		return len(files) > 0, nil
 	}
-	dir, aerr := filepath.Abs(r.Dir)
-	if aerr != nil {
+	if in, aerr := r.inWorkTree(); aerr != nil || in {
+		return false, err
+	}
+	return false, nil
+}
+
+func (r Repo) inWorkTree() (bool, error) {
+	dir, err := filepath.Abs(r.Dir)
+	if err != nil {
 		return false, err
 	}
 	for {
 		if _, serr := os.Lstat(filepath.Join(dir, ".git")); serr == nil {
-			return false, err
+			return true, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -359,6 +367,102 @@ func (r Repo) Tracks(path string) (bool, error) {
 		}
 		dir = parent
 	}
+}
+
+var objectID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+var ErrUnbornWithRefs = errors.New("HEAD has no commit but the repository has refs")
+
+func (r Repo) HeadCommit() (string, bool, error) {
+	out, err := r.git("rev-parse", "--verify", "--quiet", "--end-of-options", "HEAD^{commit}")
+	if err == nil {
+		oid := strings.TrimSpace(out)
+		if !objectID.MatchString(oid) {
+			return "", false, fmt.Errorf("git rev-parse HEAD: unreadable commit %q", oid)
+		}
+		return oid, true, nil
+	}
+	if _, gerr := r.git("rev-parse", "--git-dir"); gerr != nil {
+		if in, aerr := r.inWorkTree(); aerr == nil && !in {
+			return "", false, nil
+		}
+		return "", false, gerr
+	}
+	refs, rerr := r.git("for-each-ref", "--count=1", "--format=%(refname)")
+	if rerr != nil {
+		return "", false, rerr
+	}
+	if strings.TrimSpace(refs) == "" {
+		return "", false, nil
+	}
+	return "", false, ErrUnbornWithRefs
+}
+
+type TreeEntry struct {
+	Mode string
+	Type string
+	OID  string
+	Path string
+}
+
+func (r Repo) Tree(rev string, paths ...string) ([]TreeEntry, error) {
+	if !objectID.MatchString(rev) {
+		return nil, fmt.Errorf("git ls-tree: %q is not an object id", rev)
+	}
+	out, err := r.git(append([]string{"ls-tree", "-r", "-t", "-z", rev, "--"}, paths...)...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []TreeEntry
+	for _, rec := range strings.Split(out, "\x00") {
+		if rec == "" {
+			continue
+		}
+		meta, path, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if !ok || path == "" || len(f) != 3 || !objectID.MatchString(f[2]) {
+			return nil, fmt.Errorf("git ls-tree: unreadable record %q", rec)
+		}
+		entries = append(entries, TreeEntry{Mode: f[0], Type: f[1], OID: f[2], Path: path})
+	}
+	return entries, nil
+}
+
+func (r Repo) Blobs(oids ...string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	if len(oids) == 0 {
+		return out, nil
+	}
+	for _, oid := range oids {
+		if !objectID.MatchString(oid) {
+			return nil, fmt.Errorf("git cat-file: %q is not an object id", oid)
+		}
+	}
+	cmd, err := r.command("cat-file", "--batch")
+	if err != nil {
+		return nil, err
+	}
+	var stdout, errb bytes.Buffer
+	cmd.Stdin = strings.NewReader(strings.Join(oids, "\n") + "\n")
+	cmd.Stdout, cmd.Stderr = &stdout, &errb
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(errb.String()))
+	}
+	b := stdout.Bytes()
+	for range oids {
+		line, rest, ok := bytes.Cut(b, []byte("\n"))
+		f := strings.Fields(string(line))
+		if !ok || len(f) != 3 || f[1] != "blob" || !objectID.MatchString(f[0]) {
+			return nil, fmt.Errorf("git cat-file --batch: unreadable header %q", line)
+		}
+		n, err := strconv.Atoi(f[2])
+		if err != nil || n < 0 || len(rest) < n+1 || rest[n] != '\n' {
+			return nil, fmt.Errorf("git cat-file --batch: unreadable object %s", f[0])
+		}
+		out[f[0]] = slices.Clone(rest[:n])
+		b = rest[n+1:]
+	}
+	return out, nil
 }
 
 func (r Repo) Bundle(file, ref string) error {

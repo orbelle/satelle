@@ -30,6 +30,8 @@ type Part struct {
 	Rules     workflow.Rules
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
+	RuleFiles RuleFiles
+	Digest    string
 	Problems  []error
 }
 
@@ -220,22 +222,31 @@ func partSkip(reg reporeg.Registry, x string) string {
 
 func (c *Config) loadParts() error {
 	dir := filepath.Join(c.Root, PartsDir)
+	names := map[string]bool{}
+	if c.head != nil {
+		for _, x := range c.head.children(PartsDir) {
+			if c.head.entries[PartsDir+"/"+x].Type == "tree" {
+				names[x] = true
+			}
+		}
+	}
 	info, err := os.Lstat(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
 		return partErr("%s: cannot be read", PartsDir)
-	}
-	if !info.IsDir() {
+	case !info.IsDir():
 		return partErr("%s: not a directory", PartsDir)
+	default:
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return partErr("%s: cannot be read", PartsDir)
+		}
+		for _, e := range entries {
+			names[e.Name()] = true
+		}
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return partErr("%s: cannot be read", PartsDir)
-	}
-	for _, e := range entries {
-		x := e.Name()
+	for _, x := range sortedKeys(names) {
 		if reason := partSkip(c.Repos, x); reason != "" {
 			c.PartWarnings = append(c.PartWarnings, PartWarning{Dir: x, Reason: reason})
 			continue
@@ -272,7 +283,11 @@ func (c *Config) loadPart(dir, x string) {
 		p.Problems = append(p.Problems, partErr("%s: not a directory", rel))
 		return
 	}
-	c.loadPartSkills(p, partDir)
+	files := map[string][]byte{}
+	read := partReader(partDir, files)
+	c.loadPartSkills(p, partDir, read)
+	c.loadPartRuleFiles(p, partDir, files)
+	p.Digest = filesDigest(files)
 	rules, err := loadPartRules(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)

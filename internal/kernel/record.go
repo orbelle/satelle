@@ -229,7 +229,7 @@ func fileName(name string) string {
 	return f
 }
 
-func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView) (Record, error) {
+func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView, rules ...ruleCopy) (Record, error) {
 	parent := func() (string, error) {
 		p, err := k.recordsParent()
 		if err == nil {
@@ -237,10 +237,10 @@ func (k *Kernel) record(it item.Item, events []ledger.Event, view recordView) (R
 		}
 		return p, err
 	}
-	return k.recordUnder(it, events, view, parent)
+	return k.recordUnder(it, events, view, parent, rules)
 }
 
-func (k *Kernel) targetRecord(it item.Item, events []ledger.Event, view recordView, wt worktree) (Record, error) {
+func (k *Kernel) targetRecord(it item.Item, events []ledger.Event, view recordView, wt worktree, rules ...ruleCopy) (Record, error) {
 	tmp, err := os.MkdirTemp("", "satelle-target-")
 	if err != nil {
 		return Record{}, err
@@ -269,7 +269,7 @@ func (k *Kernel) targetRecord(it item.Item, events []ledger.Event, view recordVi
 	if err := os.Mkdir(scratch, 0o700); err != nil {
 		return fail(err)
 	}
-	rec, err := k.recordUnder(it, events, view, func() (string, error) { return real, nil })
+	rec, err := k.recordUnder(it, events, view, func() (string, error) { return real, nil }, rules)
 	if err != nil {
 		return fail(err)
 	}
@@ -277,13 +277,13 @@ func (k *Kernel) targetRecord(it item.Item, events []ledger.Event, view recordVi
 	return rec, nil
 }
 
-func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordView, parent func() (string, error)) (Record, error) {
+func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordView, parent func() (string, error), rules []ruleCopy) (Record, error) {
 	atts, _ := item.LatestAttachments(item.FoldAttachments(events))
 	children, err := k.List(cache.Query{Parent: it.ID})
 	if err != nil {
 		return Record{}, err
 	}
-	if len(atts) == 0 && len(children) == 0 {
+	if len(atts) == 0 && len(children) == 0 && len(rules) == 0 {
 		return Record{}, nil
 	}
 	bodies := make([][]byte, len(atts))
@@ -300,16 +300,18 @@ func (k *Kernel) recordUnder(it item.Item, events []ledger.Event, view recordVie
 		if err != nil {
 			return Record{}, err
 		}
-		if rec.Dir, err = writeRecord(p, it, atts, bodies, children, paths); err != nil {
+		if rec.Dir, err = writeRecord(p, it, atts, bodies, children, paths, rules); err != nil {
 			return Record{}, err
 		}
 		childrenPath = filepath.Join(rec.Dir, "children.md")
 	}
-	rec.Section = renderRecord(atts, bodies, paths, children, rec.Dir, childrenPath, view == recordPointers)
+	if len(atts) > 0 || len(children) > 0 {
+		rec.Section = renderRecord(atts, bodies, paths, children, rec.Dir, childrenPath, view == recordPointers)
+	}
 	return rec, nil
 }
 
-func writeRecord(parent string, it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string) (string, error) {
+func writeRecord(parent string, it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string, rules []ruleCopy) (string, error) {
 	dir, err := claimRun(parent, it.ID)
 	if err != nil {
 		return "", err
@@ -344,7 +346,11 @@ func writeRecord(parent string, it item.Item, atts []item.Attachment, bodies [][
 	if err := os.WriteFile(filepath.Join(dir, "children.md"), []byte(cb.String()), 0o444); err != nil {
 		return fail(err)
 	}
-	for _, d := range []string{adir, dir} {
+	locked, err := writeRuleCopies(filepath.Join(dir, rulesDir), rules)
+	if err != nil {
+		return fail(err)
+	}
+	for _, d := range append(locked, adir, dir) {
 		if _, err := os.Stat(d); err == nil {
 			if err := os.Chmod(d, 0o555); err != nil {
 				return fail(err)
@@ -352,6 +358,29 @@ func writeRecord(parent string, it item.Item, atts []item.Attachment, bodies [][
 		}
 	}
 	return dir, nil
+}
+
+func writeRuleCopies(root string, rules []ruleCopy) ([]string, error) {
+	if len(rules) == 0 {
+		return nil, nil
+	}
+	for _, r := range rules {
+		path := filepath.Join(root, filepath.FromSlash(r.Rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, r.Body, 0o444); err != nil {
+			return nil, err
+		}
+	}
+	var dirs []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return err
+	})
+	return dirs, err
 }
 
 func (k *Kernel) recordsParent() (string, error) {
