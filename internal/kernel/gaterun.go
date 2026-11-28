@@ -50,7 +50,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	prior := GateRuns(events)
 	run := gate.Run{
 		Item: it, From: from, To: to, Transition: tr, Workflow: w,
-		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
+		Skills: k.Skills, Agents: k.AgentsFor(w), Dispatcher: k.Dispatcher,
 		Dir: k.Dir, Substrate: k.SubstrateDir(), Base: base, Changed: changed, Untracked: untracked, Prior: prior,
 		Review:       k.Settings.Review,
 		CheckTimeout: k.CheckTimeout,

@@ -331,9 +331,15 @@ func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher 
 		k.Close()
 		return nil, err
 	}
-	for name, b := range k.Agents {
-		b.Placement = agent.PlaceLocal
-		k.Agents[name] = b
+	cats := []agent.Catalog{k.Agents}
+	for _, cat := range k.PartAgents {
+		cats = append(cats, cat)
+	}
+	for _, cat := range cats {
+		for name, b := range cat {
+			b.Placement = agent.PlaceLocal
+			cat[name] = b
+		}
 	}
 	k.Redact = redact
 	k.Dispatcher = withEnv{inner: dispatcher, env: env, redact: redact}
@@ -434,9 +440,9 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 		if name == "" {
 			name = j.run.Binding
 		}
-		b, ok := k.Agents[name]
-		if !ok {
-			return nil, fmt.Errorf("binding %q is not in the node's agents", name)
+		b, err := nodeBinding(k, j.run.ItemID, name)
+		if err != nil {
+			return nil, err
 		}
 		var rec kernel.Record
 		if j.run.ItemID != "" {
@@ -461,6 +467,21 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 		return Outcome{}, err
 	}
 	return Outcome{Verdict: kernel.VerdictAccept, Notes: fmt.Sprintf("performed %d steps", steps)}, nil
+}
+
+func nodeBinding(k *kernel.Kernel, itemID, name string) (agent.Binding, error) {
+	cat := k.Agents
+	if itemID != "" {
+		var err error
+		if cat, err = k.ItemAgents(itemID); err != nil {
+			return agent.Binding{}, err
+		}
+	}
+	b, ok := cat[name]
+	if !ok {
+		return agent.Binding{}, fmt.Errorf("binding %q is not in the node's agents", name)
+	}
+	return b, nil
 }
 
 type tailBuffer struct{ b []byte }
