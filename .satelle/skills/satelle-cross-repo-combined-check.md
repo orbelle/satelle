@@ -8,7 +8,7 @@ description: Deterministic check on a cross-repo story's underway -> done. Requi
 
 Runs after `children-closed`, so every child of `$SATELLE_ITEM` is terminal.
 For each child it reads the frozen change (`satelle story diff <child>
---json`) and requires the matching line in the parent's `combined-change`
+--json --session <session>`) and requires the matching line in the parent's `combined-change`
 attachment, in the format `cross-repo-underway` defines. A stale or missing
 line is rejected, naming the child.
 

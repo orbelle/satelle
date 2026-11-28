@@ -1,7 +1,7 @@
 ---
 name: cross-repo-split
 type: skill
-description: The split-state performer of a cross-repo story, bound to the interactive session. It creates one child story per line of the plan's "## Split" section, with that repo, the parent link and depends-on tags in the plan's order, records them in the parent's split attachment, and presents underway. Creates items only; edits no tree.
+description: The split-state performer of a cross-repo story, bound to the interactive session. It creates one child story per line of the plan's "## Split" section, with that repo, the parent link, the line's section as its body and depends-on tags in the plan's order, records them in the parent's split attachment, and presents underway. Creates items only; edits no tree.
 ---
 
 # Cross-repository split (split performer)
@@ -27,18 +27,17 @@ second child for the same line.
 ## 2. Create each child, in order
 
 For each split line `- <n> | <repo> | after <a,...|-> | <title>`, from 1 up,
-create the child from its `### Child <n>` section: the body, one
-`--criteria` per `- Given` line, and these fields:
+create one child with `satelle story create --session <session>`
+(`satelle story create --help --session <session>` names each flag):
 
-```bash
-satelle story create --title '<title>' --body - --repo <repo> --parent <id> \
-  --tag split:<n> --tag depends-on:<child id of a> --criteria '<criterion>' \
-  --session <session> < <body file>
-```
-
-Add one `--tag depends-on:<child id>` for each child the line is `after`,
-using the ids the earlier creates printed, and carry the parent's
-`epic:` and `sprint:` tags ([[satelle-group-related-stories]]). The child is
+- the line's title, `--repo <repo>` and `--parent <id>`;
+- as its body, the line's `### Child <n>` section as written, its
+  `Criteria:` lines included as draft criteria. The child's own plan state
+  authors its criteria from them, as it does for any raiser's drafts;
+- `--tag split:<n>`, and one `--tag depends-on:<child id>` for each child the
+  line is `after`, using the ids the earlier creates printed;
+- the parent's `epic:` and `sprint:` tags
+  ([[satelle-group-related-stories]]). The child is
 placed on its repository's workflow (`satelle help workflows --session
 <session>`); do not pass `--workflow`.
 

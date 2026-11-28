@@ -8,7 +8,8 @@ description: Deterministic check on a cross-repo story's plan -> split. Rejects 
 
 Reads the newest `plan` attachment of `$SATELLE_ITEM` and checks the
 `## Split` section the `cross-repo-plan` skill defines. The repositories a
-child may name are the ones `satelle repo list --json` prints. Whether the
+child may name are the ones `satelle repo list --json --session <session>`
+prints. Whether the
 split fits the story is the split review's judgement, not this check's.
 
 ```check

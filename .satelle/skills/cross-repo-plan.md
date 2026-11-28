@@ -13,7 +13,7 @@ plan splits it into one child story per affected repository. When your run
 ends, satelle attaches your artifact as the item's `plan`. You plan only: no
 edits, no satelle commands, no status changes.
 
-Your prompt carries the item and its record (the read-only folder with
+Your prompt carries the item and its record (the read-only record folder with
 `attachments/<name>` and `children.md`). On a re-plan, the rejecting gates'
 notes are the work: answer each one.
 

@@ -12,7 +12,12 @@ You are the performer of `underway` in the `cross-repo` workflow
 
 ## 1. Drive the children in order
 
-`satelle story list --parent <id> --session <session>` lists them, and each
+```bash
+satelle story attachment <id> split --session <session>
+satelle story list --parent <id> --session <session>
+```
+
+The `split` attachment records the children and the list shows their states; and each
 child's `depends-on:` tags give the order. Start a child only once every child
 it depends on is `done`. Each child runs its own repository's workflow
 (`satelle story route <child> --session <session>`) and releases through that

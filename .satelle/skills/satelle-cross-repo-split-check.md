@@ -7,7 +7,7 @@ description: Deterministic check on a cross-repo story's split -> underway. For 
 # Cross-repository split check
 
 Compares the children of `$SATELLE_ITEM` (`satelle story list --parent
-<id> --json`) with the `## Split` section of its `plan` attachment and with its
+<id> --json --session <session>`) with the `## Split` section of its `plan` attachment and with its
 `split` attachment, in the formats `cross-repo-plan` and `cross-repo-split`
 define. It rejects naming each line whose child is missing, doubled, on another
 repository or out of order.
