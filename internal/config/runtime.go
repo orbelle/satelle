@@ -3,6 +3,8 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -227,6 +229,117 @@ func TargetGitEnv(environ []string) []string {
 func credentialName(name string) bool {
 	u := strings.ToUpper(name)
 	return strings.Contains(u, "TOKEN") || strings.Contains(u, "SECRET") || strings.Contains(u, "PASSWORD")
+}
+
+func secretName(name string) bool {
+	u := strings.ToUpper(name)
+	return credentialName(name) || strings.Contains(u, "_KEY") || strings.Contains(u, "CREDENTIAL") || strings.Contains(u, "AUTH")
+}
+
+const secretFloor = 8
+
+var (
+	targetBaseEnv  = []string{"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LANGUAGE", "TZ", "TMPDIR"}
+	targetProxyEnv = []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy"}
+	envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
+func TargetEnvProblem(name string) error {
+	switch {
+	case !envNamePattern.MatchString(name):
+		return fmt.Errorf("%q is not a plain environment variable name", name)
+	case secretName(name):
+		return fmt.Errorf("%s looks like a credential; a target dispatch never receives one by configuration", name)
+	case strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "SATELLE_"):
+		return fmt.Errorf("%s is a git or satelle variable; a target dispatch never receives one", name)
+	}
+	return nil
+}
+
+func proxySecrets(value string) ([]string, bool) {
+	if !strings.Contains(value, "@") {
+		return nil, true
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.User == nil {
+		return nil, false
+	}
+	cred, hasPass := u.User.Password()
+	if !hasPass {
+		cred = u.User.Username()
+	}
+	if len(cred) < secretFloor {
+		return nil, false
+	}
+	out := []string{value, cred}
+	if i := strings.Index(value, "://"); i >= 0 {
+		authority := value[i+3:]
+		if j := strings.IndexAny(authority, "/?#"); j >= 0 {
+			authority = authority[:j]
+		}
+		if at := strings.LastIndex(authority, "@"); at >= 0 {
+			raw := authority[:at]
+			if hasPass {
+				_, raw, _ = strings.Cut(raw, ":")
+			}
+			if raw != cred {
+				out = append(out, raw)
+			}
+		}
+	}
+	return out, true
+}
+
+func TargetAgentEnv(environ, auth, extra []string) (env, secrets []string) {
+	env = []string{}
+	withheld := WithheldNames(environ)
+	add := func(v string) {
+		if len(v) >= secretFloor && !slices.Contains(secrets, v) {
+			secrets = append(secrets, v)
+		}
+	}
+	vars := make([][2]string, 0, len(environ))
+	for _, kv := range environ {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			vars = append(vars, [2]string{name, value})
+		}
+	}
+	for _, v := range vars {
+		if slices.Contains(auth, v[0]) {
+			add(v[1])
+		}
+	}
+	for _, v := range vars {
+		if slices.Contains(withheld, v[0]) || secretName(v[0]) {
+			add(v[1])
+		}
+	}
+	for _, v := range vars {
+		name, value := v[0], v[1]
+		listed := slices.Contains(auth, name) || slices.Contains(targetBaseEnv, name) || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_") ||
+			(slices.Contains(extra, name) && TargetEnvProblem(name) == nil)
+		proxy := slices.Contains(targetProxyEnv, name)
+		if !listed && !proxy {
+			continue
+		}
+		if slices.Contains(withheld, name) || strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "SATELLE_") {
+			continue
+		}
+		if secretName(name) && !slices.Contains(auth, name) {
+			continue
+		}
+		if proxy {
+			s, keep := proxySecrets(value)
+			if !keep {
+				continue
+			}
+			for _, x := range s {
+				add(x)
+			}
+		}
+		env = append(env, name+"="+value)
+	}
+	return env, secrets
 }
 
 func LogsDir(runtime string) string { return filepath.Join(runtime, "logs") }

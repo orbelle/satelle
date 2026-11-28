@@ -738,7 +738,7 @@ func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
 	if want := repoGateAgents(t, ".satelle/workflows/runbook.toml")["validate-after"]; len(want) != 1 || g.Binding != want[0] {
 		t.Fatalf("validate-after judged by %q, want the runbook's judge %v", g.Binding, want)
 	}
-	if want := "reviewer-gemini-4-hydrogen-high"; g.Binding != want {
+	if want := "reviewer-gemini-4-hydrogen-medium"; g.Binding != want {
 		t.Fatalf("validate-after judged by %q, want %q: validate-after is rebound on the judge evidence", g.Binding, want)
 	}
 	if !strings.Contains(g.Notes, "the accept quotes attachments/drift-report: satelle satelle 0.0.2 (fixture); scripts/drift-check.sh: drift-check exit 0; no drift") || strings.Contains(g.Notes, "the judge gave no reasons") {

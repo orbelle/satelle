@@ -33,7 +33,7 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-hydrogen-medium"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -54,13 +54,13 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-hydrogen-medium"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
 [gates.security]
 skill = "satelle-security-review"
-panel = ["reviewer-gemini-4-neon-high", "reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high", "reviewer-grok-4.7"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -99,14 +99,14 @@ carry = true
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-panel = ["reviewer-gemini-4-neon-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gemini-4-neon-high", "reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high", "reviewer-grok-4.7"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]

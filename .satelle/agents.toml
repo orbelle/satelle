@@ -12,10 +12,10 @@ model = "claude-opus-5-5"
 tools = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"]
 
 [agents."reviewer-gemini-4-hydrogen-high"]
-command = "cursor-agent"
+command = "agy"
 model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]
-fallback = "reviewer-agy-gemini-4-hydrogen-high"
+fallback = "reviewer-cursor-gemini-4-hydrogen-high"
 
 [agents."reviewer-grok-4.7"]
 command = "grok"
@@ -24,29 +24,18 @@ tools = ["Read", "Grep", "Glob"]
 fallback = "reviewer-agy-gemini-4-hydrogen-high"
 
 [agents."reviewer-gemini-4-hydrogen-medium"]
-command = "cursor-agent"
+command = "agy"
 model = "gemini-4-hydrogen-medium"
 tools = ["Read", "Grep", "Glob"]
-fallback = "reviewer-agy-gemini-4-hydrogen-medium"
+fallback = "reviewer-cursor-gemini-4-hydrogen-high"
 brief = "Judge the cancel from these only: this prompt's title, tags, body and acceptance criteria; the recorded reason (the cancel note in the body, or attachments/cancel-reason in the record folder); the story or commit that reason names as superseding or delivering this item, read only as far as this item's criteria need; and, for a parent, children.md in the record folder. Leave the changed paths and the rest of the repository unread."
-
-[agents."reviewer-gemini-4-neon-high"]
-command = "cursor-agent"
-model = "gemini-4-neon-high"
-tools = ["Read", "Grep", "Glob"]
-fallback = "reviewer-agy-gemini-4-neon-high"
 
 [agents."reviewer-agy-gemini-4-hydrogen-high"]
 command = "agy"
 model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]
 
-[agents."reviewer-agy-gemini-4-hydrogen-medium"]
-command = "agy"
-model = "gemini-4-hydrogen-medium"
-tools = ["Read", "Grep", "Glob"]
-
-[agents."reviewer-agy-gemini-4-neon-high"]
-command = "agy"
-model = "gemini-4-neon-high"
+[agents."reviewer-cursor-gemini-4-hydrogen-high"]
+command = "cursor-agent"
+model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]

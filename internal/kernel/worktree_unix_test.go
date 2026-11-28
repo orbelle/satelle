@@ -1188,8 +1188,12 @@ func TestTargetGatedTransitionInputs(t *testing.T) {
 				t.Fatalf("reqs %v", d.calls)
 			}
 			req := d.reqs[0]
-			if req.Dir != f.ctl || !slices.Equal(req.Env, []string{"SATELLE_SUBSTRATE_DIR=" + filepath.Join(f.ctl, ".satelle")}) {
-				t.Fatalf("request dir %s env %v", req.Dir, req.Env)
+			wantDir := map[bool]string{true: f.tgt, false: f.ctl}[mode == "target"]
+			if req.Dir != wantDir || (req.Target != nil) != (mode == "target") || !slices.Equal(req.Env, []string{"SATELLE_SUBSTRATE_DIR=" + filepath.Join(f.ctl, ".satelle")}) {
+				t.Fatalf("request dir %s target %+v env %v", req.Dir, req.Target, req.Env)
+			}
+			if mode == "target" && (req.Target.Worktree != f.tgt || req.Target.Scratch == "") {
+				t.Fatalf("request target %+v", req.Target)
 			}
 			if !strings.Contains(req.Prompt, "feat/x.go") || !strings.Contains(req.Prompt, "+var X = 1") || strings.Contains(req.Prompt, "noise/y.go") {
 				t.Fatalf("prompt:\n%s", req.Prompt)

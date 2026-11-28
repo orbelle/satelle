@@ -273,3 +273,22 @@ func TestModelIDOldEventsFoldAsBefore(t *testing.T) {
 		t.Fatalf("outcome models = %s", got)
 	}
 }
+
+func TestDispatchSettingsLoad(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, SettingsFile), "[dispatch]\ntarget_env = [\"GOPATH\", \"GOCACHE\"]\n")
+	st, err := LoadSettings(root)
+	if err != nil || strings.Join(st.Dispatch.TargetEnv, ",") != "GOPATH,GOCACHE" {
+		t.Fatalf("target_env = %v, err %v", st.Dispatch.TargetEnv, err)
+	}
+	write(t, filepath.Join(root, SettingsFile), "")
+	if st, err := LoadSettings(root); err != nil || len(st.Dispatch.TargetEnv) != 0 {
+		t.Fatalf("default target_env = %v, err %v", st.Dispatch.TargetEnv, err)
+	}
+	for _, name := range []string{"GH_TOKEN", "OPENAI_API_KEY", "GIT_DIR", "SATELLE_TOKEN", "A=B"} {
+		write(t, filepath.Join(root, SettingsFile), "[dispatch]\ntarget_env = [\""+name+"\"]\n")
+		if _, err := LoadSettings(root); err == nil || !strings.Contains(err.Error(), "[dispatch] target_env") {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
