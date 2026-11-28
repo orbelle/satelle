@@ -38,6 +38,13 @@ type Dispatch struct{}
 func (Dispatch) Name() string         { return CLI }
 func (Dispatch) EnforcesGrants() bool { return true }
 
+func (Dispatch) Confinement() common.Confinement {
+	return common.Confinement{
+		ProjectFiles: []string{".agents/hooks.json", ".antigravity/settings.json"},
+		Refuse:       "its argv has no flag that stops it loading the checkout's GEMINI.md or AGENTS.md, and the harness record shows none",
+	}
+}
+
 type agyGrant struct {
 	Allow []string
 	Deny  []string

@@ -13,7 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/logsread"
-	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -138,6 +137,9 @@ type Run struct {
 	Dir          string
 	Substrate    string
 	Worktree     string
+	RecordDir    string
+	Scratch      string
+	TargetEnv    []string
 	Base         string
 	Changed      []string
 	Untracked    []string
@@ -725,6 +727,15 @@ func (r Run) ask(ctx context.Context, b agent.Binding, skill workflow.Skill, pro
 	if r.Substrate != "" {
 		req.Env = []string{config.SubstrateDirEnv + "=" + r.Substrate}
 	}
+	if r.Worktree != "" {
+		req.Dir = r.Worktree
+		req.Target = &agent.Target{Repo: r.Item.Target(), Worktree: r.Worktree, Scratch: r.Scratch, EnvNames: r.TargetEnv}
+		for _, d := range []string{r.RecordDir, r.Substrate} {
+			if d != "" {
+				req.Target.ReadDirs = append(req.Target.ReadDirs, d)
+			}
+		}
+	}
 	if r.Logs != "" {
 		req.Log = logsread.DispatchPath(r.Logs, b.Name, r.Item.ID, time.Now().UnixNano())
 	}
@@ -779,8 +790,8 @@ func (r Run) promptRest(name string, g workflow.Gate) (string, error) {
 		fmt.Fprintf(&b, "\nBase commit: %s\n", r.Base)
 	}
 	if r.Worktree != "" {
-		fmt.Fprintf(&b, "Target repository: %s\nTarget work tree: %s\nThe base commit, changed paths and diff above are read from that repository, not from your working directory; read its files there.\n",
-			reporeg.Literal(r.Item.Target()), reporeg.PathLiteral(r.Worktree))
+		b.WriteString(TargetNotice(r.Item.Target(), r.Worktree))
+		b.WriteString("The base commit, changed paths and diff above are read from that repository.\n")
 	}
 	if len(r.Changed) > 0 {
 		fmt.Fprintf(&b, "Changed paths:\n%s\n", strings.Join(r.Changed, "\n"))

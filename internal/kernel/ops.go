@@ -615,7 +615,16 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	if agent.IsSession(b) {
 		return agent.Result{}, fmt.Errorf("state %q is performed by the session (agent %q), not dispatched", it.Status, b.Name)
 	}
+	wt, err := k.worktreeOf(it, events)
+	if err != nil {
+		return agent.Result{}, err
+	}
+	target := wt.target != reporeg.Self
+	if p := b.Placement; target && (strings.HasPrefix(p, agent.PlaceRemote) || p == agent.PlaceCloud) {
+		return agent.Result{}, fmt.Errorf("item %s targets repo %s; a remote or cloud performer runs in a checkout of the control repository, so place agent %s locally", it.ID, reporeg.Literal(wt.target), b.Name)
+	}
 	prompt := renderItem(it) + rejections(it, events)
+	var scratch, recordDir string
 	switch p := b.Placement; {
 	case strings.HasPrefix(p, agent.PlaceRemote):
 	case p == agent.PlaceCloud:
@@ -625,23 +634,46 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 		}
 		prompt += rec.Section
 	default:
-		rec, err := k.record(it, events, recordFolder)
+		var rec Record
+		if target {
+			rec, err = k.targetRecord(it, events, recordFolder, wt)
+		} else {
+			rec, err = k.record(it, events, recordFolder)
+		}
 		if err != nil {
 			return agent.Result{}, err
 		}
 		defer rec.Close()
 		prompt += rec.Section
+		scratch, recordDir = rec.Scratch, rec.Dir
 	}
 	skills, err := k.SkillsFor(it)
 	if err != nil {
 		return agent.Result{}, err
 	}
-	req := agent.Request{Binding: b, System: skills[perf.Skill].Body, Prompt: prompt, Dir: k.Dir}
+	req := agent.Request{Binding: b, System: skills[perf.Skill].Body, Prompt: prompt, Dir: k.Dir, Redact: k.Redact}
 	start := time.Now()
 	var res agent.Result
 	var runErr error
 	var loc string
+	if target {
+		req.Dir = wt.dir
+		req.Target = &agent.Target{Repo: wt.target, Worktree: wt.dir, Scratch: scratch, EnvNames: k.Settings.Dispatch.TargetEnv,
+			Protected: k.Repos.Tracked[wt.target].EffectiveTier() == reporeg.TierProtected}
+		if recordDir != "" {
+			req.Target.ReadDirs = []string{recordDir}
+		}
+		req.Prompt += "\n" + gate.TargetNotice(wt.target, wt.dir)
+		a, aerr := agent.AdapterFor(b)
+		if aerr == nil {
+			req, aerr = agent.ConfineTarget(a, req)
+		}
+		if aerr != nil {
+			runErr = errors.New(req.Clean(aerr.Error()))
+		}
+	}
 	switch p := b.Placement; {
+	case runErr != nil:
 	case strings.HasPrefix(p, agent.PlaceRemote):
 		res, loc, runErr = k.performRemote(ctx, it, strings.TrimPrefix(p, agent.PlaceRemote), req, actor)
 	case p == agent.PlaceCloud:

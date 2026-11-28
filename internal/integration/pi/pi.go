@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -24,6 +23,14 @@ type Dispatch struct{}
 
 func (Dispatch) Name() string         { return CLI }
 func (Dispatch) EnforcesGrants() bool { return true }
+
+func (Dispatch) Confinement() common.Confinement {
+	return common.Confinement{
+		ProjectFiles: []string{".pi"},
+		AuthEnv:      []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"},
+		Context:      true,
+	}
+}
 
 var piColdFlags = []string{"--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-mcp", "--no-themes"}
 
@@ -121,10 +128,13 @@ func (p Dispatch) Run(ctx context.Context, req common.Request) (common.Result, e
 	if err != nil {
 		return common.Result{}, err
 	}
+	if err := common.CheckConfined(req); err != nil {
+		return common.Result{}, err
+	}
 	req.Trace.Argv(argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = req.Dir
-	cmd.Env = append(os.Environ(), req.Env...)
+	cmd.Env = common.Environ(req)
 	procgroup.Set(cmd)
 	cmd.WaitDelay = piGrace
 	stdin, err := cmd.StdinPipe()

@@ -99,9 +99,22 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	req.Env = append(append([]string{}, req.Env...), config.WorkerEnv+"="+worker)
 	req.Trace = common.OpenLog(req.Log)
 	defer closeLog(req.Trace, req.Log)
+	target := req.Target != nil
+	if target {
+		if req, err = ConfineTarget(a, req); err != nil {
+			return Result{}, err
+		}
+		req.Trace.Redacting(req.Redact)
+	}
 	start := time.Now()
 	res, err := a.Run(ctx, req)
 	res.Duration = time.Since(start)
+	if target {
+		res.Text = req.Clean(res.Text)
+		if err != nil {
+			err = errors.New(req.Clean(err.Error()))
+		}
+	}
 	if res.Model == "" {
 		res.Model = b.Model
 	}
@@ -115,6 +128,9 @@ type session struct{}
 
 func (session) Name() string         { return PresetSession }
 func (session) EnforcesGrants() bool { return false }
+func (session) Confinement() common.Confinement {
+	return common.Confinement{}
+}
 func (session) Argv(Request) ([]string, error) {
 	return nil, errors.New("a session binding is performed by the interactive session, not dispatched")
 }
