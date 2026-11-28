@@ -59,7 +59,7 @@ func unreadReason(what string) string {
 	return "satelle: refused under the edit gate's fail-closed rule: the gate reads a shell line only when every token is a plain literal word or one of &&, ||, ; and |, " +
 		"with git as a command word after an optional cd to one literal path; this line holds " + what + " and names git, " +
 		"so the gate cannot tell which tree it changes or whether it only reads. " +
-		"Rewrite it in plain form: git -C <dir> or cd <dir> with a literal path, a commit message with -m '<text>' or -F <file>, " +
+		"Rewrite it in plain form: git -C <dir> with a literal path, a commit message with -m '<text>' or -F <file>, " +
 		"no redirections, no other builtins, or separate commands. See `satelle help edit-gate --session <session>`."
 }
 
