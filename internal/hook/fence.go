@@ -72,7 +72,8 @@ func resolveWalk(p string, followFinal bool) string {
 		next := filepath.Join(resolved, name)
 		fi, err := os.Lstat(next)
 		if err != nil {
-			return filepath.Join(append([]string{next}, rest...)...)
+			resolved = next
+			continue
 		}
 		if fi.Mode()&os.ModeSymlink == 0 || (len(rest) == 0 && !followFinal) {
 			resolved = next

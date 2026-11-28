@@ -981,6 +981,9 @@ func TestCanonicalPath(t *testing.T) {
 		{j("T", "sublink", "dl"), j("R", "new2.go"), j("R", "sub", "dl")},
 		{j("T", "sublink") + sep + ".." + sep + "x", j("R", "x"), j("R", "x")},
 		{j("T", "missing") + sep + ".." + sep + "x", j("T", "x"), j("T", "x")},
+		{j("T", "missing") + sep + ".." + sep + "flink", j("R", "f"), j("T", "flink")},
+		{j("T", "missing") + sep + ".." + sep + "sublink" + sep + "x", j("R", "sub", "x"), j("R", "sub", "x")},
+		{j("T", "missing", "deeper") + sep + ".." + sep + ".." + sep + "sublink", j("R", "sub"), j("T", "sublink")},
 		{j("T", "loop1", "x"), j("T", "loop1", "x"), j("T", "loop1", "x")},
 		{j("T") + sep + "." + sep + "plain", j("T", "plain"), j("T", "plain")},
 	} {

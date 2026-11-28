@@ -286,7 +286,6 @@ const maxPlainDirs = 64
 
 func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
 	cands := []string{base}
-	cleaned := []string{base}
 	var dirs []string
 	for _, s := range segs {
 		values := make([]string, len(s.Words))
@@ -295,9 +294,8 @@ func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
 		}
 		if values[0] == "cd" {
 			for _, c := range slices.Clone(cands) {
-				if d := resolvePath(c, values[1]); d != "" && !slices.Contains(cleaned, d) {
-					cands = append(cands, JoinRaw(c, values[1]))
-					cleaned = append(cleaned, d)
+				if d := JoinRaw(c, values[1]); d != "" && !slices.Contains(cands, d) {
+					cands = append(cands, d)
 				}
 			}
 			if len(cands) > maxPlainDirs {

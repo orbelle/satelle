@@ -135,6 +135,7 @@ func TestEditGateSeatedTarget(t *testing.T) {
 		link(t, "../new2.go", filepath.Join(root, "sub", "dl"))
 		link(t, filepath.Join(a, "sub"), filepath.Join(a, "inner"))
 		link(t, "sub", filepath.Join(a, "rel"))
+		link(t, filepath.Join(a, "sub", "d2"), filepath.Join(a, "deep"))
 		link(t, filepath.Join(a, "x.go"), filepath.Join(root, "rl"))
 		link(t, filepath.Join(a, "x.go"), filepath.Join(root, "locked", "ll"))
 		link(t, filepath.Join(a, "x.go"), filepath.Join(a, "locked", "al"))
@@ -149,7 +150,7 @@ func TestEditGateSeatedTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkdir(t, filepath.Join(root, "sub"))
-	mkdir(t, filepath.Join(a, "sub"))
+	mkdir(t, filepath.Join(a, "sub", "d2"))
 	const note = "resolves through a symlink to"
 
 	t.Run("AC8 shell writes through a symlink are judged where they land", func(t *testing.T) {
@@ -167,9 +168,18 @@ func TestEditGateSeatedTarget(t *testing.T) {
 			{"echo x > " + a + "/sublink/../main.go", filepath.Join(root, "main.go")},
 			{"cd " + a + "/sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
 			{"git -C " + a + "/sublink -C .. commit -m x", root},
+			{"echo x > " + a + "/missing/../mainlink", filepath.Join(root, "main.go")},
+			{"mkdir -p " + a + "/missing/../sublink/d", filepath.Join(root, "sub", "d")},
 		} {
 			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, root), false, note, r.lands) })
 		}
+		for _, cmd := range []string{
+			"cd missing ; cd ../sublink ; cd sublink && git commit -m x",
+			"cd deep ; cd ../sublink ; cd sublink && git commit -m x",
+		} {
+			expect(t, g.Bash(cmd, a), false, note, root)
+		}
+		expect(t, g.Bash("cd deep ; cd ../sublink && git commit -m x", a), true)
 		expect(t, g.Edit(filepath.Join(a, "dirlink", "dl")), false, note)
 		if got := CanonicalPath(filepath.Join(a, "dirlink", "dl")); got != filepath.Join(root, "new2.go") {
 			t.Errorf("dirlink/dl lands at %s", got)
@@ -178,6 +188,7 @@ func TestEditGateSeatedTarget(t *testing.T) {
 			{filepath.Join(a, "mainlink"), filepath.Join(root, "main.go")},
 			{filepath.Join(a, "dangling"), filepath.Join(root, "new.go")},
 			{a + "/sublink/../main.go", filepath.Join(root, "main.go")},
+			{a + "/missing/../mainlink", filepath.Join(root, "main.go")},
 		} {
 			expect(t, g.Edit(r.p), false, note, r.lands)
 		}
