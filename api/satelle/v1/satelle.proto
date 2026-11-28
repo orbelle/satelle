@@ -41,15 +41,12 @@ message Project {
   string name = 3;
   string role = 4;
   string team_id = 5; // carried; no behaviour in satelle
-  // repositories is every GitHub repository the project is bound to through the
-  // satelle GitHub app, one entry per binding; empty when it has none.
   repeated RepositoryBinding repositories = 6;
 }
 
-// RepositoryBinding is one GitHub repository a project is bound to.
 message RepositoryBinding {
-  string repository = 1;     // owner/name, as GitHubService responses name it
-  int64 installation_id = 2; // the GitHub app installation the repository is reached through
+  string repository = 1;
+  int64 installation_id = 2;
 }
 
 message ListProjectsRequest {}

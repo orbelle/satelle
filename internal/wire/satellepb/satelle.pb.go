@@ -239,15 +239,13 @@ func (x *GetMeResponse) GetRole() string {
 }
 
 type Project struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Id     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Slug   string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
-	Name   string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Role   string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	TeamId string                 `protobuf:"bytes,5,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"` // carried; no behaviour in satelle
-	// repositories is every GitHub repository the project is bound to through the
-	// satelle GitHub app, one entry per binding; empty when it has none.
-	Repositories  []*RepositoryBinding `protobuf:"bytes,6,rep,name=repositories,proto3" json:"repositories,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Slug          string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	TeamId        string                 `protobuf:"bytes,5,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"` // carried; no behaviour in satelle
+	Repositories  []*RepositoryBinding   `protobuf:"bytes,6,rep,name=repositories,proto3" json:"repositories,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -324,11 +322,10 @@ func (x *Project) GetRepositories() []*RepositoryBinding {
 	return nil
 }
 
-// RepositoryBinding is one GitHub repository a project is bound to.
 type RepositoryBinding struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	Repository     string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`                                // owner/name, as GitHubService responses name it
-	InstallationId int64                  `protobuf:"varint,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"` // the GitHub app installation the repository is reached through
+	Repository     string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	InstallationId int64                  `protobuf:"varint,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
