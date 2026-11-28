@@ -49,3 +49,36 @@ func TestShortHash(t *testing.T) {
 		}
 	}
 }
+
+func TestRelink(t *testing.T) {
+	at := time.Date(2026, 11, 28, 9, 0, 0, 0, time.UTC)
+	link := func(e Event, prev string) Event {
+		e.Prev = prev
+		h, err := HashOf(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.Hash = h
+		return e
+	}
+	head := link(Event{ID: "h", Item: "it", Kind: "note", At: at, Actor: "a"}, "")
+	other := link(Event{ID: "o", Item: "it", Kind: "note", At: at, Actor: "b"}, "")
+	e := link(Event{ID: "e1", Item: "it", Kind: "seat.released", At: at, Actor: "ada", Payload: json.RawMessage(`{"session":"s"}`)}, other.Hash)
+
+	got, err := Relink(e, head.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyChain("it", []Event{head, got}); err != nil {
+		t.Fatalf("relinked event does not verify after its new prev: %v", err)
+	}
+	if got.ID != e.ID || !got.At.Equal(e.At) || got.Actor != e.Actor || got.Kind != e.Kind || string(got.Payload) != string(e.Payload) {
+		t.Errorf("relink changed the event's content: %+v from %+v", got, e)
+	}
+	if got.Hash == e.Hash {
+		t.Error("relinked hash is unchanged")
+	}
+	if _, err := Relink(Event{ID: "bad", Payload: json.RawMessage(`{`)}, head.Hash); err == nil {
+		t.Error("an undecodable payload relinked")
+	}
+}
