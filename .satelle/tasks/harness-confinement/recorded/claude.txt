@@ -14,3 +14,16 @@ settings-sandbox inside written
 settings-sandbox sibling written
 settings-sandbox tmp written
 settings-sandbox shell absent
+target inside written
+target sibling absent
+target tmp absent
+target shell absent
+target context ignored
+target read-sibling refused
+target unsandboxed absent
+target link-shell absent
+target link-tool absent
+target add-dir written
+target trees unchanged
+target-read context ignored
+target-read read-repo read
