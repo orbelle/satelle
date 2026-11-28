@@ -88,13 +88,6 @@ type targetView struct {
 	Target  string
 }
 
-// resolveTarget answers the control directory, work tree and target for a
-// start directory: an initialised repository is its own target (self), and a
-// checkout a control repository on this machine maps in its
-// .satelle/repos.local.toml is that control's named target. Only a read-only
-// allowlist calls it: statusCmd, sessionContext and loadDoctorInput. Every
-// other command resolves through findRepo or findOwnRepo, which do not resolve
-// a mapped target; a new caller is reviewed against this list.
 func resolveTarget(start string, nodeAware bool) (targetView, error) {
 	environ := os.Environ()
 	r, err := resolveRepo(start, environ, nodeAware)
