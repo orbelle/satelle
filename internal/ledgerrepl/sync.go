@@ -2,6 +2,8 @@ package ledgerrepl
 
 import (
 	"context"
+	"slices"
+	"strings"
 )
 
 type SyncResult struct {
@@ -20,6 +22,7 @@ func (r *Replicator) Sync(ctx context.Context) (SyncResult, error) {
 		return res, err
 	}
 	var push, pull []string
+	var forked []ItemStatus
 	for _, st := range sts {
 		switch st.State {
 		case InSync:
@@ -32,9 +35,13 @@ func (r *Replicator) Sync(ctx context.Context) (SyncResult, error) {
 			if err != nil {
 				return res, err
 			}
-			if ok {
+			switch {
+			case ok:
 				pull = append(pull, st.Item)
-			} else {
+			case strings.HasPrefix(st.State, divergedAt) && st.Fork > 0:
+				pull = append(pull, st.Item)
+				forked = append(forked, st)
+			default:
 				res.Unsynced = append(res.Unsynced, st)
 			}
 		}
@@ -49,8 +56,9 @@ func (r *Replicator) Sync(ctx context.Context) (SyncResult, error) {
 			return res, err
 		}
 	}
-	if len(res.Pull.Adopted) > 0 {
-		pushed, err := r.Push(ctx, res.Pull.Adopted...)
+	res.Unsynced = append(res.Unsynced, unrebased(forked, res.Pull)...)
+	if again := distinct(append(slices.Clone(res.Pull.Adopted), res.Pull.Rebased...)); len(again) > 0 {
+		pushed, err := r.Push(ctx, again...)
 		res.Push.add(pushed)
 		if err != nil {
 			return res, err
@@ -68,4 +76,25 @@ func (r *Replicator) adoptable(st ItemStatus) (bool, error) {
 		return false, err
 	}
 	return r.Mirrors.MirrorTail(st.Item, local, st.Fork), nil
+}
+
+func unrebased(forked []ItemStatus, pulled Result) []ItemStatus {
+	var out []ItemStatus
+	for _, st := range forked {
+		if slices.Contains(pulled.Rebased, st.Item) || slices.Contains(pulled.Adopted, st.Item) {
+			continue
+		}
+		for _, d := range pulled.Diverged {
+			if d.Item == st.Item {
+				st.State = d.State()
+			}
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+func distinct(items []string) []string {
+	slices.Sort(items)
+	return slices.Compact(items)
 }

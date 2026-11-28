@@ -160,9 +160,9 @@ func TestAgentRunContract(t *testing.T) {
 	must(t, "ledger", "push")
 	y.use(t)
 	must(t, "story", "set", id, "--title", "edited on y")
-	for _, verb := range []string{"push", "pull"} {
+	for verb, line := range map[string]string{"push": "diverged: ", "pull": "conflict: "} {
 		out, err := run(t, "", "ledger", verb)
-		if ExitCodeOf(err) != 1 || !strings.Contains(out, "diverged: "+id+" at event ") {
+		if ExitCodeOf(err) != 1 || !strings.Contains(out, line+id+" at event ") {
 			t.Errorf("%s over a diverged chain: exit %d (%v)\n%s", verb, ExitCodeOf(err), err, out)
 		}
 	}

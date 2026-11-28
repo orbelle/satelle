@@ -801,14 +801,14 @@ func TestAutosyncRefusesMirrorTailWithLocalWork(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ledger pull of a worked fork succeeded:\n%s", out)
 	}
-	if !strings.Contains(out, "diverged: que_release at event "+strconv.Itoa(k)) || !strings.Contains(out, "nothing appended") {
+	if want := "conflict: que_release at event " + strconv.Itoa(k) + ": this runtime's item.updated does not commute with the store's queue.added (event " + strconv.Itoa(k) + ")"; !strings.Contains(out, want) || !strings.Contains(out, "nothing re-based") {
 		t.Fatalf("ledger pull output:\n%s", out)
 	}
 	unchanged("pull")
 	if _, err := run(t, "", "ledger", "autosync"); err == nil {
 		t.Fatal("autosync of a worked fork succeeded")
 	}
-	if st := syncStateOf(t); !strings.Contains(st.SyncReason, "que_release (diverged at "+strconv.Itoa(k)+")") {
+	if st := syncStateOf(t); !strings.Contains(st.SyncReason, "que_release (conflict at "+strconv.Itoa(k)) {
 		t.Fatalf("B's pass reason: %q", st.SyncReason)
 	}
 	unchanged("autosync")

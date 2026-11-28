@@ -98,7 +98,7 @@ func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 	if all := r.out + r.err; !strings.Contains(all, "diverged: "+s1.ID+" at event ") || !strings.Contains(all, "not pushed past it") {
 		t.Errorf("divergence report:\n%s", all)
 	}
-	if r := a.run("ledger", "pull", s1.ID); r.code != 1 || !strings.Contains(r.out+r.err, "nothing appended") {
+	if r := a.run("ledger", "pull", s1.ID); r.code != 1 || !strings.Contains(r.out+r.err, "nothing re-based") {
 		t.Errorf("a pull of the diverged item exited %d:\n%s%s", r.code, r.out, r.err)
 	}
 	if out := a.must("ledger", "status"); !strings.Contains(out, "diverged at") {

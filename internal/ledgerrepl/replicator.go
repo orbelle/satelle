@@ -56,6 +56,31 @@ type Divergence struct {
 	Seq       int
 	StoreHash string
 	LocalHash string
+	Conflict  *Conflict
+}
+
+type Conflict struct {
+	LocalSeq, StoreSeq   int
+	LocalKind, StoreKind string
+	Local, Store         *item.Move
+}
+
+func (c Conflict) local() string { return side(c.LocalKind, c.Local) }
+
+func (c Conflict) store() string { return side(c.StoreKind, c.Store) }
+
+func side(kind string, m *item.Move) string {
+	if m == nil {
+		return kind
+	}
+	return fmt.Sprintf("transition %s → %s", m.From, m.To)
+}
+
+func (d Divergence) State() string {
+	if d.Conflict == nil {
+		return fmt.Sprintf("%s%d", divergedAt, d.Seq)
+	}
+	return fmt.Sprintf("conflict at %d: this runtime's %s, the store's %s", d.Seq, d.Conflict.local(), d.Conflict.store())
 }
 
 type Result struct {
@@ -68,6 +93,7 @@ type Result struct {
 	Written          []string
 	Placed, Unplaced []string
 	Adopted          []string
+	Rebased          []string
 }
 
 func (r *Result) add(o Result) {
@@ -81,6 +107,7 @@ func (r *Result) add(o Result) {
 	r.Placed = append(r.Placed, o.Placed...)
 	r.Unplaced = append(r.Unplaced, o.Unplaced...)
 	r.Adopted = append(r.Adopted, o.Adopted...)
+	r.Rebased = append(r.Rebased, o.Rebased...)
 }
 
 func (r Result) Failed() bool { return len(r.Diverged) > 0 || len(r.Refused) > 0 }
@@ -111,6 +138,11 @@ func (r *Replicator) refuse(res *Result, line string) {
 
 func (r *Replicator) diverge(res *Result, d Divergence, tail string) {
 	res.Diverged = append(res.Diverged, d)
+	if c := d.Conflict; c != nil {
+		r.printf("conflict: %s at event %d: this runtime's %s does not commute with the store's %s (event %d); nothing re-based, this runtime's events kept (satelle ledger adopt %s resolves it)\n",
+			d.Item, c.LocalSeq, c.local(), c.store(), c.StoreSeq, d.Item)
+		return
+	}
 	r.printf("diverged: %s at event %d: the store holds %s, this runtime %s; %s\n",
 		d.Item, d.Seq, short(d.StoreHash), short(d.LocalHash), tail)
 }
