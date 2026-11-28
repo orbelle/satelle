@@ -23,6 +23,7 @@ type Input struct {
 	Gate, Skill, SkillPath string
 	Kind                   string
 	Dir                    string
+	Worktree               string
 	Timeout                time.Duration
 	TimeoutSource          string
 	DiffMaxBytes           int
@@ -53,7 +54,7 @@ func (r Run) Input(name string) (Input, error) {
 		return Input{}, err
 	}
 	in := Input{
-		Gate: name, Skill: g.Skill, Dir: r.Dir, Timeout: limit, TimeoutSource: source,
+		Gate: name, Skill: g.Skill, Dir: r.Dir, Worktree: r.Worktree, Timeout: limit, TimeoutSource: source,
 		Placement: g.Placement, Paths: g.Paths, Carry: g.Carry, After: g.After,
 	}
 	skill, ok := r.Skills[g.Skill]

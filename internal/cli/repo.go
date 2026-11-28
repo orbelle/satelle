@@ -72,7 +72,7 @@ func checkNodeSubstrate(stamp config.RuntimeStamp) error {
 }
 
 func resolveRepo(start string, environ []string, nodeAware bool) (repo, error) {
-	gitEnv := config.GitLookupEnv(environ, splitNames(envValue(environ, config.NodeWithholdEnv)))
+	gitEnv := config.GitLookupEnv(environ, config.WithheldNames(environ))
 	substrate, node, err := substrateFor(start, environ, nodeAware)
 	if err != nil {
 		return repo{}, err
@@ -120,16 +120,6 @@ func envValue(environ []string, name string) string {
 		}
 	}
 	return strings.TrimSpace(v)
-}
-
-func splitNames(s string) []string {
-	var out []string
-	for _, n := range strings.Split(s, ",") {
-		if n = strings.TrimSpace(n); n != "" {
-			out = append(out, n)
-		}
-	}
-	return out
 }
 
 func openKernel() (*kernel.Kernel, repo, error) {

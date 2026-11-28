@@ -437,3 +437,127 @@ func TestIgnoredByHonoursEnv(t *testing.T) {
 		t.Fatalf("IgnoredBy without the rule = %v, %v", got, err)
 	}
 }
+
+func TestRemoteURLReadsLocalConfigOnly(t *testing.T) {
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	env := append(os.Environ(), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=remote.origin.url", "GIT_CONFIG_VALUE_0=https://github.com/o/web")
+	if got, err := (Repo{Dir: dir, Env: env}).RemoteURL("origin"); got != "" || err != ErrNoRemote {
+		t.Fatalf("RemoteURL with an injected origin = %q, %v; want ErrNoRemote", got, err)
+	}
+}
+
+func TestParseVersion(t *testing.T) {
+	cases := []struct {
+		in                  string
+		major, minor, patch int
+		raw                 string
+		at44                bool
+	}{
+		{"git version 2.43.0", 2, 43, 0, "2.43.0", false},
+		{"git version 2.44.0\n", 2, 44, 0, "2.44.0", true},
+		{"git version 2.44", 2, 44, 0, "2.44", true},
+		{"git version 2.39.2 (Apple Git-143)", 2, 39, 2, "2.39.2", false},
+		{"git version 2.45.1.windows.1", 2, 45, 1, "2.45.1.windows.1", true},
+		{"git version 3.0.0", 3, 0, 0, "3.0.0", true},
+	}
+	for _, c := range cases {
+		v, err := ParseVersion(c.in)
+		if err != nil || v.Major != c.major || v.Minor != c.minor || v.Patch != c.patch || v.Raw != c.raw || v.AtLeast(2, 44) != c.at44 {
+			t.Errorf("ParseVersion(%q) = %+v, %v (AtLeast 2.44 %v)", c.in, v, err, v.AtLeast(2, 44))
+		}
+	}
+	for _, in := range []string{"version 2.44.0", "git version banana", "git version 2.x", ""} {
+		if v, err := ParseVersion(in); err == nil {
+			t.Errorf("ParseVersion(%q) = %+v, want an error", in, v)
+		}
+	}
+}
+
+func TestEmptyTree(t *testing.T) {
+	for _, f := range []string{"sha1", "sha256"} {
+		dir := t.TempDir()
+		gittest.Git(t, dir, "init", "-q", "--object-format="+f)
+		want := gittest.Git(t, dir, "hash-object", "-t", "tree", os.DevNull)
+		if got, err := EmptyTree(f); err != nil || got != want {
+			t.Errorf("EmptyTree(%s) = %q, %v; want %q", f, got, err, want)
+		}
+	}
+	for _, f := range []string{"sha3", ""} {
+		if got, err := EmptyTree(f); err == nil {
+			t.Errorf("EmptyTree(%q) = %q, want an error", f, got)
+		}
+	}
+}
+
+func TestObjectFormat(t *testing.T) {
+	for _, f := range []string{"sha1", "sha256"} {
+		dir := t.TempDir()
+		gittest.Git(t, dir, "init", "-q", "--object-format="+f)
+		if got, err := (Repo{Dir: dir, Untrusted: true}).ObjectFormat(); err != nil || got != f {
+			t.Errorf("ObjectFormat = %q, %v; want %s", got, err, f)
+		}
+	}
+}
+
+func TestPartialClone(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  []string
+		want bool
+	}{
+		{"fresh", nil, false},
+		{"extension", []string{"extensions.partialClone", "lazy"}, true},
+		{"promisor", []string{"remote.lazy.promisor", "true"}, true},
+		{"promisor yes", []string{"remote.lazy.promisor", "yes"}, true},
+		{"promisor 2", []string{"remote.lazy.promisor", "2"}, true},
+		{"filter", []string{"remote.Lazy.partialclonefilter", "blob:none"}, true},
+		{"promisor false", []string{"remote.lazy.promisor", "false"}, false},
+		{"promisor off", []string{"remote.lazy.promisor", "off"}, false},
+		{"promisor 0", []string{"remote.lazy.promisor", "0"}, false},
+		{"promisor empty", []string{"remote.lazy.promisor", ""}, false},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		gittest.Git(t, dir, "init", "-q")
+		if len(c.cfg) > 0 {
+			gittest.Git(t, dir, "config", c.cfg[0], c.cfg[1])
+		}
+		if got, err := (Repo{Dir: dir, Untrusted: true}).PartialClone(); err != nil || got != c.want {
+			t.Errorf("%s: PartialClone = %v, %v; want %v", c.name, got, err, c.want)
+		}
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	cfg := filepath.Join(dir, ".git", "config")
+	b, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, append(b, []byte("[remote \"lazy\"]\n\tpromisor\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := (Repo{Dir: dir, Untrusted: true}).PartialClone(); err != nil || !got {
+		t.Errorf("a promisor key with no value: PartialClone = %v, %v; want true", got, err)
+	}
+	dir = t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	inc := filepath.Join(t.TempDir(), "inc")
+	if err := os.WriteFile(inc, []byte("[remote \"lazy\"]\n\tpromisor = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, dir, "config", "include.path", inc)
+	if got, err := (Repo{Dir: dir, Untrusted: true}).PartialClone(); err != nil || !got {
+		t.Errorf("a promisor through include.path: PartialClone = %v, %v; want true", got, err)
+	}
+	dir = t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[remote \"lazy\"]\n\tpromisor = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
+	if got, err := (Repo{Dir: dir, Env: env, Untrusted: true}).PartialClone(); err != nil || !got {
+		t.Errorf("a promisor in HOME's .gitconfig: PartialClone = %v, %v; want true", got, err)
+	}
+}

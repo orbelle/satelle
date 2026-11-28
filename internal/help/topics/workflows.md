@@ -138,6 +138,21 @@ needs no `.satelle/skills`, and a commit cannot change the check that judges
 it. A remote gate refuses a skill that holds a symlink or special file, and
 `*.local.*` files in the skill are not shipped.
 
+When the item targets a repository registered in `.satelle/repos.toml`, every
+check also gets `SATELLE_WORKTREE`, and `worktree` is added to the stdin JSON
+object: the top level of that repository's checkout, mapped in
+`.satelle/repos.local.toml` and the one the item was seated at. satelle
+guarantees the value holds only the characters `A-Z a-z 0-9 . _ / + @ -`
+(`[A-Za-z0-9._/+@-]`); a checkout at any other path is refused before a check
+runs. satelle reads a target checkout only with git 2.44 or later and only when
+it is a complete clone, not a partial one (`git clone --filter=…`); otherwise
+the item is refused a seat and a gated move, naming the git version or the
+partial clone. `SATELLE_BASE` is then a commit of that repository. The script
+still runs in the control repository's work tree, so a check that reads the
+item's change runs `git -C "$SATELLE_WORKTREE" …`. For a self item neither is
+set (a `SATELLE_WORKTREE` in satelle's own environment is not passed on), and
+the working directory is the item's work tree.
+
 Every check (a gate's check, its trigger, an after skill, a doctor check),
 every dispatched performer and every judge also gets `SATELLE_SUBSTRATE_DIR`:
 the absolute directory of the `.satelle` governing the run. A script should
