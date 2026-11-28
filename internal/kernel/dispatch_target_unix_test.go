@@ -380,8 +380,11 @@ func TestTargetDispatchEnvironment(t *testing.T) {
 			f := targetFixture(t, true)
 			coder, rev := newShim(t, "claude", "done", ""), newShim(t, "cursor-agent", accept, "")
 			k := f.openWith(t, agentDef{"coder", coder, coderTools}, agentDef{"rev", rev, readTools})
+			k.Settings.Dispatch.TargetEnv = []string{"PLAIN_TOOL_DIR"}
 			it := targetItem(t, k, map[bool]string{true: "web"}[mode == "target"])
 			setLeakEnv(t, f)
+			t.Setenv("PLAIN_TOOL_DIR", "/opt/tool")
+			t.Setenv("GOPATH", "/home/x/go")
 			if _, err := k.Perform(context.Background(), it.ID, "ada"); err != nil {
 				t.Fatal(err)
 			}
@@ -399,7 +402,7 @@ func TestTargetDispatchEnvironment(t *testing.T) {
 				}
 				return
 			}
-			for _, n := range droppedNames {
+			for _, n := range append([]string{"GOPATH"}, droppedNames...) {
 				if _, ok := ce[n]; ok {
 					t.Errorf("target performer holds %s", n)
 				}
@@ -407,12 +410,12 @@ func TestTargetDispatchEnvironment(t *testing.T) {
 					t.Errorf("target reviewer holds %s", n)
 				}
 			}
-			for _, n := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "PATH", "HOME", "SATELLE_SESSION", "SATELLE_PROJECT_DIR", "SATELLE_WORKER"} {
+			for _, n := range []string{"PLAIN_TOOL_DIR", "ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "PATH", "HOME", "SATELLE_SESSION", "SATELLE_PROJECT_DIR", "SATELLE_WORKER"} {
 				if _, ok := ce[n]; !ok {
 					t.Errorf("target performer lacks %s", n)
 				}
 			}
-			for _, n := range []string{"CURSOR_CONFIG_DIR", "SATELLE_SUBSTRATE_DIR", "SATELLE_WORKER", "HTTPS_PROXY"} {
+			for _, n := range []string{"PLAIN_TOOL_DIR", "CURSOR_CONFIG_DIR", "SATELLE_SUBSTRATE_DIR", "SATELLE_WORKER", "HTTPS_PROXY"} {
 				if _, ok := re[n]; !ok {
 					t.Errorf("target cursor reviewer lacks %s", n)
 				}

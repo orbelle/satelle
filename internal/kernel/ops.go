@@ -654,7 +654,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	var loc string
 	if target {
 		req.Dir = wt.dir
-		req.Target = &agent.Target{Repo: wt.target, Worktree: wt.dir, Scratch: scratch,
+		req.Target = &agent.Target{Repo: wt.target, Worktree: wt.dir, Scratch: scratch, EnvNames: k.Settings.Dispatch.TargetEnv,
 			Protected: k.Repos.Tracked[wt.target].EffectiveTier() == reporeg.TierProtected}
 		if recordDir != "" {
 			req.Target.ReadDirs = []string{recordDir}

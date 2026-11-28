@@ -139,6 +139,7 @@ type Run struct {
 	Worktree     string
 	RecordDir    string
 	Scratch      string
+	TargetEnv    []string
 	Base         string
 	Changed      []string
 	Untracked    []string
@@ -727,7 +728,7 @@ func (r Run) ask(ctx context.Context, b agent.Binding, skill workflow.Skill, pro
 	}
 	if r.Worktree != "" {
 		req.Dir = r.Worktree
-		req.Target = &agent.Target{Repo: r.Item.Target(), Worktree: r.Worktree, Scratch: r.Scratch}
+		req.Target = &agent.Target{Repo: r.Item.Target(), Worktree: r.Worktree, Scratch: r.Scratch, EnvNames: r.TargetEnv}
 		for _, d := range []string{r.RecordDir, r.Substrate} {
 			if d != "" {
 				req.Target.ReadDirs = append(req.Target.ReadDirs, d)

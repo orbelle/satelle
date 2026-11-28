@@ -84,6 +84,9 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		done = func() { rec.Close() }
 		run.Record = rec.Section
 		run.RecordDir, run.Scratch = rec.Dir, rec.Scratch
+		if run.Worktree != "" {
+			run.TargetEnv = k.Settings.Dispatch.TargetEnv
+		}
 	}
 	return run, sp, done, nil
 }

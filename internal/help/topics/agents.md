@@ -249,8 +249,10 @@ per run:
   `.claude/settings.local.json`, `.mcp.json`, `.agents/hooks.json`,
   `.antigravity/settings.json`, `.cursor/hooks.json`, `.cursor/cli.json`,
   `.cursor/mcp.json`, `.grok`, `.pi`).
-- The agent gets an allowlisted environment: base runtime, certificate and
-  proxy variables, Go caches and its harness's own sign-in variables, never a
+- The agent gets an allowlisted environment: OS runtime and locale variables
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TZ`, `TMPDIR`, `LANG`,
+  `LC_*`, `XDG_*`), proxy variables, the names `[dispatch] target_env` in
+  `satelle.toml` lists, and its harness's own sign-in variables, never a
   `SATELLE_*`, `GIT_*`, withheld or other credential-named variable. A proxy
   whose URL carries a credential is kept only when the credential is 8 bytes
   or more. Its output, errors and log are redacted of every credential value

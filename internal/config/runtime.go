@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -238,13 +239,22 @@ func secretName(name string) bool {
 const secretFloor = 8
 
 var (
-	targetBaseEnv = []string{
-		"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LANGUAGE", "TZ", "TMPDIR",
-		"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
-		"SSL_CERT_FILE", "SSL_CERT_DIR", "GOPATH", "GOCACHE", "GOMODCACHE",
-	}
+	targetBaseEnv  = []string{"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LANGUAGE", "TZ", "TMPDIR"}
 	targetProxyEnv = []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy"}
+	envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
+
+func TargetEnvProblem(name string) error {
+	switch {
+	case !envNamePattern.MatchString(name):
+		return fmt.Errorf("%q is not a plain environment variable name", name)
+	case secretName(name):
+		return fmt.Errorf("%s looks like a credential; a target dispatch never receives one by configuration", name)
+	case strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "SATELLE_"):
+		return fmt.Errorf("%s is a git or satelle variable; a target dispatch never receives one", name)
+	}
+	return nil
+}
 
 func proxySecrets(value string) ([]string, bool) {
 	if !strings.Contains(value, "@") {
@@ -280,7 +290,7 @@ func proxySecrets(value string) ([]string, bool) {
 	return out, true
 }
 
-func TargetAgentEnv(environ, auth []string) (env, secrets []string) {
+func TargetAgentEnv(environ, auth, extra []string) (env, secrets []string) {
 	env = []string{}
 	withheld := WithheldNames(environ)
 	add := func(v string) {
@@ -306,7 +316,8 @@ func TargetAgentEnv(environ, auth []string) (env, secrets []string) {
 	}
 	for _, v := range vars {
 		name, value := v[0], v[1]
-		listed := slices.Contains(auth, name) || slices.Contains(targetBaseEnv, name) || strings.HasPrefix(name, "LC_")
+		listed := slices.Contains(auth, name) || slices.Contains(targetBaseEnv, name) || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_") ||
+			(slices.Contains(extra, name) && TargetEnvProblem(name) == nil)
 		proxy := slices.Contains(targetProxyEnv, name)
 		if !listed && !proxy {
 			continue

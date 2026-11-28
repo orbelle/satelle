@@ -47,6 +47,7 @@ type Target struct {
 	ReadDirs       []string
 	Protected      bool
 	Environ        []string
+	EnvNames       []string
 	Narrowed       string
 	Outside        bool
 	Confined       bool

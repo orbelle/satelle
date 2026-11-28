@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -166,6 +167,11 @@ func TestConfineTargetRefusesHarness(t *testing.T) {
 			}
 			if shimRan(t, argv) {
 				t.Errorf("%s %v: the shim ran", c.name, grant)
+			}
+			for _, other := range integration.Names() {
+				if err != nil && !strings.HasPrefix(c.name, other) && regexp.MustCompile(`\b`+regexp.QuoteMeta(other)+`\b`).MatchString(err.Error()) {
+					t.Errorf("%s %v: refusal names harness %s: %v", c.name, grant, other, err)
+				}
 			}
 		}
 		wt, scratch := targetDirs(t)

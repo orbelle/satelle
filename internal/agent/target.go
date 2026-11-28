@@ -60,7 +60,7 @@ func ConfineTarget(a Adapter, req Request) (Request, error) {
 		narrow(reporeg.Literal(t.Repo) + " is a protected repository: no dispatched performer holds a write grant there")
 	}
 	if !common.IsReadOnly(b.Tools) && !c.Context {
-		return req, fmt.Errorf("satelle will not dispatch agent %s with a write grant into target %s on %s: %s; bind a claude agent for target writers, or a read-only grant",
+		return req, fmt.Errorf("satelle will not dispatch agent %s with a write grant into target %s on %s: %s; bind an agent whose harness records write confinement for a target, or a read-only grant",
 			b.Name, reporeg.Literal(t.Repo), a.Name(), c.Refuse)
 	}
 	if !common.IsReadOnly(b.Tools) && !(c.FileTools && (c.Shell || !common.GrantsBash(b.Tools))) {
@@ -76,7 +76,7 @@ func ConfineTarget(a Adapter, req Request) (Request, error) {
 	} else {
 		req.Prompt += "\nYour working directory is the target work tree.\n"
 	}
-	env, secrets := config.TargetAgentEnv(os.Environ(), c.AuthEnv)
+	env, secrets := config.TargetAgentEnv(os.Environ(), c.AuthEnv, t.EnvNames)
 	t.Environ = env
 	req.Redact = common.Chain(req.Redact, common.ValueRedactor(secrets))
 	mode := "inside"

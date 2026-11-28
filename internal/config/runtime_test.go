@@ -31,11 +31,16 @@ func TestTargetAgentEnv(t *testing.T) {
 		"CLAUDE_CONFIG_DIR=/home/x/.claude", "PLAIN=plain", "ALL_PROXY=http://proxy:1",
 		"NO_PROXY=localhost",
 	}
-	env, secrets := TargetAgentEnv(environ, []string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"})
-	want := []string{"PATH=/bin", "HOME=/home/x", "LC_ALL=C", "TERM=xterm", "GOCACHE=/tmp/gocache",
+	env, secrets := TargetAgentEnv(environ, []string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"}, nil)
+	want := []string{"PATH=/bin", "HOME=/home/x", "LC_ALL=C", "TERM=xterm",
 		"ANTHROPIC_API_KEY=anthropic-key-value", "CLAUDE_CONFIG_DIR=/home/x/.claude", "NO_PROXY=localhost"}
 	if !slices.Equal(env, want) {
 		t.Errorf("env = %q, want %q", env, want)
+	}
+	env, _ = TargetAgentEnv(environ, nil, []string{"GOCACHE", "PLAIN", "GH_TOKEN", "GIT_DIR", "SATELLE_TOKEN"})
+	want = []string{"PATH=/bin", "HOME=/home/x", "LC_ALL=C", "TERM=xterm", "GOCACHE=/tmp/gocache", "PLAIN=plain", "NO_PROXY=localhost"}
+	if !slices.Equal(env, want) {
+		t.Errorf("env with configured names = %q, want %q", env, want)
 	}
 	for _, v := range []string{"anthropic-key-value", "/home/x/.claude", "satelle-token-value", "node-token-value",
 		"extra-withheld-value", "gh-token-value", "github-token-value", "aws-access-key", "aws-secret-value",
@@ -47,10 +52,10 @@ func TestTargetAgentEnv(t *testing.T) {
 	if slices.Contains(secrets, "plain") || slices.Contains(secrets, "/bin") {
 		t.Errorf("secrets hold an ordinary value: %q", secrets)
 	}
-	if env, _ := TargetAgentEnv(nil, nil); env == nil || len(env) != 0 {
+	if env, _ := TargetAgentEnv(nil, nil, nil); env == nil || len(env) != 0 {
 		t.Errorf("TargetAgentEnv(nil) = %#v, want empty and non-nil", env)
 	}
-	env, _ = TargetAgentEnv([]string{"SATELLE_NODE_WITHHOLD=ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY=anthropic-key-value"}, []string{"ANTHROPIC_API_KEY"})
+	env, _ = TargetAgentEnv([]string{"SATELLE_NODE_WITHHOLD=ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY=anthropic-key-value"}, []string{"ANTHROPIC_API_KEY"}, nil)
 	if len(env) != 0 {
 		t.Errorf("a withheld auth name is kept: %q", env)
 	}
@@ -70,7 +75,7 @@ func TestTargetAgentEnvProxy(t *testing.T) {
 		{"http://host:3128", true, nil},
 	}
 	for _, c := range cases {
-		env, secrets := TargetAgentEnv([]string{"HTTPS_PROXY=" + c.value}, nil)
+		env, secrets := TargetAgentEnv([]string{"HTTPS_PROXY=" + c.value}, nil, nil)
 		if kept := len(env) == 1; kept != c.keep {
 			t.Errorf("%s: kept = %v, want %v", c.value, kept, c.keep)
 		}
@@ -78,7 +83,7 @@ func TestTargetAgentEnvProxy(t *testing.T) {
 			t.Errorf("%s: secrets = %q, want %q", c.value, secrets, c.secrets)
 		}
 	}
-	env, secrets := TargetAgentEnv([]string{"no_proxy=localhost,127.0.0.1", "ALL_PROXY=http://user:longpassword@host:1", "http_proxy=http://p:3128"}, nil)
+	env, secrets := TargetAgentEnv([]string{"no_proxy=localhost,127.0.0.1", "ALL_PROXY=http://user:longpassword@host:1", "http_proxy=http://p:3128"}, nil, nil)
 	if !slices.Equal(env, []string{"no_proxy=localhost,127.0.0.1", "http_proxy=http://p:3128"}) {
 		t.Errorf("env = %q", env)
 	}
@@ -91,5 +96,18 @@ func TestGitLookupEnvKeepsConfigKeys(t *testing.T) {
 	got := GitLookupEnv([]string{"GIT_CONFIG_KEY_0=core.x", "GIT_CONFIG_VALUE_0=y", "STRIPE_API_KEY=k"}, nil)
 	if want := []string{"GIT_CONFIG_KEY_0=core.x", "GIT_CONFIG_VALUE_0=y"}; !slices.Equal(got, want) {
 		t.Errorf("GitLookupEnv = %q, want %q", got, want)
+	}
+}
+
+func TestTargetEnvProblem(t *testing.T) {
+	for _, n := range []string{"GOPATH", "GOCACHE", "NODE_OPTIONS", "_X1"} {
+		if err := TargetEnvProblem(n); err != nil {
+			t.Errorf("TargetEnvProblem(%q) = %v, want nil", n, err)
+		}
+	}
+	for _, n := range []string{"GH_TOKEN", "STRIPE_API_KEY", "MY_AUTH", "GIT_DIR", "SATELLE_TOKEN", "A=B", "1X", "", "A B"} {
+		if TargetEnvProblem(n) == nil {
+			t.Errorf("TargetEnvProblem(%q) = nil, want a problem", n)
+		}
 	}
 }
