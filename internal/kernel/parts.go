@@ -372,7 +372,7 @@ func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {
 	wired := map[string]bool{}
 	for _, b := range c.Agents {
 		if !agent.IsSession(b) {
-			wired[agent.Preset(b)] = true
+			wired[agent.Executable(b)] = true
 		}
 	}
 	all := c.Agents.Overlay(cat)
@@ -387,8 +387,8 @@ func (c *Config) loadPartAgents(partDir, rel string) (agent.Catalog, []error) {
 				continue
 			}
 			checked[n] = true
-			if cli := agent.Preset(b); cli != "" && !agent.IsSession(b) && !wired[cli] {
-				errs = append(errs, partErr("%s: agents.%s: runs %s, a harness the shared %s does not run; the shared %s must already run that harness so its hooks are wired", file, strconv.Quote(n), cli, AgentsFile, AgentsFile))
+			if exe := agent.Executable(b); !agent.IsSession(b) && (exe == "" || !wired[exe]) {
+				errs = append(errs, partErr("%s: agents.%s: runs %s, a command no binding in the shared %s runs; the shared %s must already run that exact command so its hooks are wired", file, strconv.Quote(n), strconv.Quote(exe), AgentsFile, AgentsFile))
 			}
 		}
 	}

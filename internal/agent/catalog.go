@@ -226,9 +226,17 @@ func ValidTool(t string) error {
 func IsReadOnly(grant []string) bool { return common.IsReadOnly(grant) }
 
 func Preset(b Binding) string {
+	bin := Executable(b)
+	if bin == "" {
+		return ""
+	}
+	return common.Preset(bin)
+}
+
+func Executable(b Binding) string {
 	bin, _, err := common.CommandFields(b)
 	if err != nil {
 		return ""
 	}
-	return common.Preset(bin)
+	return bin
 }

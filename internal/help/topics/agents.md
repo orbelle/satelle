@@ -58,9 +58,10 @@ letters, digits, `.`, `_` or `-`, starting with a letter or digit. A part
 `agents.toml` that does not load (a link, bad TOML, an unknown key, a bad
 binding or name, a fallback bound nowhere) leaves the part unresolved, so its
 repository's stories are refused until it does. A part binding, or its
-fallback, may run only a harness some non-session binding of the shared
-`agents.toml` already runs, so its hooks are wired; any other harness leaves the
-part unresolved. `agents.local.toml` overrides
+fallback, may run only the exact command (its first word, as dispatched) some
+non-session binding of the shared `agents.toml` already runs, so its hooks are
+wired; any other command, the same harness name at another path included,
+leaves the part unresolved. `agents.local.toml` overrides
 only shared bindings. The judge-differs check compares a part's workflows
 against the part's bindings.
 
