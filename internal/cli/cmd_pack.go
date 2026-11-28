@@ -526,7 +526,7 @@ func quoteControl(s string) string {
 }
 
 func resolveInTree(verb, tree, p string) (string, error) {
-	c := canonicalPath(p)
+	c := hook.CanonicalPath(p)
 	if !hook.Within(tree, c) {
 		return "", fmt.Errorf("%s: %s resolves to %s, outside the worktree %s", verb, p, c, tree)
 	}

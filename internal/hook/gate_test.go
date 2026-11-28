@@ -245,8 +245,8 @@ func TestGateGitDirQuoted(t *testing.T) {
 	}
 	cmd = "cd " + filepath.ToSlash(foreign) + " && python3 -c 'print(1)' && git merge x"
 	v = seated.Bash(cmd, root)
-	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
-		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
+	if v.Allow || !strings.Contains(v.Reason, "cd rule") {
+		t.Errorf("%q: allow %v reason %q, want refused under the cd rule", cmd, v.Allow, v.Reason)
 	}
 }
 
@@ -802,20 +802,21 @@ func TestGateGitAfterCd(t *testing.T) {
 		"cd <rel> && git merge x",
 		"cd <wt> && git -C sub merge x",
 		"cd <wt> && git -Csub merge x",
-		"git -C<wt> merge x",
 		"cd <wt> && ls && git merge x",
 		"'cd' <wt> && 'git' merge x",
 		"cd <wt> && /usr/bin/git merge x",
+		"cd <root> && git merge x",
+		"cd sub && git commit -m x",
+		"cd <root>; git reset --hard",
 	} {
 		cmd := f.expand(c)
-		v := g.Bash(cmd, f.root)
-		if v.Allow {
-			t.Errorf("%q: allowed, want refused naming the worktree", cmd)
-			continue
+		if v := g.Bash(cmd, f.root); v.Allow || !strings.Contains(v.Reason, "cd rule") {
+			t.Errorf("%q: allow %v (%s), want refused under the cd rule", cmd, v.Allow, v.Reason)
 		}
-		if !within(f.wt, v.Path) || !strings.Contains(v.Reason, "local:"+f.wt) {
-			t.Errorf("%q: refused at %q (%s), want a path under %s naming local:%s", cmd, v.Path, v.Reason, f.wt, f.wt)
-		}
+	}
+	cmd := f.expand("git -C<wt> merge x")
+	if v := g.Bash(cmd, f.root); v.Allow || !within(f.wt, v.Path) || !strings.Contains(v.Reason, "local:"+f.wt) {
+		t.Errorf("%q: %+v, want refused at a path under %s naming local:%s", cmd, v, f.wt, f.wt)
 	}
 
 	done := Gate{Root: f.root, TempRoots: []string{}, Grant: func(tree string) Grant {
@@ -824,7 +825,7 @@ func TestGateGitAfterCd(t *testing.T) {
 		}
 		return Grant{Tree: tree == f.root}
 	}}
-	cmd := f.expand("cd <wt> && git merge x")
+	cmd = f.expand("git -C <wt> merge x")
 	if v := done.Bash(cmd, f.root); v.Allow || !v.AttachOnly || !strings.Contains(v.Reason, "local:"+f.wt) || !strings.Contains(v.Reason, "sto_112075bb") {
 		t.Errorf("%q at a done item's worktree: %+v, want refused naming local:%s and sto_112075bb", cmd, v, f.wt)
 	}
@@ -853,9 +854,6 @@ func TestGateGitAfterCd(t *testing.T) {
 		"git add . && git commit -m 'fix: x'",
 		`git commit -m "it's fixed (scope)"`,
 		"git -C <root> commit -m x",
-		"cd <root> && git merge x",
-		"cd sub && git commit -m x",
-		"cd <root>; git reset --hard",
 		"git merge x | tail -5",
 		"git reset --hard HEAD~1",
 		"git commit -m 'line one\nline two'",
@@ -943,6 +941,107 @@ func TestGateRefusesUnreadGit(t *testing.T) {
 	} {
 		if v := tg.Bash(cmd, f.root); !v.Allow {
 			t.Errorf("%q: refused (%s), want allowed: an unread line that names no git is judged as before", cmd, v.Reason)
+		}
+	}
+}
+
+func TestCanonicalPath(t *testing.T) {
+	d, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := func(p ...string) string { return filepath.Join(append([]string{d}, p...)...) }
+	for _, dir := range []string{j("T"), j("R", "sub")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(j("R", "f"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range [][2]string{
+		{j("R", "f"), j("T", "flink")},
+		{j("R", "sub"), j("T", "sublink")},
+		{j("R", "absent"), j("T", "dangling")},
+		{"../new2.go", j("R", "sub", "dl")},
+		{j("T", "loop2"), j("T", "loop1")},
+		{j("T", "loop1"), j("T", "loop2")},
+	} {
+		if err := os.Symlink(l[0], l[1]); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	sep := string(filepath.Separator)
+	for _, r := range []struct{ in, canonical, entry string }{
+		{j("T", "flink"), j("R", "f"), j("T", "flink")},
+		{j("T", "sublink", "new", "x"), j("R", "sub", "new", "x"), j("R", "sub", "new", "x")},
+		{j("T", "dangling"), j("R", "absent"), j("T", "dangling")},
+		{j("T", "sublink", "dl"), j("R", "new2.go"), j("R", "sub", "dl")},
+		{j("T", "sublink") + sep + ".." + sep + "x", j("R", "x"), j("R", "x")},
+		{j("T", "missing") + sep + ".." + sep + "x", j("T", "x"), j("T", "x")},
+		{j("T", "missing") + sep + ".." + sep + "flink", j("R", "f"), j("T", "flink")},
+		{j("T", "missing") + sep + ".." + sep + "sublink" + sep + "x", j("R", "sub", "x"), j("R", "sub", "x")},
+		{j("T", "missing", "deeper") + sep + ".." + sep + ".." + sep + "sublink", j("R", "sub"), j("T", "sublink")},
+		{j("T", "loop1", "x"), j("T", "loop1", "x"), j("T", "loop1", "x")},
+		{j("T") + sep + "." + sep + "plain", j("T", "plain"), j("T", "plain")},
+	} {
+		if got := CanonicalPath(r.in); got != r.canonical {
+			t.Errorf("CanonicalPath(%s) = %s, want %s", r.in, got, r.canonical)
+		}
+		if got := EntryPath(r.in); got != r.entry {
+			t.Errorf("EntryPath(%s) = %s, want %s", r.in, got, r.entry)
+		}
+	}
+	for _, r := range []struct{ p, want string }{
+		{"$TMPDIR/x", d + sep + "$TMPDIR/x"},
+		{"~/x", d + sep + "~/x"},
+		{"a/../b", d + sep + "a/../b"},
+		{j("abs"), j("abs")},
+	} {
+		if got := JoinLiteral(d, r.p); got != r.want {
+			t.Errorf("JoinLiteral(%s, %s) = %s, want %s", d, r.p, got, r.want)
+		}
+	}
+}
+
+func TestEditGateAliasedRootMatchesItsCanonicalTree(t *testing.T) {
+	p, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(p, "private", "var", "r")
+	other := filepath.Join(p, "private", "var", "o")
+	for _, d := range []string{filepath.Join(real, ".git"), filepath.Join(other, ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(p, "var")
+	if err := os.Symlink(filepath.Join(p, "private", "var"), alias); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	g := Gate{Root: real, TempRoots: []string{}, Grant: func(tree string) Grant { return Grant{Tree: tree == real} }}
+	for _, c := range []struct {
+		name string
+		v    Verdict
+	}{
+		{"edit through the alias", g.Edit(filepath.Join(alias, "r", "f.go"))},
+		{"edit at the canonical path", g.Edit(filepath.Join(real, "f.go"))},
+		{"shell write through the alias", g.Bash("echo x > "+filepath.Join(alias, "r", "f.go"), real)},
+	} {
+		if !c.v.Allow {
+			t.Errorf("%s: refused: %s", c.name, c.v.Reason)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		v    Verdict
+	}{
+		{"edit of another repo through the alias", g.Edit(filepath.Join(alias, "o", "f.go"))},
+		{"shell write to another repo through the alias", g.Bash("echo x > "+filepath.Join(alias, "o", "f.go"), real)},
+	} {
+		if c.v.Allow || !strings.Contains(c.v.Reason, other) {
+			t.Errorf("%s: want refusal naming %s, got %+v", c.name, other, c.v)
 		}
 	}
 }
