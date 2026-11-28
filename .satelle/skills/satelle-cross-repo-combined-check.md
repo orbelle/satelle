@@ -104,7 +104,7 @@ while read -r cid repo status; do
   fi
   checkout=$(printf '%s' "$repos" | jq -r --arg r "$repo" '.repos[] | select(.name == $r) | .local.path // empty')
   if [ -z "$checkout" ]; then
-    echo "$cid targets $repo, which has no local checkout in satelle repo list, so its diff cannot be recomputed"
+    echo "$cid targets $repo, which has no registered local checkout on this machine, so its diff cannot be recomputed"
     fail=1
     continue
   fi
