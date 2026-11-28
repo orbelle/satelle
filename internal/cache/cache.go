@@ -20,7 +20,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS files (item TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS items (
 	id TEXT PRIMARY KEY, kind TEXT, title TEXT, body TEXT, criteria TEXT, status TEXT,
-	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignees TEXT, inputs TEXT, trigger TEXT, base TEXT,
+	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignees TEXT, inputs TEXT, trigger TEXT, base TEXT, repo TEXT,
 	created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS item_tags (item TEXT NOT NULL, tag TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS item_tags_tag ON item_tags(tag);
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 `
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
@@ -231,9 +231,9 @@ func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 			b, _ := json.Marshal(it.Trigger)
 			trigger = string(b)
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			it.ID, it.Kind, it.Title, it.Body, string(criteria), it.Status, string(tags), it.Parent,
-			it.Category, it.Workflow, string(assignees), inputs, trigger, it.Base, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
+			it.Category, it.Workflow, string(assignees), inputs, trigger, it.Base, it.Repo, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
 			return err
 		}
 		for _, tag := range it.Tags {
@@ -292,7 +292,7 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 	add("parent = ?", q.Parent)
 	add("workflow = ?", q.Workflow)
 	add("id IN (SELECT item FROM item_tags WHERE tag = ?)", q.Tag)
-	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignees, inputs, trigger, base, created_at, updated_at FROM items`
+	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignees, inputs, trigger, base, repo, created_at, updated_at FROM items`
 	if len(where) > 0 {
 		sqlText += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -306,7 +306,7 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 		var it item.Item
 		var criteria, tags, assignees, inputs, trigger, created, updated string
 		if err := rows.Scan(&it.ID, &it.Kind, &it.Title, &it.Body, &criteria, &it.Status, &tags, &it.Parent,
-			&it.Category, &it.Workflow, &assignees, &inputs, &trigger, &it.Base, &created, &updated); err != nil {
+			&it.Category, &it.Workflow, &assignees, &inputs, &trigger, &it.Base, &it.Repo, &created, &updated); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(criteria), &it.Criteria)

@@ -17,6 +17,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
+	"github.com/bobmcallan/satelle/internal/shq"
 )
 
 const (
@@ -378,19 +379,19 @@ func gateWrapperScript(env gate.CheckEnv, script string, skill bool, substrateRe
 	b.WriteString("# Runs a gate's check on this node; written by satelle.\nset -u\nroot=$1\nmkdir -p \"$root/out\" || exit 1\n")
 	for _, kv := range env.Vars() {
 		k, v, _ := strings.Cut(kv, "=")
-		fmt.Fprintf(&b, "export %s=%s\n", k, ShQuote(v))
+		fmt.Fprintf(&b, "export %s=%s\n", k, shq.Quote(v))
 	}
 	if skill {
 		b.WriteString(`export SATELLE_SKILL_DIR="$root/in/` + gateSkill + `"` + "\n")
 	}
 	if substrateRel != "" {
-		fmt.Fprintf(&b, "export %s=\"$root/work/\"%s\n", config.SubstrateDirEnv, ShQuote(substrateRel))
+		fmt.Fprintf(&b, "export %s=\"$root/work/\"%s\n", config.SubstrateDirEnv, shq.Quote(substrateRel))
 	}
 	b.WriteString("cd \"$root/work\" || exit 1\n")
 	redirect := ` < "$root/in/` + gatePayload + `" > "$root/out/` + gateLog + `" 2>&1`
 	if shebang {
 		for _, a := range argv {
-			b.WriteString(ShQuote(a) + " ")
+			b.WriteString(shq.Quote(a) + " ")
 		}
 		b.WriteString(`"$root/in/` + gateScript + `"` + redirect + "\n")
 	} else {
@@ -411,5 +412,3 @@ func parseExit(b []byte) (int, error) {
 	}
 	return n, nil
 }
-
-func ShQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

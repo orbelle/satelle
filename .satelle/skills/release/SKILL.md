@@ -223,7 +223,9 @@ Run `.satelle/skills/release/scripts/build-candidate.sh`.
 Once the candidate is built, and again after each drift-fix commit, before the
 suite runs. It builds the candidate's own satelle into `$rd/bin/satelle` and
 runs the candidate's own scripts/drift-check.sh with it in the candidate
-worktree: the rules are that binary's `satelle validate --session <session>` substrate check, so a
+worktree, with `SATELLE_HOME` set to an empty `$rd/drift-home` that it removes
+afterwards, so a candidate that migrates the cache or ledger changes only that
+home, never this machine's satelle state: the rules are that binary's `satelle validate --session <session>` substrate check, so a
 release whose substrate names a command, flag, help topic, skill or link the
 candidate binary lacks is refused here, before anything is tested or pushed.
 On exit 0 it records the candidate's sha in `$rd/drift-checked` and writes
