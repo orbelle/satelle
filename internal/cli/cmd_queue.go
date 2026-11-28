@@ -89,7 +89,7 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 		}{q, definedBy, rows, lapsed, st.LastFire, runStatus, atts, seats})
 	}
 	users, working := itemAssignees(q, seats)
-	printItem(out, q, users, working)
+	printItem(out, q, users, working, "")
 	if definedBy != "" {
 		fmt.Fprintf(out, "defined by %s\n", definedBy)
 	}

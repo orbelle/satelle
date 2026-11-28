@@ -13,6 +13,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
+	"github.com/bobmcallan/satelle/internal/shq"
 )
 
 type gateHelloReply struct {
@@ -103,7 +104,7 @@ func serveGateJobs(node *Node, dir, digest string) error {
 		}
 		quoted := make([]string, len(req.Argv))
 		for i, a := range req.Argv {
-			quoted[i] = ShQuote(a)
+			quoted[i] = shq.Quote(a)
 		}
 		out := &boundedTail{max: gateExecTail}
 		failed := runSetupCommand(ctx, root, strings.Join(quoted, " "), gateExecEnv(os.Environ()), time.Duration(req.TimeoutMS)*time.Millisecond, out)

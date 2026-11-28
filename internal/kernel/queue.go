@@ -528,6 +528,9 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 		return out, nil
 	}
 	q, events, t, members, baseRef := r.queue, r.events, *r.trigger, r.members, r.baseRef
+	if err := k.checkFireTargets(t, members); err != nil {
+		return out, err
+	}
 	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
 	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause, Kept: r.kept}
@@ -547,10 +550,23 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	return out, nil
 }
 
+func (k *Kernel) checkFireTargets(t item.Trigger, members []string) error {
+	if err := k.CheckTargets(members...); err != nil {
+		return err
+	}
+	if t.Task != "" {
+		return k.CheckTargets(t.Task)
+	}
+	return nil
+}
+
 func (k *Kernel) startFireRun(q item.Item, t item.Trigger, runID string, members []string, baseRef, actor string) (item.Item, TaskRunRecord, error) {
 	kind := ExecutionKind
 	f := item.Fields{Kind: &kind}
 	rec := TaskRunRecord{Task: t.Task, Inputs: members, Queue: q.ID}
+	if err := k.checkFireTargets(t, members); err != nil {
+		return item.Item{}, rec, err
+	}
 	if t.Task != "" {
 		task, err := k.Get(t.Task)
 		if err != nil {

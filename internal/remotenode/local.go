@@ -406,6 +406,9 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			return nil, fmt.Errorf("remote %s: secret %s: secrets were not taken before the fire", o.Remote, n)
 		}
 	}
+	if err := k.CheckFire(o.Item); err != nil {
+		return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+	}
 	command := def.Provider == remotedef.ProviderCommand
 	if !command {
 		if err := egressRefusal(ctx, o.Docker, def); err != nil {
