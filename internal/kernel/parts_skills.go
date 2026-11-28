@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -18,6 +19,57 @@ func skillSource(parts map[string]map[string]workflow.Skill, target string) stri
 		return target
 	}
 	return ""
+}
+
+func partSource(sources map[string]string, target string) string {
+	d, ok := sources[target]
+	if target == reporeg.Self || !ok {
+		return ""
+	}
+	return target + ":" + d
+}
+
+func (c *Config) PartSources() map[string]string {
+	var out map[string]string
+	for x, p := range c.Parts {
+		if len(p.Problems) > 0 || (len(p.Skills) == 0 && !p.RuleFiles.own()) {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[x] = p.Digest
+	}
+	return out
+}
+
+func partReader(partDir string, files map[string][]byte) func(string) ([]byte, error) {
+	return func(path string) ([]byte, error) {
+		b, err := reporeg.ReadRegular(path)
+		if err != nil {
+			return b, err
+		}
+		key := path
+		if rel, rerr := filepath.Rel(partDir, path); rerr == nil {
+			key = rel
+		}
+		files[filepath.ToSlash(key)] = b
+		return b, nil
+	}
+}
+
+func filesDigest(files map[string][]byte) string {
+	h := sha256.New()
+	h.Write([]byte("satelle-part-source\x1f"))
+	field := func(b []byte) {
+		h.Write(binary.BigEndian.AppendUint64(nil, uint64(len(b))))
+		h.Write(b)
+	}
+	for _, rel := range sortedKeys(files) {
+		field([]byte(rel))
+		field(files[rel])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func skillsFor(shared map[string]workflow.Skill, parts map[string]map[string]workflow.Skill, target string) map[string]workflow.Skill {
@@ -72,8 +124,8 @@ func (c *Config) PartSkills() map[string]map[string]workflow.Skill {
 	return out
 }
 
-func (c *Config) loadPartSkills(p *Part, partDir string) {
-	sk, err := workflow.LoadSkillsStrict(filepath.Join(partDir, SkillsDir), reporeg.ReadRegular)
+func (c *Config) loadPartSkills(p *Part, partDir string, read func(string) ([]byte, error)) {
+	sk, err := workflow.LoadSkillsStrict(filepath.Join(partDir, SkillsDir), read)
 	for _, e := range joinedErrors(err) {
 		p.Problems = append(p.Problems, partErr("%s/%s/%v", PartsDir, p.Name, e))
 	}
