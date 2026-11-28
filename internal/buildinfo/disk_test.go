@@ -17,6 +17,38 @@ func writeFile(t *testing.T, p, body string) {
 	}
 }
 
+func installFile(t *testing.T, p, body string, mtime ...time.Time) os.FileInfo {
+	t.Helper()
+	f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(body); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range mtime {
+		if err := os.Chtimes(tmp, m, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
 func TestRecordAndLookup(t *testing.T) {
 	home := t.TempDir()
 	dir := t.TempDir()
@@ -97,19 +129,65 @@ func TestIdentifyProbesOnceThenReads(t *testing.T) {
 	dir := t.TempDir()
 	count := filepath.Join(dir, "count")
 	bin := filepath.Join(dir, "satelled")
-	writeFile(t, bin, "#!/bin/sh\necho x >> "+count+"\necho 'satelled 1.0.0 (commit a, built b)'\n")
+	body := func(v string) string {
+		return "#!/bin/sh\necho x >> " + count + "\necho 'satelled " + v + " (commit a, built b)'\n"
+	}
+	probes := func() int {
+		b, _ := os.ReadFile(count)
+		return strings.Count(string(b), "x")
+	}
+	installFile(t, bin, body("1.0.0"))
 	ctx := context.Background()
 	for i := 0; i < 2; i++ {
 		if got := Identify(ctx, home, bin); got != "satelled 1.0.0 (commit a, built b)" {
 			t.Fatalf("Identify = %q", got)
 		}
 	}
-	if b, _ := os.ReadFile(count); strings.Count(string(b), "x") != 1 {
-		t.Errorf("probed %d times, want once", strings.Count(string(b), "x"))
+	if n := probes(); n != 1 {
+		t.Errorf("probed %d times, want once", n)
 	}
-	writeFile(t, bin, "#!/bin/sh\necho x >> "+count+"\necho 'satelled 1.0.1 (commit a, built b)'\n")
+	rec, ok := readRecords(home)[resolvePath(bin)]
+	if !ok {
+		t.Fatal("no record after Identify")
+	}
+	if len(body("1.0.1")) != len(body("1.0.0")) {
+		t.Fatal("the rewritten body is not the same length")
+	}
+	st := installFile(t, bin, body("1.0.1"), rec.ModTime)
+	if st.Size() != rec.Size || !st.ModTime().UTC().Equal(rec.ModTime) {
+		t.Fatalf("on disk size %d mtime %v, recorded size %d mtime %v", st.Size(), st.ModTime(), rec.Size, rec.ModTime)
+	}
 	if got := Identify(ctx, home, bin); got != "satelled 1.0.1 (commit a, built b)" {
 		t.Errorf("a rewritten binary was not probed again: %q", got)
+	}
+	if n := probes(); n != 2 {
+		t.Errorf("probed %d times, want twice", n)
+	}
+}
+
+func TestLookupOldRecordIsChanged(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a record without identity is the normal state on windows")
+	}
+	home := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "satelled")
+	st := installFile(t, bin, "#!/bin/sh\necho 'satelled 1.0.0 (commit a, built b)'\n")
+	line := "satelled 1.0.0 (commit a, built b)"
+	old := map[string]diskEntry{resolvePath(bin): {Line: line, Size: st.Size(), ModTime: st.ModTime().UTC()}}
+	if err := writeRecords(home, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := Lookup(home, bin); !strings.Contains(got, "changed since it last ran") {
+		t.Errorf("an old record was trusted: %q", got)
+	}
+	if got := Identify(context.Background(), home, bin); got != line {
+		t.Fatalf("Identify = %q", got)
+	}
+	if got := Lookup(home, bin); got != line {
+		t.Errorf("Lookup after re-record = %q, want %q", got, line)
+	}
+	if e := readRecords(home)[resolvePath(bin)]; e.ID == nil {
+		t.Error("the re-recorded entry has no identity")
 	}
 }
 
