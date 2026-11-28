@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/gate"
@@ -58,7 +59,31 @@ func unreadReason(what string) string {
 }
 
 func (g Gate) Edit(target string) Verdict {
-	return g.judge(native(resolvePath(g.Root, target)), false)
+	return g.judgePath(JoinLiteral(g.Root, target), false)
+}
+
+func (g Gate) judgePath(raw string, inline bool) Verdict {
+	forms := []string{filepath.Clean(raw)}
+	for _, p := range []string{EntryPath(raw), CanonicalPath(raw)} {
+		if !slices.Contains(forms, p) {
+			forms = append(forms, p)
+		}
+	}
+	for i, p := range forms {
+		v := g.judge(p, inline)
+		if v.Allow {
+			continue
+		}
+		if len(forms) > 1 {
+			named := p
+			if i == 0 {
+				named = forms[len(forms)-1]
+			}
+			v.Reason = "satelle: " + raw + " resolves through a symlink to " + named + ". " + v.Reason
+		}
+		return v
+	}
+	return allow
 }
 
 func nativePath(p string, windows bool) string {
@@ -91,14 +116,14 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	if t.Unreadable != "" {
 		return Verdict{Reason: unreadReason(t.Unreadable)}
 	}
-	for _, p := range t.Paths {
-		if v := g.judge(native(p), false); !v.Allow {
+	for _, p := range t.Raw {
+		if v := g.judgePath(native(p), false); !v.Allow {
 			return v
 		}
 	}
-	for _, d := range t.Inline {
+	for _, d := range t.InlineRaw {
 		d = native(d)
-		if v := g.judge(d, true); !v.Allow {
+		if v := g.judgePath(d, true); !v.Allow {
 			v.Reason = "an inline program would run in " + d + ", which it may write anywhere under. " + v.Reason
 			return v
 		}
