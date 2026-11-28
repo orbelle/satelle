@@ -27,14 +27,8 @@ fallback = "reviewer-agy-gemini-4-hydrogen-high"
 command = "agy"
 model = "gemini-4-hydrogen-medium"
 tools = ["Read", "Grep", "Glob"]
-fallback = "reviewer-cursor-gemini-4-hydrogen-medium"
+fallback = "reviewer-cursor-gemini-4-hydrogen-high"
 brief = "Judge the cancel from these only: this prompt's title, tags, body and acceptance criteria; the recorded reason (the cancel note in the body, or attachments/cancel-reason in the record folder); the story or commit that reason names as superseding or delivering this item, read only as far as this item's criteria need; and, for a parent, children.md in the record folder. Leave the changed paths and the rest of the repository unread."
-
-[agents."reviewer-gpt-oss-120b-medium"]
-command = "agy"
-model = "gpt-oss-120b-medium"
-tools = ["Read", "Grep", "Glob"]
-fallback = "reviewer-cursor-gemini-4-hydrogen-medium"
 
 [agents."reviewer-agy-gemini-4-hydrogen-high"]
 command = "agy"
@@ -44,9 +38,4 @@ tools = ["Read", "Grep", "Glob"]
 [agents."reviewer-cursor-gemini-4-hydrogen-high"]
 command = "cursor-agent"
 model = "gemini-4-hydrogen-high"
-tools = ["Read", "Grep", "Glob"]
-
-[agents."reviewer-cursor-gemini-4-hydrogen-medium"]
-command = "cursor-agent"
-model = "gemini-4-hydrogen-medium"
 tools = ["Read", "Grep", "Glob"]
