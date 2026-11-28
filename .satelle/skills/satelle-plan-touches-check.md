@@ -1,17 +1,17 @@
 ---
 name: satelle-plan-touches-check
 type: check
-description: Functional check on plan → in_progress and on in_progress → integration. Rejects when the story's plan has no "## Touches" section listing at least one path, and rejects when the item's changed paths include one the section does not name, reading the item's target repository when it targets one. Deterministic, zero LLM tokens; on plan exit it runs before plan-review so a plan without the section does not spend a reviewer turn.
+description: Functional check of a story's plan against its change. Rejects when the plan has no "## Touches" section listing at least one path, and rejects when the item's changed paths include one the section does not name, reading the item's target repository when it targets one. Deterministic, zero LLM tokens; the transitions it guards are listed by `satelle workflow show delivery --session <session>`.
 ---
 
 # Plan touches check
 
 The story is `$SATELLE_ITEM`; its plan is read with `satelle story attachment <id> plan --session <session>`.
 
-1. **The section.** The move is rejected when the newest `plan` attachment has no `## Touches` section, or one that lists no `- <path>` line before the next heading. Whether the lines cover what the plan changes is plan-review's.
+1. **The section.** The move is rejected when the newest `plan` attachment has no `## Touches` section, or one that lists no `- <path>` line before the next heading. Whether the lines cover what the plan intends to change is the plan reviewer's judgement, not this check's.
 2. **The changed paths.** The item's changed paths are compared with the section's entries. A changed path is in scope when it equals an entry, matches it as a shell glob, or lies under an entry that ends with `/`. An entry is the first word of its `- ` line, with backticks removed. The move is rejected naming every changed path no entry covers; the fix is a re-plan that names the path, not a wider diff.
 
-The changed paths are those `satelle help workflows --session <session>` defines for a check: the item's change since `$SATELLE_BASE`. For an item that targets a registered repository they are read in the checkout `$SATELLE_WORKTREE` names; for a self item, in the working directory. On plan → in_progress the tree-unchanged gate has already refused any change, so step 2 finds none there and the check judges only step 1. Step 2 bites on in_progress → integration, where the code exists, so every delivery story's code, self or target, stays within its plan's `## Touches`.
+The changed paths are those `satelle help workflows --session <session>` defines for a check: the item's change since `$SATELLE_BASE`. For an item that targets a registered repository they are read in the checkout `$SATELLE_WORKTREE` names; for a self item, in the working directory. When the item has no changed paths yet, step 2 finds nothing to compare and the check judges step 1 alone. Once the item's code exists, step 2 holds that code, self or target, within its plan's `## Touches`.
 
 A changed path that is a submodule is read as the gitlink alone; the submodule's own work tree is not inspected.
 
