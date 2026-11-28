@@ -70,6 +70,25 @@ var machineSettings = []machineSetting{
 			return g.Herdr.Home, eff
 		},
 		func(g *config.GlobalConfig, v string) error { g.Herdr.Home = v; return nil }},
+	{"capacity.workers", "the most agent workers this machine runs; empty is no ceiling",
+		func(g config.GlobalConfig) (string, string) {
+			if n, ok := g.Capacity.Ceiling(); ok {
+				return strconv.Itoa(n), ""
+			}
+			return "", ""
+		},
+		func(g *config.GlobalConfig, v string) error {
+			if v == "" {
+				g.Capacity.Workers = 0
+				return nil
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("workers %q is not a whole number of 1 or more", v)
+			}
+			g.Capacity.Workers = n
+			return nil
+		}},
 }
 
 func findSetting(key string) (machineSetting, error) {

@@ -5,7 +5,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,13 +51,13 @@ func boxReport() capacityReport {
 
 func fixedSample(t *testing.T) {
 	t.Helper()
-	old := takeSample
-	t.Cleanup(func() { takeSample = old })
-	takeSample = func(capacity.Known, func() ([]procgroup.Entry, error)) capacity.Sample {
-		return capacity.Sample{
-			Cores: 4, MemTotal: 8 << 30, MemAvailable: 3 << 30, Load: [3]float64{1, 2, 3},
-			Agents: map[string]int{"claude": 1, "grok": 0},
-			Errs:   map[string]error{capacity.FigLoad: errors.New("unavailable on plan9")},
+	old := readMachine
+	t.Cleanup(func() { readMachine = old })
+	readMachine = func(func() ([]procgroup.Entry, error)) capacity.Snapshot {
+		return capacity.Snapshot{
+			TakenAt: time.Now(), Cores: 4, MemTotal: 8 << 30, MemAvailable: 3 << 30, Load: [3]float64{1, 2, 3},
+			Procs: []capacity.Proc{{PID: 10, PPID: 1, Names: []string{"claude"}}},
+			Errs:  map[string]string{capacity.FigLoad: "unavailable on plan9"},
 		}
 	}
 }

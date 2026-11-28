@@ -1,10 +1,13 @@
 package capacity
 
 import (
+	"errors"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
@@ -12,6 +15,7 @@ import (
 type Known map[string]string
 
 type Sample struct {
+	TakenAt      time.Time
 	Cores        int
 	MemTotal     uint64
 	MemAvailable uint64
@@ -20,48 +24,110 @@ type Sample struct {
 	Errs         map[string]error
 }
 
+type Proc struct {
+	PID   int      `json:"pid"`
+	PPID  int      `json:"ppid"`
+	Names []string `json:"names,omitempty"`
+}
+
+type Snapshot struct {
+	TakenAt      time.Time         `json:"taken_at"`
+	Cores        int               `json:"cores"`
+	MemTotal     uint64            `json:"mem_total"`
+	MemAvailable uint64            `json:"mem_available"`
+	Load         [3]float64        `json:"load"`
+	Errs         map[string]string `json:"errs,omitempty"`
+	Procs        []Proc            `json:"procs,omitempty"`
+}
+
 const (
 	FigMemory = "memory"
 	FigLoad   = "load"
 	FigAgents = "agents"
 )
 
-func Take(known Known, table func() ([]procgroup.Entry, error)) Sample {
-	s := Sample{Cores: runtime.NumCPU(), Errs: map[string]error{}}
+func Read(table func() ([]procgroup.Entry, error)) Snapshot {
+	sn := Snapshot{TakenAt: time.Now(), Cores: runtime.NumCPU(), Errs: map[string]string{}}
 	var err error
-	if s.MemTotal, s.MemAvailable, err = readMemory(); err != nil {
-		s.Errs[FigMemory] = err
+	if sn.MemTotal, sn.MemAvailable, err = readMemory(); err != nil {
+		sn.Errs[FigMemory] = err.Error()
 	}
-	if s.Load, err = readLoad(); err != nil {
-		s.Errs[FigLoad] = err
+	if sn.Load, err = readLoad(); err != nil {
+		sn.Errs[FigLoad] = err.Error()
 	}
 	tab, err := table()
 	if err != nil {
-		s.Errs[FigAgents] = err
+		sn.Errs[FigAgents] = err.Error()
 	}
-	s.Agents = CountAgents(tab, known)
+	for _, e := range tab {
+		if names := candidates(e.Argv, e.Comm); len(names) > 0 {
+			sn.Procs = append(sn.Procs, Proc{PID: e.PID, PPID: e.PPID, Names: names})
+		}
+	}
+	return sn
+}
+
+func (sn Snapshot) Sample(known Known) Sample {
+	s := Sample{
+		TakenAt:      sn.TakenAt,
+		Cores:        sn.Cores,
+		MemTotal:     sn.MemTotal,
+		MemAvailable: sn.MemAvailable,
+		Load:         sn.Load,
+		Agents:       CountAgents(sn.Procs, known),
+		Errs:         map[string]error{},
+	}
+	for fig, msg := range sn.Errs {
+		s.Errs[fig] = errors.New(msg)
+	}
 	return s
 }
 
 var interpreters = map[string]bool{"node": true, "bun": true, "deno": true, "python": true, "python3": true}
 
+const maxName = 64
+
 func base(p string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(p)), ".exe")
 }
 
-func label(e procgroup.Entry, known Known) (string, bool) {
-	var cands []string
-	if len(e.Argv) > 0 {
-		b := base(e.Argv[0])
-		cands = append(cands, b)
-		if interpreters[b] && len(e.Argv) > 1 {
-			cands = append(cands, base(e.Argv[1]))
+func isName(s string) bool {
+	if s == "" || len(s) > maxName || s[0] == '-' {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '+', c == '-':
+		default:
+			return false
 		}
 	}
-	if e.Comm != "" {
-		cands = append(cands, base(e.Comm))
+	return true
+}
+
+func candidates(argv []string, comm string) []string {
+	var raw []string
+	if len(argv) > 0 {
+		b := base(argv[0])
+		raw = append(raw, b)
+		if interpreters[b] && len(argv) > 1 && !strings.HasPrefix(argv[1], "-") {
+			raw = append(raw, base(argv[1]))
+		}
 	}
-	for _, c := range cands {
+	if comm != "" {
+		raw = append(raw, base(comm))
+	}
+	var out []string
+	for _, c := range raw {
+		if isName(c) && !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func label(p Proc, known Known) (string, bool) {
+	for _, c := range p.Names {
 		if l, ok := known[c]; ok {
 			return l, true
 		}
@@ -69,23 +135,23 @@ func label(e procgroup.Entry, known Known) (string, bool) {
 	return "", false
 }
 
-func CountAgents(tab []procgroup.Entry, known Known) map[string]int {
+func CountAgents(procs []Proc, known Known) map[string]int {
 	out := map[string]int{}
 	for _, l := range known {
 		out[l] = 0
 	}
 	labels := map[int]string{}
-	for _, e := range tab {
-		if l, ok := label(e, known); ok {
-			labels[e.PID] = l
+	for _, p := range procs {
+		if l, ok := label(p, known); ok {
+			labels[p.PID] = l
 		}
 	}
-	for _, e := range tab {
-		l, ok := labels[e.PID]
+	for _, p := range procs {
+		l, ok := labels[p.PID]
 		if !ok {
 			continue
 		}
-		if pl, ok := labels[e.PPID]; ok && pl == l {
+		if pl, ok := labels[p.PPID]; ok && pl == l {
 			continue
 		}
 		out[l]++
