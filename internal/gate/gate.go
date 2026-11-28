@@ -148,6 +148,7 @@ type Run struct {
 	Review       workflow.Review
 	CheckTimeout time.Duration
 	Record       string
+	RuleFiles    string
 	Remote       RemoteChecker
 	Head         Head
 	HeadErr      error
@@ -802,6 +803,7 @@ func (r Run) promptRest(name string, g workflow.Gate) (string, error) {
 		}
 	}
 	b.WriteString(r.Record)
+	b.WriteString(r.RuleFiles)
 	b.WriteString("\nAnswer with your judgement, ending with one JSON object: {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}\n")
 	return b.String(), nil
 }

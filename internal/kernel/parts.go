@@ -28,6 +28,7 @@ type Part struct {
 	Rules     workflow.Rules
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
+	RuleFiles RuleFiles
 	Problems  []error
 }
 
@@ -243,6 +244,7 @@ func (c *Config) loadPart(dir, x string) {
 		return
 	}
 	c.loadPartSkills(p, partDir)
+	c.loadPartRuleFiles(p, partDir)
 	rules, err := loadPartRules(partDir, rel)
 	if err != nil {
 		p.Problems = append(p.Problems, err)

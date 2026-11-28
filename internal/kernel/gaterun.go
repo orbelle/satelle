@@ -80,8 +80,14 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		if err != nil {
 			return gate.Run{}, sp, done, err
 		}
+		sec, err := k.ruleSection(it)
+		if err != nil {
+			rec.Close()
+			return gate.Run{}, sp, done, err
+		}
 		done = func() { rec.Close() }
 		run.Record = rec.Section
+		run.RuleFiles = sec
 	}
 	return run, sp, done, nil
 }

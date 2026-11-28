@@ -20,6 +20,16 @@ func skillSource(parts map[string]map[string]workflow.Skill, target string) stri
 	return ""
 }
 
+func partSource(skills map[string]map[string]workflow.Skill, rules map[string]RuleFiles, target string) string {
+	if src := skillSource(skills, target); src != "" {
+		return src
+	}
+	if target != reporeg.Self && rules[target].own() {
+		return target
+	}
+	return ""
+}
+
 func skillsFor(shared map[string]workflow.Skill, parts map[string]map[string]workflow.Skill, target string) map[string]workflow.Skill {
 	src := skillSource(parts, target)
 	if src == "" {

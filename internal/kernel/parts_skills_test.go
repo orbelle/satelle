@@ -124,3 +124,16 @@ func TestPartWorkflowNamesPartOnlySkill(t *testing.T) {
 		t.Error("open accepted a shared workflow naming a part-only skill")
 	}
 }
+
+func TestPartSource(t *testing.T) {
+	skills := map[string]map[string]workflow.Skill{"s": {"rev": {Name: "rev"}}, "y": {}}
+	rules := map[string]RuleFiles{"r": {Constitution: "repos/r/constitution.md"}, "y": {}}
+	for target, want := range map[string]string{"r": "r", "s": "s", "self": "", "y": "", "unknown": ""} {
+		if got := partSource(skills, rules, target); got != want {
+			t.Errorf("partSource(%s) = %q, want %q", target, got, want)
+		}
+	}
+	if got := partSource(skills, map[string]RuleFiles{"self": {Constitution: "c"}}, "self"); got != "" {
+		t.Errorf("partSource(self) with self rules = %q", got)
+	}
+}
