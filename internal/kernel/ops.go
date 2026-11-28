@@ -726,7 +726,11 @@ func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecor
 }
 
 func (k *Kernel) selectInputs(sel item.Selection) ([]item.Item, error) {
-	return k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
+	all, err := k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(it item.Item) bool { return !sel.Matches(it) }), nil
 }
 
 func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunRecord, actor string) (item.Item, TaskRunRecord, error) {

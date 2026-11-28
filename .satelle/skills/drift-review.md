@@ -286,17 +286,7 @@ nothing to record: present again once. If the same reject comes back, stop and
 report it to the operator as a structural gap. Never present the run any
 other way, and never change the code or substrate a gate judged.
 
-## 6. Release the seat
-
-This acts on the run step 5 just presented done: the newest finished run of
-the task, by creation time (`execution list` lists oldest first).
-
-```sh
-session=<session>
-task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
-satelle execution release "$exe" --session "$session"
-```
+The move to done releases the run's seat.
 
 ## Owning a drift finding
 

@@ -51,13 +51,15 @@ type Selection struct {
 	Status   string `json:"status,omitempty" toml:"status"`
 	Tag      string `json:"tag,omitempty" toml:"tag"`
 	Category string `json:"category,omitempty" toml:"category"`
+	Repo     string `json:"repo,omitempty" toml:"repo"`
 }
 
 func (s Selection) Matches(it Item) bool {
 	return (s.Kind == "" || s.Kind == it.Kind) &&
 		(s.Status == "" || s.Status == it.Status) &&
 		(s.Category == "" || s.Category == it.Category) &&
-		(s.Tag == "" || slices.Contains(it.Tags, s.Tag))
+		(s.Tag == "" || slices.Contains(it.Tags, s.Tag)) &&
+		(s.Repo == "" || s.Repo == it.Target())
 }
 
 type Item struct {

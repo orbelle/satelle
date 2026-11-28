@@ -9,6 +9,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 )
 
 func triggerText(t item.Trigger) string {
@@ -129,6 +130,9 @@ func printQueueOutcome(w io.Writer, o kernel.QueueOutcome) {
 	}
 	for _, id := range o.Already {
 		fmt.Fprintf(w, "%s is already in %s\n", id, q)
+	}
+	for _, id := range o.Outside {
+		fmt.Fprintf(w, "%s targets another repository than %s's repo %s; not queued\n", id, q, reporeg.Literal(o.Repo))
 	}
 	if o.Fire != nil {
 		printFire(w, *o.Fire)

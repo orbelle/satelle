@@ -579,7 +579,7 @@ func (c *Config) queueProblems() []error {
 	bound := map[string]string{}
 	for _, name := range sortedKeys(c.Queues) {
 		q := c.Queues[name]
-		errs = append(errs, q.Validate(wf)...)
+		errs = append(errs, q.Validate(wf, c.Repos.Targets())...)
 		id := q.ChainID(c.Settings.Prefix(item.QueueKind))
 		if other, dup := bound[id]; dup {
 			errs = append(errs, fmt.Errorf("%s: binds queue %s, which %s also binds", q.File, id, c.Queues[other].File))
