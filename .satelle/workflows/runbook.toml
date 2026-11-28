@@ -17,7 +17,7 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-panel = ["reviewer-gpt-oss-120b-medium"]
+panel = ["reviewer-gemini-4-hydrogen-medium"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-accept-quoted"]
 

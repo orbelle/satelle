@@ -409,3 +409,16 @@ are reviewed*).
   the procedure (operator, 2026-11-28, sto_28f13c51; after sto_b592fad9,
   sto_fe08d97e and sto_acd247f2 each stopped at landing because main had
   moved).
+- **Judges are Gemini models, on agy first, with Cursor as the switch.** "agy
+  only supports gemini; if that is rate-limited, then cursor is the switch."
+  "(hard) prefer gemini models over GPT models, that has been proven." "(hard)
+  prefer gemini 4 models"; "first pull back is to use hydrogen 4 high, on
+  cursor". Judges are Gemini 4 models, or grok where a panel names it, and no
+  GPT model is bound as a judge: each Gemini judge runs on agy, and when agy
+  cannot answer its fallback is the high-effort Hydrogen Gemini 4 model on
+  cursor-agent, the one binding `.satelle/agents.toml` names as every agy
+  judge's fallback. The
+  judges in force are in `.satelle/agents.toml` and the panels of
+  `.satelle/workflows/` (operator, 2026-11-28, sto_ab59bb21; it reverses
+  sto_0b547f5f's move of risk-assess, binary-scope and validate-after to a
+  GPT model).
