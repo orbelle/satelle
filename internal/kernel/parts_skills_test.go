@@ -14,9 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// mapCheckouts gives each named registered repo a checkout whose origin is
-// https://github.com/o/<name> and maps it in repos.local.toml, so a gated
-// move of an item targeting it is judged rather than refused as unmapped.
 func mapCheckouts(t *testing.T, root string, names ...string) {
 	t.Helper()
 	var b strings.Builder
