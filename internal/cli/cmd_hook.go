@@ -169,15 +169,11 @@ func judgeHook(g hook.Gate, in hook.Input) hook.Verdict {
 	if cwd == "" {
 		cwd = g.Root
 	}
-	cwd = canonicalPath(cwd)
+	cwd = hook.CanonicalPath(cwd)
 	if in.IsShell() {
 		return g.Bash(in.Command, cwd)
 	}
-	p := in.Path
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(cwd, p)
-	}
-	return g.Edit(canonicalPath(p))
+	return g.Edit(hook.JoinLiteral(cwd, in.Path))
 }
 
 func writeVerdict(cmd *cobra.Command, harness string, v hook.Verdict) error {
@@ -409,22 +405,6 @@ func pushVerdictUnconfigured(r repo, session, branch string) hook.Verdict {
 	return pushVerdict(session, branch, ch.Item,
 		func() ([]item.Seat, error) { return ch.Seats(session, "") },
 		func(it item.Item) (string, error) { return workflow.StateEditScope(dir, it.Workflow, it.Status) })
-}
-
-func canonicalPath(p string) string {
-	p = filepath.Clean(p)
-	rest := ""
-	for dir := p; ; {
-		if r, err := filepath.EvalSymlinks(dir); err == nil {
-			return filepath.Join(r, rest)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return p
-		}
-		rest = filepath.Join(filepath.Base(dir), rest)
-		dir = parent
-	}
 }
 
 func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
