@@ -245,8 +245,8 @@ func TestGateGitDirQuoted(t *testing.T) {
 	}
 	cmd = "cd " + filepath.ToSlash(foreign) + " && python3 -c 'print(1)' && git merge x"
 	v = seated.Bash(cmd, root)
-	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
-		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
+	if v.Allow || !strings.Contains(v.Reason, "cd rule") {
+		t.Errorf("%q: allow %v reason %q, want refused under the cd rule", cmd, v.Allow, v.Reason)
 	}
 }
 
@@ -802,20 +802,21 @@ func TestGateGitAfterCd(t *testing.T) {
 		"cd <rel> && git merge x",
 		"cd <wt> && git -C sub merge x",
 		"cd <wt> && git -Csub merge x",
-		"git -C<wt> merge x",
 		"cd <wt> && ls && git merge x",
 		"'cd' <wt> && 'git' merge x",
 		"cd <wt> && /usr/bin/git merge x",
+		"cd <root> && git merge x",
+		"cd sub && git commit -m x",
+		"cd <root>; git reset --hard",
 	} {
 		cmd := f.expand(c)
-		v := g.Bash(cmd, f.root)
-		if v.Allow {
-			t.Errorf("%q: allowed, want refused naming the worktree", cmd)
-			continue
+		if v := g.Bash(cmd, f.root); v.Allow || !strings.Contains(v.Reason, "cd rule") {
+			t.Errorf("%q: allow %v (%s), want refused under the cd rule", cmd, v.Allow, v.Reason)
 		}
-		if !within(f.wt, v.Path) || !strings.Contains(v.Reason, "local:"+f.wt) {
-			t.Errorf("%q: refused at %q (%s), want a path under %s naming local:%s", cmd, v.Path, v.Reason, f.wt, f.wt)
-		}
+	}
+	cmd := f.expand("git -C<wt> merge x")
+	if v := g.Bash(cmd, f.root); v.Allow || !within(f.wt, v.Path) || !strings.Contains(v.Reason, "local:"+f.wt) {
+		t.Errorf("%q: %+v, want refused at a path under %s naming local:%s", cmd, v, f.wt, f.wt)
 	}
 
 	done := Gate{Root: f.root, TempRoots: []string{}, Grant: func(tree string) Grant {
@@ -824,7 +825,7 @@ func TestGateGitAfterCd(t *testing.T) {
 		}
 		return Grant{Tree: tree == f.root}
 	}}
-	cmd := f.expand("cd <wt> && git merge x")
+	cmd = f.expand("git -C <wt> merge x")
 	if v := done.Bash(cmd, f.root); v.Allow || !v.AttachOnly || !strings.Contains(v.Reason, "local:"+f.wt) || !strings.Contains(v.Reason, "sto_112075bb") {
 		t.Errorf("%q at a done item's worktree: %+v, want refused naming local:%s and sto_112075bb", cmd, v, f.wt)
 	}
@@ -853,9 +854,6 @@ func TestGateGitAfterCd(t *testing.T) {
 		"git add . && git commit -m 'fix: x'",
 		`git commit -m "it's fixed (scope)"`,
 		"git -C <root> commit -m x",
-		"cd <root> && git merge x",
-		"cd sub && git commit -m x",
-		"cd <root>; git reset --hard",
 		"git merge x | tail -5",
 		"git reset --hard HEAD~1",
 		"git commit -m 'line one\nline two'",

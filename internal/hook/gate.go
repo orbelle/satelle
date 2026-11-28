@@ -50,6 +50,11 @@ var allow = Verdict{Allow: true}
 const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
 	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
+const CdWriteDenied = "satelle: refused under the edit gate's cd rule: this line holds cd, pushd or popd together with a write " +
+	"(a redirect, a path a command writes, a -C directory, an inline program, or a git command that is not read-only), " +
+	"and the gate does not follow a change of directory for writes. Use an absolute path or git -C <dir> instead. " +
+	"See `satelle help edit-gate --session <session>`."
+
 func unreadReason(what string) string {
 	return "satelle: refused under the edit gate's fail-closed rule: the gate reads a shell line only when every token is a plain literal word or one of &&, ||, ; and |, " +
 		"with git as a command word after an optional cd to one literal path; this line holds " + what + " and names git, " +
@@ -116,6 +121,9 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	}
 	if t.Unreadable != "" {
 		return Verdict{Reason: unreadReason(t.Unreadable)}
+	}
+	if t.CdWrite {
+		return Verdict{Reason: CdWriteDenied}
 	}
 	for _, p := range t.Raw {
 		if v := g.judgePath(native(p), false); !v.Allow {

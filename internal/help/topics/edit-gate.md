@@ -123,9 +123,13 @@ kernel resolves them, `..` after a link included and a dangling link to the
 path it would create, and a refusal names the path the link resolves to. A file
 tool's path is taken literally, with no shell expansion.
 
-A git command that is not read-only, run after a `cd` to one literal path on
-the same line, is judged at every directory the line could be in; `-C` values,
-a glued `-C<dir>` included, are followed in order. The gate reads a line only
+The gate does not follow `cd`, `pushd` or `popd` for writes. A line that holds
+one of them as a word, quoted or not, together with any write target (a
+redirect, a path a command writes, a `-C` directory, an inline program, or a
+git command that is not read-only) is refused under the cd rule: use an
+absolute path or `git -C <dir>`. A line with cd and no write target
+(`cd x && ls`, `cd x && git status`) is judged as before. `-C` values, a glued
+`-C<dir>` included, are followed in order. The gate reads a line only
 when every token is a plain literal word (letters, digits, `-_./,:+@^=%`, plain
 single quotes, or double quotes without `$`, a backquote or `!`) or one of
 `&&`, `||`, `;`, `|`. A segment's command may not be an assignment, or a

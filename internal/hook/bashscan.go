@@ -6,7 +6,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -18,6 +17,7 @@ type BashTargets struct {
 	Raw            []string
 	InlineRaw      []string
 	OperatorRecord bool
+	CdWrite        bool
 	Unreadable     string
 	Pushes         []PushDest
 }
@@ -41,18 +41,19 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 		put(raw, p)
 	}
 	base := path.Clean(filepath.ToSlash(cwd))
-	for _, logical := range []bool{true, false} {
-		scanBash(command, base, root, isFile, logical, 0, func(p string) { add(&t.Paths, &t.Raw, p) }, func(p string) { add(&t.Inline, &t.InlineRaw, p) })
-	}
+	var st scanState
+	scanBash(command, base, root, isFile, &st, 0, func(p string) { add(&t.Paths, &t.Raw, p) }, func(p string) { add(&t.Inline, &t.InlineRaw, p) })
 	t.OperatorRecord = operatorRecordCommand(command, 0)
 	segs, why := readPlainLine(command)
+	gitWrites := false
 	if why == "" {
 		var dirs []string
-		dirs, why = plainGitDirs(segs, base)
+		dirs, gitWrites = plainGitDirs(segs, base)
 		for _, d := range dirs {
 			add(&t.Paths, &t.Raw, d)
 		}
 	}
+	t.CdWrite = st.cd && (len(t.Paths) > 0 || len(t.Inline) > 0 || st.gitWrite || gitWrites)
 	if why != "" && namesGit(command) {
 		t.Unreadable = why
 	}
@@ -62,9 +63,14 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	return t
 }
 
-func scanBash(command, cwd, root string, isFile func(string) bool, logical bool, depth int, path, inline func(string)) {
+type scanState struct {
+	cd, gitWrite bool
+}
+
+func scanBash(command, cwd, root string, isFile func(string) bool, st *scanState, depth int, path, inline func(string)) {
+	st.cd = st.cd || holdsCdWord(command)
 	var segs []bashSegment
-	forEachSegment(command, cwd, logical, func(s bashSegment) { segs = append(segs, s) })
+	forEachSegment(command, cwd, func(s bashSegment) { segs = append(segs, s) })
 	for j, sg := range segs {
 		for _, r := range redirectTargets(sg.Tokens, sg.Cwd) {
 			path(r)
@@ -75,8 +81,14 @@ func scanBash(command, cwd, root string, isFile func(string) bool, logical bool,
 		}
 		if depth < maxShellProgramDepth {
 			if prog, ok := shellProgram(sg); ok {
-				scanBash(prog, sg.Cwd, root, isFile, logical, depth+1, path, inline)
+				scanBash(prog, sg.Cwd, root, isFile, st, depth+1, path, inline)
 				continue
+			}
+		}
+		if !st.gitWrite {
+			args := commandArgWords(commandTokens(sg.Tokens, sg.Idx))
+			if _, _, ok := gitInvocation(args); ok && !gitReadOnlyInvocation(args) {
+				st.gitWrite = true
 			}
 		}
 		cmd := filepath.Base(words[0])
@@ -284,50 +296,42 @@ func plainCommand(words []plainWord) string {
 	return ""
 }
 
-const maxPlainDirs = 64
-
-func plainGitDirs(segs []plainSegment, base string) ([]string, string) {
-	cands := []string{base}
+func plainGitDirs(segs []plainSegment, base string) ([]string, bool) {
 	var dirs []string
+	writes := false
 	for _, s := range segs {
 		values := make([]string, len(s.Words))
 		for i, w := range s.Words {
 			values[i] = w.Value
 		}
-		if values[0] == "cd" {
-			for _, c := range slices.Clone(cands) {
-				raw := JoinRaw(c, values[1])
-				if raw == "" {
-					continue
-				}
-				for _, d := range []string{path.Clean(raw), raw} {
-					if !slices.Contains(cands, d) {
-						cands = append(cands, d)
-					}
-				}
-			}
-			if len(cands) > maxPlainDirs {
-				return nil, fmt.Sprintf("more than %d directories", maxPlainDirs)
-			}
-			continue
-		}
 		_, gitDirs, ok := gitInvocation(values)
 		if !ok || gitReadOnlyInvocation(values) {
 			continue
 		}
-		for _, c := range cands {
-			d, moved := c, false
-			for _, g := range gitDirs {
-				if g != "" {
-					d, moved = JoinRaw(d, g), true
-				}
+		writes = true
+		d, moved := base, false
+		for _, g := range gitDirs {
+			if g != "" {
+				d, moved = JoinRaw(d, g), true
 			}
-			if moved || c != base {
-				dirs = append(dirs, d)
+		}
+		if moved {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs, writes
+}
+
+func holdsCdWord(command string) bool {
+	for _, seg := range splitSegments(tokenizeBash(command)) {
+		for _, w := range shellArgWords(seg.Toks) {
+			switch strings.TrimRight(commandName(w), ")") {
+			case "cd", "pushd", "popd":
+				return true
 			}
 		}
 	}
-	return dirs, ""
+	return false
 }
 
 func namesGit(command string) bool {
@@ -768,8 +772,7 @@ type bashSegment struct {
 	Piped  bool
 }
 
-func forEachSegment(command, base string, logical bool, fn func(s bashSegment)) {
-	cwd := base
+func forEachSegment(command, cwd string, fn func(s bashSegment)) {
 	for _, ps := range splitSegments(tokenizeBash(command)) {
 		seg := ps.Toks
 		all := wordsOnly(seg)
@@ -779,38 +782,7 @@ func forEachSegment(command, base string, logical bool, fn func(s bashSegment)) 
 		idx := leadingAssignments(all)
 		words := all[idx:]
 		fn(bashSegment{Tokens: seg, Words: words, Idx: idx, Cwd: cwd, Piped: ps.Piped})
-		if len(words) > 0 && filepath.Base(words[0]) == "cd" {
-			cwd = cdDir(cwd, words[1:], logical)
-		}
 	}
-}
-
-func cdDir(cwd string, args []string, logical bool) string {
-	physical := false
-	for len(args) > 0 && len(args[0]) > 1 && strings.HasPrefix(args[0], "-") {
-		if args[0] == "--" {
-			args = args[1:]
-			break
-		}
-		if strings.Trim(args[0][1:], "LPe@") != "" {
-			break
-		}
-		if i := strings.LastIndexAny(args[0], "LP"); i > 0 {
-			physical = args[0][i] == 'P'
-		}
-		args = args[1:]
-	}
-	if len(args) == 0 {
-		return cwd
-	}
-	d := JoinRaw(cwd, args[0])
-	switch {
-	case d == "" || !logical:
-		return d
-	case physical:
-		return filepath.ToSlash(CanonicalPath(native(d)))
-	}
-	return path.Clean(d)
 }
 
 func leadingAssignments(words []string) int {

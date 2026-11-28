@@ -101,10 +101,10 @@ func TestEditGateSeatedTarget(t *testing.T) {
 			"cp main.go " + a + "/f",
 			"mv " + a + "/f " + a + "/g",
 			"git -C " + a + " commit -m x",
-			"cd " + a + " && git add f",
 		} {
 			expect(t, g.Bash(cmd, root), true)
 		}
+		expect(t, g.Bash("cd "+a+" && git add f", root), false, "cd rule")
 		for _, cmd := range []string{
 			"echo x > " + b + "/f",
 			"cp main.go " + b + "/f",
@@ -159,39 +159,18 @@ func TestEditGateSeatedTarget(t *testing.T) {
 		for _, r := range []struct{ cmd, lands string }{
 			{"echo x > " + a + "/toroot/f", filepath.Join(root, "f")},
 			{"echo x >> " + a + "/mainlink", filepath.Join(root, "main.go")},
+			{"touch " + a + "/mainlink", filepath.Join(root, "main.go")},
 			{"cp main.go " + a + "/toroot/f", filepath.Join(root, "f")},
 			{"cp main.go " + a + "/tob/f", filepath.Join(b, "f")},
 			{"touch " + a + "/dangling", filepath.Join(root, "new.go")},
 			{"echo x > " + a + "/dangling", filepath.Join(root, "new.go")},
-			{"cd " + a + "/toroot && touch f", filepath.Join(root, "f")},
 			{"touch " + a + "/dirlink/dl", root + string(filepath.Separator)},
 			{"echo x > " + a + "/sublink/../main.go", filepath.Join(root, "main.go")},
-			{"cd " + a + "/sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
 			{"git -C " + a + "/sublink -C .. commit -m x", root},
 			{"echo x > " + a + "/missing/../mainlink", filepath.Join(root, "main.go")},
 			{"mkdir -p " + a + "/missing/../sublink/d", filepath.Join(root, "sub", "d")},
 		} {
 			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, root), false, note, r.lands) })
-		}
-		for _, r := range []struct{ cmd, lands string }{
-			{"cd missing ; cd ../sublink ; cd sublink && git commit -m x", root},
-			{"cd deep ; cd ../sublink ; cd sublink && git commit -m x", root},
-			{"cd deep ; cd ../sublink && git commit -m x", filepath.Join(root, "sub")},
-			{"cd deep/../sublink && echo x > f", filepath.Join(root, "sub", "f")},
-			{"cd deep && cd .. && echo x > mainlink", filepath.Join(root, "main.go")},
-			{"cd deep && cd ../sublink && echo x > f", filepath.Join(root, "sub", "f")},
-			{"cd deep && cd ../sublink && echo x > ../main.go", filepath.Join(root, "main.go")},
-			{"cd deep && cd ../sublink && git -C .. commit -m x", root},
-			{"cd -P deep && cd ../../sublink && touch f", filepath.Join(root, "sub", "f")},
-		} {
-			t.Run(r.cmd, func(t *testing.T) { expect(t, g.Bash(r.cmd, a), false, note, r.lands) })
-		}
-		for _, cmd := range []string{
-			"cd deep ; cd ../sub && touch g",
-			"cd inner && touch h",
-			"cd -P deep && cd .. && touch g",
-		} {
-			expect(t, g.Bash(cmd, a), true)
 		}
 		ga := g
 		ga.Root = a
@@ -212,13 +191,67 @@ func TestEditGateSeatedTarget(t *testing.T) {
 			"echo x > " + a + "/inner/f",
 			"cp main.go " + a + "/inner/f",
 			"touch " + a + "/rel/g",
-			"cd " + a + "/inner && touch h",
 			"echo x > " + a + "/inner/../y",
 			"rm " + a + "/rel",
+			"mkdir -p " + a + "/inner/d",
 		} {
 			expect(t, g.Bash(cmd, root), true)
 		}
 		expect(t, g.Edit(filepath.Join(a, "inner", "f")), true)
+	})
+
+	t.Run("AC8 a line with cd and a write is refused", func(t *testing.T) {
+		self, targets = Grant{}, []Target{treeA}
+		links(t)
+		for _, cmd := range []string{
+			"cd x && touch f",
+			"'cd' x ; echo y > f",
+			"pushd x && cp a b",
+			"cd x && git commit -m y",
+			"cd x && python3 -c 'print(1)'",
+			`"cd" x && touch f`,
+			"c'd' x && touch f",
+			"(cd inner && touch h)",
+			"popd ; touch f",
+			"! cd x && touch f",
+			"cd inner && touch h",
+			"bash -c 'cd x && rm f'",
+			"cd x ; git commit -m y",
+			"cd x || git commit -m y",
+			"ls || cd x && git commit -m y",
+			"cd x && git push origin HEAD:b",
+			"cd x && 'git' 'commit' -m y",
+			"cd x && git -C sub commit -m y",
+			"cd x && make -C sub all",
+			"cd x && echo y >> log",
+			"cd toroot && touch f",
+			"cd sublink && echo x > ../main.go",
+			"cd missing ; cd ../sublink ; cd sublink && git commit -m x",
+			"cd deep ; cd ../sublink && git commit -m x",
+			"cd deep/../sublink && echo x > f",
+			"cd deep && cd .. && echo x > mainlink",
+			"cd deep && cd ../sublink && git -C .. commit -m x",
+			"cd -P deep && cd ../../sublink && touch f",
+			"cd deep ; cd ../sub && touch g",
+			"cd -P deep && cd .. && touch g",
+		} {
+			t.Run(cmd, func(t *testing.T) {
+				v := g.Bash(cmd, a)
+				expect(t, v, false, "cd rule", "Use an absolute path or git -C")
+				if strings.Contains(v.Reason, cmd) {
+					t.Errorf("reason quotes the line: %s", v.Reason)
+				}
+			})
+		}
+		for _, cmd := range []string{
+			"cd x && ls",
+			"cd x && git status",
+			"cd x && git log --oneline -1",
+			"cd x && go test ./...",
+		} {
+			expect(t, g.Bash(cmd, a), true)
+		}
+		expect(t, g.Bash("cd $D && git push origin HEAD:b", a), false, "fail-closed rule")
 	})
 
 	t.Run("AC8 commands on the link entry keep today's refusals", func(t *testing.T) {
