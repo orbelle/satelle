@@ -104,6 +104,7 @@ message Item {
   repeated string assignees = 13;
   // working is the users of assignees holding a live seat, in that order.
   repeated string working = 14;
+  string repo = 15;
 }
 message PutItemsRequest {
   string project = 1;

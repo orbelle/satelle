@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
@@ -532,4 +533,16 @@ func TestSyncAStoreRefusedItemStillSyncsTheRest(t *testing.T) {
 			t.Fatalf("sync: %v", err)
 		}
 	})
+}
+
+func TestSummaryCarriesRepo(t *testing.T) {
+	for _, c := range []struct{ repo, want string }{{"web", "web"}, {"", ""}} {
+		s, err := Summary(item.Item{ID: "x", Repo: c.repo}, "h", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.GetRepo() != c.want {
+			t.Errorf("Summary of repo %q sends %q, want %q", c.repo, s.GetRepo(), c.want)
+		}
+	}
 }

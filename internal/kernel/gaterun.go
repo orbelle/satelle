@@ -223,6 +223,9 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 	if !ok {
 		return out, fmt.Errorf("no workflow %q; configured: %s", req.Workflow, strings.Join(sortedKeys(k.Workflows), ", "))
 	}
+	if err := k.Resolver().Serves(w, it); err != nil {
+		return out, err
+	}
 	if _, ok := w.Gates[req.Gate]; !ok {
 		return out, fmt.Errorf("workflow %s has no gate %q; configured: %s", w.Name, req.Gate, strings.Join(sortedKeys(w.Gates), ", "))
 	}
