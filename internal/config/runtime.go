@@ -198,6 +198,32 @@ func GitLookupEnv(environ, withhold []string) []string {
 	return out
 }
 
+func WithheldNames(environ []string) []string {
+	v := ""
+	for _, kv := range environ {
+		if k, val, ok := strings.Cut(kv, "="); ok && k == NodeWithholdEnv {
+			v = val
+		}
+	}
+	var out []string
+	for _, n := range strings.Split(strings.TrimSpace(v), ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func TargetGitEnv(environ []string) []string {
+	out := []string{}
+	for _, kv := range GitLookupEnv(environ, WithheldNames(environ)) {
+		if name, _, _ := strings.Cut(kv, "="); !strings.HasPrefix(name, "GIT_") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0")
+}
+
 func credentialName(name string) bool {
 	u := strings.ToUpper(name)
 	return strings.Contains(u, "TOKEN") || strings.Contains(u, "SECRET") || strings.Contains(u, "PASSWORD")

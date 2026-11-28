@@ -21,9 +21,9 @@ func (k *Kernel) base(it item.Item, events []ledger.Event) (commit, ref string) 
 	return it.Base, ""
 }
 
-func (k *Kernel) judgedBase(it item.Item, events []ledger.Event) string {
+func (k *Kernel) judgedBase(git Git, it item.Item, events []ledger.Event) string {
 	recorded, ref := k.base(it, events)
-	g, ok := k.Git.(BranchGit)
+	g, ok := git.(BranchGit)
 	if recorded == "" || !ok {
 		return recorded
 	}
@@ -34,7 +34,7 @@ func (k *Kernel) judgedBase(it item.Item, events []ledger.Event) string {
 	if err != nil {
 		return recorded
 	}
-	head, err := k.Git.Head()
+	head, err := git.Head()
 	if err != nil {
 		return recorded
 	}
@@ -63,11 +63,11 @@ func (e *StaleBaseError) Error() string {
 }
 
 func (k *Kernel) staleBase(it item.Item, sp span) *StaleBaseError {
-	g, ok := k.Git.(BranchGit)
+	g, ok := sp.git.(BranchGit)
 	if !ok || sp.head != "" || sp.base == "" {
 		return nil
 	}
-	head, err := k.Git.Head()
+	head, err := sp.git.Head()
 	if err != nil {
 		return nil
 	}
@@ -86,6 +86,7 @@ type ItemDiff struct {
 	Paths      []string
 	Untracked  []string
 	Frozen     bool
+	git        Git
 }
 
 func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
@@ -94,6 +95,10 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 		return ItemDiff{}, nil, err
 	}
 	w, err := k.workflowOf(it)
+	if err != nil {
+		return ItemDiff{}, nil, err
+	}
+	wt, err := k.worktreeOf(it, events)
 	if err != nil {
 		return ItemDiff{}, nil, err
 	}
@@ -106,7 +111,7 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 			if m.Change == nil {
 				break
 			}
-			bg, ok := k.Git.(BranchGit)
+			bg, ok := wt.git.(BranchGit)
 			if !ok {
 				return ItemDiff{}, nil, fmt.Errorf("%s: its frozen diff needs a git work tree", id)
 			}
@@ -114,39 +119,39 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 			if err != nil {
 				return ItemDiff{}, nil, err
 			}
-			return ItemDiff{Base: m.Change.Base, Head: m.Change.Head, Paths: paths, Frozen: true}, nil, nil
+			return ItemDiff{Base: m.Change.Base, Head: m.Change.Head, Paths: paths, Frozen: true, git: wt.git}, nil, nil
 		}
 		if recorded, _ := k.base(it, events); recorded == "" {
 			return ItemDiff{}, nil, nil
 		}
 		return ItemDiff{}, nil, fmt.Errorf("%s reached %s before satelle recorded the change it reached it with; it has no frozen diff", id, it.Status)
 	}
-	sp := span{base: k.judgedBase(it, events)}
-	d := ItemDiff{Base: sp.base}
-	if d.Base == "" || k.Git == nil {
+	sp := span{base: k.judgedBase(wt.git, it, events), git: wt.git}
+	d := ItemDiff{Base: sp.base, git: wt.git}
+	if d.Base == "" || wt.git == nil {
 		return d, nil, nil
 	}
 	stale := k.staleBase(it, sp)
-	if d.Paths, err = k.Git.ChangedPaths(d.Base); err != nil {
+	if d.Paths, err = wt.git.ChangedPaths(d.Base); err != nil {
 		return ItemDiff{}, nil, err
 	}
-	if d.Untracked, err = k.Git.Untracked(); err != nil {
+	if d.Untracked, err = wt.git.Untracked(); err != nil {
 		return ItemDiff{}, nil, err
 	}
 	return d, stale, nil
 }
 
 func (k *Kernel) ItemStat(d ItemDiff) ([]gitfacts.FileStat, error) {
-	if k.Git == nil || d.Base == "" {
+	if d.git == nil || d.Base == "" {
 		return nil, nil
 	}
-	return k.stat(span{base: d.Base, head: d.Head})
+	return k.stat(span{base: d.Base, head: d.Head, git: d.git})
 }
 
 const defaultCollectBase = DefaultBaseBranch
 
-func (k *Kernel) resolveBase(ref string) (string, error) {
-	g, ok := k.Git.(BranchGit)
+func (k *Kernel) resolveBase(wt worktree, ref string) (string, error) {
+	g, ok := wt.git.(BranchGit)
 	if !ok {
 		return "", errors.New("--base needs a git work tree")
 	}
@@ -157,13 +162,13 @@ func (k *Kernel) resolveBase(ref string) (string, error) {
 	return commit, nil
 }
 
-func (k *Kernel) seatBase(ref string) (string, error) {
-	commit, err := k.resolveBase(ref)
+func (k *Kernel) seatBase(wt worktree, ref string) (string, error) {
+	commit, err := k.resolveBase(wt, ref)
 	if err != nil {
 		return "", err
 	}
-	g := k.Git.(BranchGit)
-	head, err := k.Git.Head()
+	g := wt.git.(BranchGit)
+	head, err := wt.git.Head()
 	if err != nil {
 		return "", err
 	}

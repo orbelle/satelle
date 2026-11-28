@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type CheckEnv struct {
 	Binding, Notes       string
 	SkillDir             string
 	Substrate            string
+	Worktree             string
 	Members              []CheckMember
 	Redact               func(string) string
 }
@@ -44,6 +46,9 @@ func (e CheckEnv) Payload() []byte {
 	}
 	if e.SkillDir != "" {
 		m["skill_dir"] = e.SkillDir
+	}
+	if e.Worktree != "" {
+		m["worktree"] = e.Worktree
 	}
 	if len(e.Members) > 0 {
 		m["members"] = e.Members
@@ -64,6 +69,9 @@ func (e CheckEnv) Vars() []string {
 	}
 	if e.Substrate != "" {
 		v = append(v, config.SubstrateDirEnv+"="+e.Substrate)
+	}
+	if e.Worktree != "" {
+		v = append(v, config.WorktreeEnv+"="+e.Worktree)
 	}
 	return v
 }
@@ -332,7 +340,8 @@ func RunCheckCode(ctx context.Context, script, dir string, env CheckEnv, timeout
 	}
 	cmd.Dir = dir
 	cmd.Stdin = bytes.NewReader(env.Payload())
-	cmd.Env = append(os.Environ(), env.Vars()...)
+	inherited := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, config.WorktreeEnv+"=") })
+	cmd.Env = append(inherited, env.Vars()...)
 	procgroup.Set(cmd)
 	cmd.Cancel = func() error { return procgroup.Kill(cmd) }
 	cmd.WaitDelay = 2 * time.Second

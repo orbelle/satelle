@@ -333,3 +333,14 @@ func TestRenderRoundTrips(t *testing.T) {
 		t.Errorf("round trip: %v %+v", err, reg)
 	}
 }
+
+func TestShellSafePath(t *testing.T) {
+	if !ShellSafePath("/tmp/a-b_c.d/e+f@g") {
+		t.Error("a safe path was refused")
+	}
+	for _, p := range []string{"", `/a"b`, "/a'b", "/a$b", "/a`b", `/a\b`, "/a b", "/a\tb", "/a;b", "/a&b", "/a|b", "/a<b", "/a>b", "/a*b", "/a?b", "/a\nb", "/a\x1bb", "/a‮b", "/aéb", "/a=b", "/a~b", "/a(b)"} {
+		if ShellSafePath(p) {
+			t.Errorf("ShellSafePath(%q) = true", p)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -44,6 +45,7 @@ type Kernel struct {
 	Queues        map[string]*workflow.Queue
 	Repos         reporeg.Registry
 	queueFiles    map[string]*workflow.Queue
+	targetEnv     []string
 	linkedTree    bool
 	Harness       map[string]HarnessSettings
 	Git           Git
@@ -126,6 +128,7 @@ func Open(o Options) (*Kernel, error) {
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness, Repos: cfg.Repos,
 		PartRules: cfg.PartRules(), Unresolved: cfg.Unresolved(), Parts: cfg.Parts, PartSkills: cfg.PartSkills(), Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
+	k.targetEnv = config.TargetGitEnv(os.Environ())
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {
 		k.Git = repo
