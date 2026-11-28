@@ -195,7 +195,7 @@ func TestOriginIsNotReadOutsideItsWriters(t *testing.T) {
 	gitRemote := map[string]bool{
 		"reporeg/reporeg.go":  true,
 		"cli/cmd_repo.go":     true,
-		"cli/doctor_repos.go": true,
+		"reporeg/checkout.go": true,
 	}
 	needles := []string{"OriginKey", ".Origin", "ledger.Origin", "EnvRole", "WorkerFromEnv", "WorkerEnv", `"origin"`}
 	root := ".."

@@ -21,6 +21,15 @@ func writeRepos(t *testing.T, dir string, names ...string) {
 	writeFile(t, filepath.Join(dir, ".satelle", reporeg.TrackedFile), b.String())
 }
 
+func mapRepos(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString("[repos." + n + "]\npath = \"" + checkoutWith(t, "https://github.com/o/"+n) + "\"\n")
+	}
+	writeFile(t, filepath.Join(dir, ".satelle", reporeg.LocalFile), b.String())
+}
+
 func chainBytes(t *testing.T, id string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(runtimeLedger(t).Path(id))
@@ -136,6 +145,7 @@ func TestItemRepoSetOnceAfterSeat(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
 	writeRepos(t, dir, "web", "api")
+	mapRepos(t, dir, "web", "api")
 	id := createID(t, "story", "create", "--title", "a", "--repo", "web")
 	must(t, "story", "set", id, "--repo", "api")
 	must(t, "story", "seat", id, "--session", "s-1")

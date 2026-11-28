@@ -32,6 +32,44 @@ func TestCheckEnvNamesTheSubstrate(t *testing.T) {
 	}
 }
 
+func TestCheckEnvWorktree(t *testing.T) {
+	base := CheckEnv{Item: "i", From: "a", To: "b", Base: "c"}
+	with := base
+	with.Worktree = "/w"
+	if v := with.Vars(); v[len(v)-1] != "SATELLE_WORKTREE=/w" {
+		t.Errorf("Vars = %q", v)
+	}
+	if p := string(with.Payload()); !strings.Contains(p, `"worktree":"/w"`) {
+		t.Errorf("Payload = %s", p)
+	}
+	for _, v := range base.Vars() {
+		if strings.HasPrefix(v, "SATELLE_WORKTREE=") {
+			t.Errorf("an empty worktree is exported: %q", v)
+		}
+	}
+	if strings.Contains(string(base.Payload()), "worktree") {
+		t.Errorf("an empty worktree is in the payload: %s", base.Payload())
+	}
+	dir := t.TempDir()
+	ok, notes, err := RunCheck(context.Background(), "printf '%s %s' \"$SATELLE_WORKTREE\" \"$PWD\"", dir, with, time.Minute)
+	if err != nil || !ok || notes != "/w "+dir {
+		t.Errorf("RunCheck = %v %q %v", ok, notes, err)
+	}
+}
+
+func TestRunCheckCodeDropsInheritedWorktree(t *testing.T) {
+	t.Setenv("SATELLE_WORKTREE", "/tmp/x")
+	t.Setenv("SATELLE_PROBE", "kept")
+	script := "printf '%s %s %s' \"${SATELLE_WORKTREE-unset}\" \"$SATELLE_PROBE\" \"$(env | grep -c '^SATELLE_WORKTREE=')\""
+	if _, out, err := RunCheckCode(context.Background(), script, t.TempDir(), CheckEnv{}, time.Minute); err != nil || out != "unset kept 0" {
+		t.Errorf("self: %q %v, want unset kept 0", out, err)
+	}
+	p := t.TempDir()
+	if _, out, err := RunCheckCode(context.Background(), script, t.TempDir(), CheckEnv{Worktree: p}, time.Minute); err != nil || out != p+" kept 1" {
+		t.Errorf("target: %q %v, want %s kept 1", out, err, p)
+	}
+}
+
 func TestCheckGatesAndTriggers(t *testing.T) {
 	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"quiet", "pass", "fail", "never"}}}, map[string]workflow.Gate{
 		"quiet": {Skill: "pass", Trigger: "irrelevant"},

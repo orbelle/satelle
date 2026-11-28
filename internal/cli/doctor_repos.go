@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 
@@ -21,12 +20,13 @@ func showOrigin(v string) string { return quoteControl(reporeg.DisplayOrigin(v))
 func show(v string) string { return quoteControl(v) }
 
 const (
-	repoOK         = "ok"
-	repoUnmapped   = "unmapped"
-	repoMissing    = "missing"
-	repoMismatch   = "mismatch"
-	repoUnreadable = "unreadable"
-	repoInvalid    = "invalid"
+	repoOK         = reporeg.CheckoutOK
+	repoUnmapped   = reporeg.CheckoutUnmapped
+	repoMissing    = reporeg.CheckoutMissing
+	repoMismatch   = reporeg.CheckoutMismatch
+	repoUnreadable = reporeg.CheckoutUnreadable
+	repoInvalid    = reporeg.CheckoutInvalid
+	repoUnsafe     = reporeg.CheckoutUnsafe
 )
 
 type checkout struct {
@@ -37,31 +37,8 @@ type checkout struct {
 }
 
 func checkoutOf(reg reporeg.Registry, name string, env []string) checkout {
-	if !reg.EntryOK(name) {
-		return checkout{state: repoInvalid}
-	}
-	path, mapped, ok := reg.LocalPath(name)
-	switch {
-	case !mapped:
-		return checkout{state: repoUnmapped}
-	case !ok:
-		return checkout{state: repoInvalid}
-	}
-	if _, err := os.Stat(path); err != nil {
-		return checkout{state: repoMissing, path: path}
-	}
-	actual, err := gitfacts.Repo{Dir: path, Env: env}.RemoteURL("origin")
-	if err != nil {
-		return checkout{state: repoUnreadable, path: path}
-	}
-	got, err := reporeg.NormaliseOrigin(actual)
-	if err != nil {
-		return checkout{state: repoUnreadable, path: path, remote: true}
-	}
-	if want, _ := reporeg.NormaliseOrigin(reg.Tracked[name].URL); got != want {
-		return checkout{state: repoMismatch, path: path, actual: actual, remote: true}
-	}
-	return checkout{state: repoOK, path: path, actual: actual, remote: true}
+	c := reg.CheckoutOf(name, env)
+	return checkout{state: c.State, path: c.Path, actual: c.Actual, remote: c.Remote}
 }
 
 func checkoutProblem(reg reporeg.Registry, name string, co checkout) string {
@@ -77,6 +54,8 @@ func checkoutProblem(reg reporeg.Registry, name string, co checkout) string {
 		return show(co.path) + " has no origin remote"
 	case repoMismatch:
 		return show(co.path) + " has origin " + showOrigin(co.actual) + " but .satelle/" + kernel.ReposFile + " registers " + showOrigin(reg.Tracked[name].URL)
+	case repoUnsafe:
+		return "local checkout " + reporeg.PathLiteral(co.path) + " is not a valid mapping: a checkout path may hold only the characters A-Z a-z 0-9 . _ / + @ -"
 	case repoInvalid:
 		return "its entry in .satelle/" + kernel.ReposFile + " or " + kernel.ReposLocalFile + " is not valid (satelle validate lists the problem)"
 	}
@@ -140,6 +119,10 @@ func checkRepos(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				Fix:     "clone " + tracked + " to " + show(co.path) + " with your own git credentials, or " + remap(name) + " to map another checkout"})
 		case repoUnreadable, repoMismatch:
 			out = append(out, doctorIssue{Check: checkReposName, Problem: prefix + checkoutProblem(reg, name, co), Fix: repointFix})
+		case repoUnsafe:
+			out = append(out, doctorIssue{Check: checkReposName,
+				Problem: prefix + checkoutProblem(reg, name, co),
+				Fix:     "move or clone the checkout to a path of those characters, then " + remap(name)})
 		}
 	}
 	dup, notes := onboardingIssues(in, reg)

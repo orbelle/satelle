@@ -275,6 +275,9 @@ func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {
 	fmt.Fprintf(w, "gate %s  %s  (%s -> %s on %s; nothing run)\n", in.Gate, in.Kind, res.From, res.To, res.Item)
 	fmt.Fprintf(w, "skill: %s (%s)\n", in.Skill, in.SkillPath)
 	fmt.Fprintf(w, "dir: %s\n", in.Dir)
+	if in.Worktree != "" {
+		fmt.Fprintf(w, "worktree: %s\n", show(in.Worktree))
+	}
 	fmt.Fprintf(w, "timeout: %v (%s)\n", in.Timeout, in.TimeoutSource)
 	if in.DiffMaxBytes > 0 {
 		fmt.Fprintf(w, "diff_max_bytes: %d (%s)\n", in.DiffMaxBytes, in.DiffBoundSource)

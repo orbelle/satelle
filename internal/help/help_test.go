@@ -293,6 +293,26 @@ func TestSubstrateDirDocumented(t *testing.T) {
 	}
 }
 
+func TestWorktreeCharsetDocumented(t *testing.T) {
+	top, ok := Get("workflows")
+	if !ok {
+		t.Fatal("no workflows topic")
+	}
+	start := strings.Index(top.Body, "every\ncheck also gets `SATELLE_WORKTREE`")
+	if start < 0 {
+		t.Fatal("the workflows topic has no SATELLE_WORKTREE paragraph")
+	}
+	p := top.Body[start:]
+	if end := strings.Index(p, "\n\n"); end >= 0 {
+		p = p[:end]
+	}
+	for _, want := range []string{"[A-Za-z0-9._/+@-]", "2.44", "partial", "`worktree`", "is not passed on"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the SATELLE_WORKTREE paragraph does not say %q:\n%s", want, p)
+		}
+	}
+}
+
 func TestCheckStdinKeysDocumented(t *testing.T) {
 	top, ok := Get("workflows")
 	if !ok {

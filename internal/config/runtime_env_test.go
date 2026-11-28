@@ -44,3 +44,37 @@ func TestRuntimeDirEnvMatchesRuntimeDir(t *testing.T) {
 		t.Error("a linked worktree is keyed apart from its repo")
 	}
 }
+
+func TestWithheldNames(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want []string
+	}{
+		{nil, nil},
+		{[]string{NodeWithholdEnv + "= A , ,B,"}, []string{"A", "B"}},
+		{[]string{NodeWithholdEnv + "=A", NodeWithholdEnv + "=C"}, []string{"C"}},
+		{[]string{NodeWithholdEnv + "=  "}, nil},
+	}
+	for _, c := range cases {
+		if got := WithheldNames(c.in); !slices.Equal(got, c.want) {
+			t.Errorf("WithheldNames(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestTargetGitEnv(t *testing.T) {
+	in := []string{
+		"PATH=/bin", "API_TOKEN=t", "MY_SECRET=s", "DB_PASSWORD=p", "NODE_KEY=k", NodeWithholdEnv + "=NODE_KEY",
+		"HOME=/h", "GIT_DIR=/c/.git", "GIT_WORK_TREE=/c", "GIT_INDEX_FILE=/i", "GIT_OBJECT_DIRECTORY=/o", "GIT_COMMON_DIR=/c",
+		"GIT_CEILING_DIRECTORIES=/t", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=remote.origin.url", "GIT_CONFIG_VALUE_0=x",
+		"GIT_CONFIG_PARAMETERS='core.worktree'='/c'", "GIT_CONFIG_GLOBAL=/g", "GIT_ATTR_SOURCE=HEAD", "GIT_NO_LAZY_FETCH=0",
+		"GIT_TERMINAL_PROMPT=1", "XDG_CONFIG_HOME=/x", "OTHER=1",
+	}
+	want := []string{"PATH=/bin", "HOME=/h", "XDG_CONFIG_HOME=/x", "GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0"}
+	if got := TargetGitEnv(in); !slices.Equal(got, want) {
+		t.Errorf("TargetGitEnv = %q, want %q", got, want)
+	}
+	if got := TargetGitEnv(nil); got == nil || !slices.Equal(got, []string{"GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0"}) {
+		t.Errorf("TargetGitEnv(nil) = %#v", got)
+	}
+}

@@ -512,7 +512,7 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	}
 	r.baseRef = baseRef
 	if baseRef != "" {
-		if _, err := k.resolveBase(baseRef); err != nil {
+		if _, err := k.resolveBase(k.self(), baseRef); err != nil {
 			return r, err
 		}
 	}

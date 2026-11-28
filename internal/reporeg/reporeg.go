@@ -66,6 +66,22 @@ func unsafeRune(r rune) bool {
 
 func HasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
 
+func ShellSafePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '/', c == '+', c == '@', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func CheckName(name string) error {
 	switch {
 	case name == Self:
