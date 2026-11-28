@@ -266,7 +266,7 @@ func Summary(it item.Item, head string, users, working []string) (*satellepb.Ite
 	}
 	return &satellepb.Item{
 		Id: it.ID, Kind: it.Kind, Title: it.Title, Status: it.Status, Workflow: it.Workflow,
-		Parent: it.Parent, Category: it.Category, Tags: it.Tags,
+		Parent: it.Parent, Category: it.Category, Tags: it.Tags, Repo: it.Repo,
 		Assignees: users, Working: working, HeadHash: head, UpdatedAt: timestamppb.New(it.UpdatedAt), Record: record,
 	}, nil
 }
