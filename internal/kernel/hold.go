@@ -52,7 +52,7 @@ type verdict struct {
 	gate, binding, result, class, command, model, modelID string
 	tokensIn, tokensOut                                   int
 	durationMS                                            int64
-	measured                                              bool
+	measured, fallback                                    bool
 }
 
 func verdictsOf(a attempt) []verdict {
@@ -66,12 +66,12 @@ func verdictsOf(a attempt) []verdict {
 func verdictsOfResult(r gate.Result) []verdict {
 	if len(r.Members) == 0 {
 		return []verdict{{gate: r.Gate, binding: r.Binding, result: r.Result, class: r.Class, command: r.Command, model: r.Model, modelID: r.ModelID,
-			tokensIn: r.TokensIn, tokensOut: r.TokensOut, durationMS: r.DurationMS, measured: true}}
+			tokensIn: r.TokensIn, tokensOut: r.TokensOut, durationMS: r.DurationMS, measured: true, fallback: r.FallbackFrom != nil}}
 	}
 	out := make([]verdict, 0, len(r.Members))
 	for _, m := range r.Members {
 		out = append(out, verdict{gate: r.Gate, binding: m.Binding, result: m.Result, class: m.Class, command: m.Command, model: m.Model, modelID: m.ModelID,
-			tokensIn: m.TokensIn, tokensOut: m.TokensOut, durationMS: m.DurationMS, measured: m.DurationMS > 0})
+			tokensIn: m.TokensIn, tokensOut: m.TokensOut, durationMS: m.DurationMS, measured: m.DurationMS > 0, fallback: m.FallbackFrom != nil})
 	}
 	return out
 }

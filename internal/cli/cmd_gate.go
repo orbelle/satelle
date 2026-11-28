@@ -18,8 +18,109 @@ func gateCmd() *cobra.Command {
 		Use:   "gate",
 		Short: "Dry-run one configured gate, or compare judges from the ledger",
 	}
-	cmd.AddCommand(gateRunCmd(), gateReportCmd())
+	cmd.AddCommand(gateRunCmd(), gateReportCmd(), gateUsageCmd())
 	return cmd
+}
+
+func gateUsageCmd() *cobra.Command {
+	var since, until string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "usage",
+		Short: "Count judge runs per harness, model and gate over a window, with fall-backs",
+		Long: `Fold the judged gate.run events of a window into one row per harness, model
+and gate: runs, accepts, rejects, errors, how many of those runs were a
+fall-back, and the total duration.
+
+A run is one judge's verdict: a single-judge gate.run counts once, and each
+panel member counts once under its own harness and model. Check gates and
+skipped or carried runs have no judge and are not counted. The harness is the
+base name of the recorded command (agy, cursor-agent); a run recorded without a
+command or model counts under unknown, never what agents.toml names today.
+
+A run that fell back counts under the harness and model that judged it, and
+FALLBACK counts how many of the row's runs fell back to it from another
+binding. The duration is the sum of the recorded duration_ms: the whole gate
+for a single judge, the member's own dispatch for a panel member.
+
+--since defaults to 24h, the last 24 hours. --since and --until bound the
+window by the gate.run's time (since inclusive, until exclusive); each takes an
+RFC 3339 time, a YYYY-MM-DD date (local midnight), or a Go duration back from
+now. The command only reads the ledger.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			now := time.Now()
+			from, err := parseWhen(since, now)
+			if err != nil {
+				return fmt.Errorf("--since: %w", err)
+			}
+			to, err := parseWhen(until, now)
+			if err != nil {
+				return fmt.Errorf("--until: %w", err)
+			}
+			r, err := findRepo("")
+			if err != nil {
+				return err
+			}
+			k, err := r.openWith("satelle gate usage reads the ledger: it writes nothing")
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			rows, err := k.UsageReport(from, to)
+			if err != nil {
+				return err
+			}
+			if *asJSON {
+				return writeWindowJSON(cmd.OutOrStdout(), from, to, rows)
+			}
+			printUsageRows(cmd.OutOrStdout(), from, to, rows)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&since, "since", "24h", "count gate runs at or after this time (RFC 3339, YYYY-MM-DD or a duration back from now)")
+	cmd.Flags().StringVar(&until, "until", "", "count gate runs before this time (RFC 3339, YYYY-MM-DD or a duration back from now)")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+func printUsageRows(w io.Writer, since, until time.Time, rows []kernel.UsageRow) {
+	printWindow(w, since, until)
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "HARNESS\tMODEL\tGATE\tRUNS\tACCEPT\tREJECT\tERROR\tFALLBACK\tDURATION")
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\n", r.Harness, r.Model, r.Gate, r.Runs, r.Accepts, r.Rejects, r.Errors,
+			r.Fallbacks, time.Duration(r.DurationMS)*time.Millisecond)
+	}
+	tw.Flush()
+}
+
+func writeWindowJSON[T any](w io.Writer, from, to time.Time, rows []T) error {
+	doc := struct {
+		Since string `json:"since,omitempty"`
+		Until string `json:"until,omitempty"`
+		Rows  []T    `json:"rows"`
+	}{Rows: rows}
+	if !from.IsZero() {
+		doc.Since = from.Format(time.RFC3339)
+	}
+	if !to.IsZero() {
+		doc.Until = to.Format(time.RFC3339)
+	}
+	return writeJSON(w, doc)
+}
+
+func printWindow(w io.Writer, since, until time.Time) {
+	if since.IsZero() && until.IsZero() {
+		return
+	}
+	bound := func(t time.Time, none string) string {
+		if t.IsZero() {
+			return none
+		}
+		return t.Format(time.RFC3339)
+	}
+	fmt.Fprintf(w, "window %s to %s\n", bound(since, "the first run"), bound(until, "now"))
 }
 
 func gateRunCmd() *cobra.Command {
@@ -152,18 +253,7 @@ a model show unknown, never the model agents.toml names today. --since and
 				return err
 			}
 			if *asJSON {
-				doc := struct {
-					Since string            `json:"since,omitempty"`
-					Until string            `json:"until,omitempty"`
-					Rows  []kernel.JudgeRow `json:"rows"`
-				}{Rows: rows}
-				if !from.IsZero() {
-					doc.Since = from.Format(time.RFC3339)
-				}
-				if !to.IsZero() {
-					doc.Until = to.Format(time.RFC3339)
-				}
-				return writeJSON(cmd.OutOrStdout(), doc)
+				return writeWindowJSON(cmd.OutOrStdout(), from, to, rows)
 			}
 			printJudgeRows(cmd.OutOrStdout(), from, to, rows)
 			return nil
@@ -193,15 +283,7 @@ func parseWhen(s string, now time.Time) (time.Time, error) {
 }
 
 func printJudgeRows(w io.Writer, since, until time.Time, rows []kernel.JudgeRow) {
-	if !since.IsZero() || !until.IsZero() {
-		bound := func(t time.Time, none string) string {
-			if t.IsZero() {
-				return none
-			}
-			return t.Format(time.RFC3339)
-		}
-		fmt.Fprintf(w, "window %s to %s\n", bound(since, "the first run"), bound(until, "now"))
-	}
+	printWindow(w, since, until)
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "GATE\tMODEL\tRUNS\tACCEPT\tREJECT\tERROR\tCATCH\tOVERTURNED\tMEASURED\tTOKENS-IN\tTOKENS-OUT\tMEDIAN")
 	for _, r := range rows {
