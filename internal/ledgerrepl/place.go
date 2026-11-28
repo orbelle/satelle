@@ -2,6 +2,7 @@ package ledgerrepl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/bobmcallan/satelle/internal/item"
@@ -42,6 +43,11 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 		}
 		name, start, err := r.Choose.WorkflowFor(it)
 		if err != nil {
+			var u interface{ Unplaceable() bool }
+			if errors.As(err, &u) && u.Unplaceable() {
+				res.Unplaced = append(res.Unplaced, id)
+				return nil
+			}
 			return fmt.Errorf("place %s: %w", id, err)
 		}
 		f, m := item.Placement(name, it.Status, start)

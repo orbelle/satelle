@@ -154,6 +154,37 @@ func TestLedgerPushCarriesAssignees(t *testing.T) {
 	}
 }
 
+func TestLedgerPushCarriesRepo(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	m := newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (hosted.FileStore{}).Save(hosted.Credential{ServerURL: hosted.ConfiguredServer(gc), AccessToken: "a", RefreshToken: "r", Email: "ada@x.io"}); err != nil {
+		t.Fatal(err)
+	}
+	writeRepos(t, m.dir, "web")
+	must(t, "validate")
+	targeted := createID(t, "story", "create", "--title", "targeted", "--repo", "web")
+	plain := createID(t, "story", "create", "--title", "plain")
+	must(t, "ledger", "push")
+	repos := map[string]string{}
+	for _, it := range srv.Items("shared") {
+		repos[it.GetId()] = it.GetRepo()
+	}
+	for id, want := range map[string]string{targeted: "web", plain: ""} {
+		got, ok := repos[id]
+		if !ok {
+			t.Fatalf("the server holds no summary of %s", id)
+		}
+		if got != want {
+			t.Errorf("summary of %s repo %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestLedgerDevDivergence(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)

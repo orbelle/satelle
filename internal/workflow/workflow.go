@@ -3,6 +3,7 @@ package workflow
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -29,6 +30,8 @@ type Workflow struct {
 	Gates       map[string]Gate  `toml:"gates"`
 	Transitions []Transition     `toml:"transition"`
 	File        string           `toml:"-"`
+	Part        string           `toml:"-"`
+	Source      []byte           `toml:"-"`
 }
 
 func (w *Workflow) PanelName() string {
@@ -140,7 +143,15 @@ type Group struct {
 }
 
 func DecodeStrict(path string, v any) error {
-	md, err := toml.DecodeFile(path, v)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return decodeStrictData(path, data, v)
+}
+
+func decodeStrictData(path string, data []byte, v any) error {
+	md, err := toml.Decode(string(data), v)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
@@ -155,9 +166,17 @@ func DecodeStrict(path string, v any) error {
 }
 
 func Parse(path string) (*Workflow, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return ParseData(path, data)
+}
+
+func ParseData(path string, data []byte) (*Workflow, error) {
 	var w Workflow
-	if err := DecodeStrict(path, &w); err != nil {
-		if hint := afterNotAList(path); hint != nil {
+	if err := decodeStrictData(path, data, &w); err != nil {
+		if hint := afterNotAList(path, data); hint != nil {
 			return nil, hint
 		}
 		return nil, err
@@ -182,11 +201,11 @@ func Parse(path string) (*Workflow, error) {
 	return &w, nil
 }
 
-func afterNotAList(path string) error {
+func afterNotAList(path string, data []byte) error {
 	var raw struct {
 		Gates map[string]map[string]any `toml:"gates"`
 	}
-	if _, err := toml.DecodeFile(path, &raw); err != nil {
+	if _, err := toml.Decode(string(data), &raw); err != nil {
 		return nil
 	}
 	names := make([]string, 0, len(raw.Gates))

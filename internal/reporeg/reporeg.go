@@ -236,7 +236,7 @@ func LoadLocalQuiet(dataDir string) (map[string]string, bool) {
 }
 
 func decode(dataDir, file string, v any) (bool, error) {
-	data, err := readRegular(filepath.Join(dataDir, file))
+	data, err := ReadRegular(filepath.Join(dataDir, file))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -265,7 +265,7 @@ func decode(dataDir, file string, v any) (bool, error) {
 	return true, nil
 }
 
-func readRegular(path string) ([]byte, error) {
+func ReadRegular(path string) ([]byte, error) {
 	linfo, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
