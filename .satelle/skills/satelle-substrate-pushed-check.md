@@ -8,8 +8,9 @@ description: Refuses a substrate item's move to done when its worktree has uncom
 
 The substrate done gates judge the worktree: `satelle <kind> diff` counts every
 path changed since the item's base, committed or not. A change that is judged
-but never committed or pushed would reach done with nothing on its branch. So
-this check runs first on the move to done and refuses it:
+but never committed or pushed would reach done with nothing on its branch. This
+check refuses the move (where it sits on the transition:
+`satelle workflow show substrate --session <session>`):
 
 - **when a tracked file has uncommitted changes.** It names each path. Commit
   them, push, and present again. Untracked files are not judged as the change,
