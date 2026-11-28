@@ -120,6 +120,43 @@ func TestWakeQueuesMatchesRepoRoot(t *testing.T) {
 	}
 }
 
+func TestSaveGlobalKeepsCapacity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SATELLE_HOME", home)
+	if err := SaveGlobal(GlobalConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, GlobalConfigName))
+	if !strings.Contains(string(b), "# workers = 4") || strings.Contains(string(b), "\nworkers =") {
+		t.Fatalf("an unset ceiling renders more than the commented example:\n%s", b)
+	}
+	gc, err := LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); ok {
+		t.Fatalf("an unset ceiling reads as %d", n)
+	}
+	if err := SaveGlobal(GlobalConfig{Capacity: CapacityConfig{Workers: 3}}); err != nil {
+		t.Fatal(err)
+	}
+	if gc, err = LoadGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveGlobal(gc); err != nil {
+		t.Fatal(err)
+	}
+	if gc, err = LoadGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := gc.Capacity.Ceiling(); !ok || n != 3 {
+		t.Fatalf("after load and save, ceiling %d %t, want 3", n, ok)
+	}
+	if n, ok := (CapacityConfig{Workers: -2}).Ceiling(); ok {
+		t.Fatalf("a negative workers value reads as ceiling %d", n)
+	}
+}
+
 func TestSaveGlobalKeepsWake(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SATELLE_HOME", home)

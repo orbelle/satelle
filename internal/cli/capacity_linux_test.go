@@ -174,3 +174,64 @@ func TestCapacityStartsNoProcess(t *testing.T) {
 		}
 	}
 }
+
+func ceilingTable(t *testing.T) {
+	t.Helper()
+	fakeTable(t,
+		procgroup.Entry{PID: 1, PPID: 0, Argv: []string{"/sbin/init"}, Comm: "init"},
+		procgroup.Entry{PID: 1 << 30, PPID: 1, Argv: []string{"/opt/grok/grok", "--session"}, Comm: "grok"},
+	)
+}
+
+func TestCapacityShowsTheWorkerCeiling(t *testing.T) {
+	isolate(t)
+	must(t, "init")
+	ceilingTable(t)
+	if err := os.MkdirAll(config.GlobalDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.GlobalConfigPath(), []byte("[capacity]\nworkers = 4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := regexp.MustCompile(`\(1 in all on this machine; ceiling 4\)$`)
+	out := must(t, "capacity")
+	if agents := capacityLine(t, out, "agents"); !want.MatchString(agents) {
+		t.Errorf("agents line %q does not show the ceiling of 4 beside the one live agent:\n%s", agents, out)
+	}
+	must(t, "project", "add")
+	out = must(t, "capacity")
+	if agents := capacityLine(t, out, "agents"); !want.MatchString(agents) {
+		t.Errorf("after a save of config.toml, agents line %q lost the ceiling of 4:\n%s", agents, out)
+	}
+	if s := must(t, "settings"); !strings.Contains(s, `capacity.workers  "4"`) {
+		t.Errorf("settings does not show capacity.workers 4:\n%s", s)
+	}
+}
+
+func TestCapacityShowsNoCeilingByDefault(t *testing.T) {
+	isolate(t)
+	must(t, "init")
+	ceilingTable(t)
+	noCeiling := func(when string) {
+		t.Helper()
+		out := must(t, "capacity")
+		agents := capacityLine(t, out, "agents")
+		if !strings.HasSuffix(agents, "; no ceiling)") || regexp.MustCompile(`ceiling [0-9]`).MatchString(agents) {
+			t.Errorf("%s: agents line %q does not show no ceiling:\n%s", when, agents, out)
+		}
+	}
+	if _, err := os.Stat(config.GlobalConfigPath()); err == nil {
+		t.Fatalf("init wrote %s; this test needs it absent", config.GlobalConfigPath())
+	}
+	noCeiling("no config.toml")
+	must(t, "settings", "set", "capacity.workers", "2")
+	must(t, "settings", "set", "capacity.workers", "")
+	noCeiling("ceiling set then cleared")
+	for _, bad := range []string{"-1", "0", "x"} {
+		out, err := run(t, "", "settings", "set", "capacity.workers", "--", bad)
+		if err == nil || !strings.Contains(err.Error(), strconv.Quote(bad)) {
+			t.Errorf("settings set capacity.workers %s: err %v, want a refusal naming the value\n%s", bad, err, out)
+		}
+	}
+	noCeiling("after refused values")
+}

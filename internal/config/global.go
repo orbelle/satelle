@@ -37,6 +37,18 @@ type GlobalConfig struct {
 	Hosted   GlobalHostedConfig `toml:"hosted"`
 	Herdr    HerdrConfig        `toml:"herdr"`
 	Wake     []WakeConfig       `toml:"wake"`
+	Capacity CapacityConfig     `toml:"capacity"`
+}
+
+type CapacityConfig struct {
+	Workers int `toml:"workers"`
+}
+
+func (c CapacityConfig) Ceiling() (int, bool) {
+	if c.Workers > 0 {
+		return c.Workers, true
+	}
+	return 0, false
 }
 
 type WakeConfig struct {
@@ -265,6 +277,7 @@ func SaveGlobal(gc GlobalConfig) error {
 	body += renderHostedPush(gc.Hosted.Push)
 	body += renderHerdr(gc.Herdr)
 	body += renderWake(gc.Wake)
+	body += renderCapacity(gc.Capacity)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
@@ -321,6 +334,15 @@ func renderWake(ws []WakeConfig) string {
 		body += fmt.Sprintf("[[wake]]\nproject = %q\nqueue = %q\n", w.Project, w.Queue)
 	}
 	return body
+}
+
+func renderCapacity(c CapacityConfig) string {
+	body := "\n# [capacity] workers caps the agent workers this machine runs; shown by\n" +
+		"# 'satelle capacity'. Unset: no ceiling, the orchestrator decides.\n"
+	if n, ok := c.Ceiling(); ok {
+		return body + fmt.Sprintf("[capacity]\nworkers = %d\n", n)
+	}
+	return body + "# [capacity]\n# workers = 4\n"
 }
 
 const globalTemplate = `# satelle global config (machine-wide, ~/.satelle/config.toml).
