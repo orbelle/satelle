@@ -2,12 +2,14 @@ package fakeserver_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/reporeg"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -96,5 +98,68 @@ func TestGitHubService(t *testing.T) {
 	none, err := c.GitHub.ListPullRequestEvents(ctx, &satellepb.ListPullRequestEventsRequest{Project: "acme", SinceToken: rest.GetNextToken()})
 	if err != nil || len(none.GetEvents()) != 0 || none.GetNextToken() != rest.GetNextToken() {
 		t.Fatalf("nothing new %+v %v", none, err)
+	}
+}
+
+func TestProjectRepositories(t *testing.T) {
+	ctx := context.Background()
+	srv := fakeserver.Start(t, "tok")
+	c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok"}, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	for _, slug := range []string{"acme", "solo", "bare"} {
+		if _, err := c.Projects.CreateProject(ctx, &satellepb.CreateProjectRequest{Slug: slug}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv.BindGitHubVia("acme", "orbelle/acme", 11)
+	srv.BindGitHubVia("acme", "orbelle/acme-docs", 12)
+	srv.BindGitHubVia("acme", "orbelle/acme", 11)
+	srv.BindGitHub("solo", "orbelle/solo")
+
+	type binding struct {
+		repo string
+		inst int64
+	}
+	flat := func(p *satellepb.Project) []binding {
+		var out []binding
+		for _, b := range p.GetRepositories() {
+			out = append(out, binding{b.GetRepository(), b.GetInstallationId()})
+		}
+		return out
+	}
+	wantAcme := []binding{{"orbelle/acme", 11}, {"orbelle/acme-docs", 12}}
+
+	got, err := c.Projects.GetProject(ctx, &satellepb.GetProjectRequest{Project: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(flat(got), wantAcme) {
+		t.Errorf("GetProject acme repositories = %v, want %v", flat(got), wantAcme)
+	}
+
+	list, err := c.Projects.ListProjects(ctx, &satellepb.ListProjectsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]binding{"acme": wantAcme, "solo": {{"orbelle/solo", 1}}, "bare": nil}
+	if len(list.GetProjects()) != len(want) {
+		t.Fatalf("ListProjects = %d projects, want %d", len(list.GetProjects()), len(want))
+	}
+	for _, p := range list.GetProjects() {
+		if !slices.Equal(flat(p), want[p.GetSlug()]) {
+			t.Errorf("ListProjects %s repositories = %v, want %v", p.GetSlug(), flat(p), want[p.GetSlug()])
+		}
+	}
+
+	rev, err := c.GitHub.PublishReview(ctx, &satellepb.PublishReviewRequest{Project: "acme", ItemId: "sto_1", PullNumber: 1, CommitSha: "abc", Event: "APPROVE"})
+	if err != nil || rev.GetRepository() != "orbelle/acme" {
+		t.Errorf("publish target = %+v %v, want the first binding orbelle/acme", rev, err)
+	}
+
+	if n, err := reporeg.NormaliseOrigin("https://github.com/" + got.GetRepositories()[1].GetRepository()); err != nil || n != "github.com/orbelle/acme-docs" {
+		t.Errorf("NormaliseOrigin of the second binding = %q %v", n, err)
 	}
 }

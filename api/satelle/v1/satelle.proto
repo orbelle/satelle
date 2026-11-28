@@ -41,6 +41,12 @@ message Project {
   string name = 3;
   string role = 4;
   string team_id = 5; // carried; no behaviour in satelle
+  repeated RepositoryBinding repositories = 6;
+}
+
+message RepositoryBinding {
+  string repository = 1;
+  int64 installation_id = 2;
 }
 
 message ListProjectsRequest {}
